@@ -13,18 +13,18 @@ medallion:
 datastream:
   sdo:
     name: "sdo"
-    update: "incremental"
-    versions: ["current", "archive"]
+    time_block: "y"
+    alt: 1
+
 
   ps:
     name: "ps"
-    update: "append"
-    versions: ["current"]
+    time_block: "q"
+    alt: 0
 
 logging:
   level: "info"
   path: "logs/xpipe.log"
 
 crypto:
-  test_string: "RSSLRA80A01F704X"
-  expected_hash: ~
+  expected_hash: "de9034e0f94c7e5b141a1302edee2b009dc9283adb225bf79be606caf0669ee9"
