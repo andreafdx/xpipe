@@ -1,0 +1,30 @@
+# ======================================================================= #
+# FILE: inst/.xne/xacc.yml
+# DESCRIPTION: Global options for XNE scripts
+# ======================================================================= #
+
+paths:
+  inbox: "inbox"
+
+medallion:
+  root: "C:/Users/78299/OneDrive - A.O.R.N. Antonio Cardarelli/XN3/data"
+  raw: "10_raw"
+
+datastream:
+  sdo:
+    name: "sdo"
+    update: "incremental"
+    versions: ["current", "archive"]
+
+  ps:
+    name: "ps"
+    update: "append"
+    versions: ["current"]
+
+logging:
+  level: "info"
+  path: "logs/xpipe.log"
+
+crypto:
+  test_string: "RSSLRA80A01F704X"
+  expected_hash: ~

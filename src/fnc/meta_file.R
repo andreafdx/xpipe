@@ -39,3 +39,50 @@
 
   invisible(meta_lines)
 }
+
+
+
+
+
+
+
+.generate_meta_json <- function(out_dir, batch_id = NULL, dfs, extra = list()) {
+
+
+  if (is.null(batch_id)) {
+    batch_id <- paste0(
+      "sdo_",
+      format(Sys.time(), "%Y-%m-%dT%H-%M-%S")
+    )
+  }
+
+
+
+  meta <- c(
+    list(
+      batch_id    = batch_id,
+      import_time = format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z"),
+      user        = Sys.info()[["user"]],
+      tables      = names(dfs),
+      row_counts  = vapply(dfs, nrow, integer(1))
+    ),
+    extra
+  )
+
+  meta_file <- file.path(out_dir, "batch_meta.json")
+
+  jsonlite::write_json(
+    meta,
+    meta_file,
+    pretty = TRUE,
+    auto_unbox = TRUE
+  )
+
+  cli::cli_alert_success(
+    "Batch metadata written: {.file {meta_file}}"
+  )
+
+  invisible(meta)
+}
+
+
