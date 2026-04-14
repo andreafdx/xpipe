@@ -139,7 +139,7 @@ box::use(
 #'
 #' Validation rules:
 #' \itemize{
-#'   \item \code{alt} must be either 0 or 1.
+#'   \item \code{alt} must be either TRUE or FALSE.
 #'   \item \code{time_block} must be either 'y' (yearly) or 'q' (quarterly).
 #' }
 #'
@@ -155,11 +155,11 @@ box::use(
   if (!is.null(config$datastream)) {
     for (nm in names(config$datastream)) {
       alt_val <- config$datastream[[nm]]$alt
-      if (is.null(alt_val) || !(alt_val %in% c(0, 1))) {
+      if (is.null(alt_val) || !is.logical(alt_val)) {
         cli::cli_abort(
           c(
             "Invalid value for {.field alt} in datastream {.val {nm}}",
-            "x" = "Value must be 0 or 1, but found {.val {alt_val}}."
+            "x" = "Value must be TRUE or FALSE, but found {.val {alt_val}}."
           ),
           class = c("yaml_options", "datastream")
         )

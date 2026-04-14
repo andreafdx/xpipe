@@ -1,11 +1,32 @@
-# Il file di origine
-mdb_path <- "inbox/2025_full.mdb"
+# ======================================================================= #
+# FILE: src/fnc/setup.R
+#
+# Pipeline Initialization and Run Script
+#
+# ======================================================================= #
 
-# La cartella di destinazione
-out_dir <- "output"
+box::use(
+  ./options[.load_options],
+  ./batch_import[new_batch_job]
+)
 
-# Il nome del file di destinazione (senza estensione)
-output_name <- "2025_full"
-
-
+# 1. Load configuration and options
 .cfg <- .load_options()
+
+# 2. Initialize the pipeline context for a specific datastream:
+# SDO is yearly, so we omit quarter (it would trigger a warning anyway).
+# We also set alt = FALSE as default.
+# The internal logic guarantees this matches the YAML definitions safely.
+my_job <- new_batch_job(
+  filename = "2025_full.mdb",
+  datastream = "sdo",
+  year = 2025,
+  alt = FALSE,
+  config = .cfg
+)
+
+# 3. Pipeline execution (Coming next!)
+# my_job |> 
+#   extract_raw() |> 
+#   validate_data() |> 
+#   save_bronze_layer()

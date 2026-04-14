@@ -14,13 +14,13 @@ datastream:
   sdo:
     name: "sdo"
     time_block: "y"
-    alt: 1
+    alt: TRUE
 
 
   ps:
     name: "ps"
     time_block: "q"
-    alt: 0
+    alt: FALSE
 
 logging:
   level: "info"

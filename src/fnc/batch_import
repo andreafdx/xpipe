@@ -1,0 +1,49 @@
+.validate_batch_info <- function(batch_info) {
+    # 1. Filename validation
+    if (
+        !is.character(batch_info$filename) ||
+            length(batch_info$filename) != 1 ||
+            batch_info$filename == ""
+    ) {
+        cli::cli_abort("Filename must be a non-empty character scalar.")
+    }
+
+    if (!fs::file_exists(batch_info$filename)) {
+        cli::cli_abort(
+            "The input file {.file {batch_info$filename}} was not found."
+        )
+    }
+
+    # 2. Datastream validation
+    if (
+        !is.character(batch_info$datastream) ||
+            length(batch_info$datastream) != 1
+    ) {
+        cli::cli_abort("Datastream must be a character scalar (e.g., 'sdo').")
+    }
+
+    # 3. Year validation
+    if (!is.numeric(batch_info$year) || length(batch_info$year) != 1) {
+        cli::cli_abort("Year must be a numeric scalar (e.g., 2025).")
+    }
+
+    # 4. Quarter validation
+    if (
+        !is.numeric(batch_info$quarter) ||
+            length(batch_info$quarter) != 1 ||
+            !(batch_info$quarter %in% 1:4)
+    ) {
+        cli::cli_abort("Quarter must be a numeric scalar between 1 and 4.")
+    }
+
+    # 5. Alt validation
+    if (
+        !is.numeric(batch_info$alt) ||
+            length(batch_info$alt) != 1 ||
+            !(batch_info$alt %in% c(0, 1))
+    ) {
+        cli::cli_abort("Alt must be 0 or 1.")
+    }
+
+    return(batch_info)
+}
