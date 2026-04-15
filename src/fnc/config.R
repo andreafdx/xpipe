@@ -4,88 +4,212 @@
 # System configuration and options loading
 #
 # ======================================================================= #
-
 box::use(
-  yaml[read_yaml],
-  fs,
-  . / crypto[.hash_phi]
+  ./crypto[.hash_phi],
+  purrr[imap_chr]
 )
 
+# Helper functions --------------------------------------------------------
 
-
-# YAML options ------------------------------------------------------------
-
-#' Read YAML Configuration
+#' Find Internal Asset
 #'
-#' Safely reads a YAML file and converts it to a list. Throws a classed
-#' error if the file is missing or contains invalid YAML syntax.
+#' Resilient helper to locate internal files (config, schemas) in both
+#' development mode (local paths) and package mode (system.file).
 #'
-#' @param path Character scalar. Path to the YAML file.
-#' @return A named list.
+#' @param ... Character strings defining the subpath within 'inst'.
+#' @return Character scalar. The absolute path to the asset.
 #' @keywords internal
-.load_yaml <- function(path = "inst/_xne/xacc.yml") {
-  if (!fs::file_exists(path)) {
+.find_asset <- function(...) {
+  # 1. Try development path (search for inst/ in parent directories)
+  # This allows the function to work from the project root or subfolders
+  search_paths <- c(".", "..", "../..")
+
+  for (base in search_paths) {
+    dev_path <- fs::path_abs(fs::path(base, "inst", ...))
+    if (fs::file_exists(dev_path) || fs::dir_exists(dev_path)) {
+      return(dev_path)
+    }
+  }
+
+  # 2. Try package path (when installed)
+  pkg_path <- system.file(..., package = "xacc")
+
+  if (pkg_path != "") {
+    return(pkg_path)
+  }
+
+  # 3. Fail gracefully
+  cli::cli_abort(
+    c(
+      "Internal asset not found",
+      "x" = "Could not locate {.file {fs::path(...)}} in dev or package mode"
+    ),
+    class = "asset_not_found"
+  )
+}
+
+
+#' Validate JSON File Against Internal Schema
+#'
+#' @param json_path Character scalar. Path to the JSON file.
+#' @param schema_name Character scalar. Schema file name (e.g. "local.schema.json").
+#' @param title Character scalar. Error title.
+#' @param class Character vector. Error classes.
+#' @return Logical. Invisibly returns TRUE if successful (otherwise aborts).
+#' @keywords internal
+.validate_json_schema <- function(
+  json_path,
+  schema_name,
+  title,
+  class
+) {
+  if (!fs::file_exists(json_path)) {
     cli::cli_abort(
       c(
-        "Invalid YAML configuration",
-        "x" = "YAML options file not found: {.file {path}}"
+        title,
+        "x" = "JSON file not found: {.file {json_path}}"
       ),
-      class = "yaml_options"
+      class = class
     )
   }
 
-  config <- tryCatch(
-    read_yaml(path),
+  schema_path <- .find_asset("schema", schema_name)
+
+  ok <- jsonvalidate::json_validate(
+    json_path,
+    schema = schema_path,
+    engine = "ajv",
+    verbose = TRUE
+  )
+
+  if (!ok) {
+    cli::cli_abort(
+      c(
+        title,
+        "x" = "JSON does not conform to schema",
+        "i" = "Schema: {.file {schema_path}}",
+        "i" = "File: {.file {json_path}}"
+      ),
+      class = class
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
+#' Read JSON Safely
+#'
+#' Safely reads any JSON configuration and converts it to a list. Throws
+#' a classed error if the file is missing or contains invalid JSON syntax.
+#'
+#' @param path Character scalar. Path to the JSON file.
+#' @param error_title Character scalar. Title to use in `cli_abort` on failure.
+#' @param error_class Character vector. Error class array for `cli_abort`.
+#' @return A named list.
+#' @keywords internal
+.read_json_safe <- function(path, error_title, error_class) {
+  if (!fs::file_exists(path)) {
+    cli::cli_abort(
+      c(
+        error_title,
+        "x" = "JSON file not found: {.file {path}}"
+      ),
+      class = error_class
+    )
+  }
+
+  tryCatch(
+    jsonlite::fromJSON(path, simplifyVector = TRUE),
     error = function(e) {
       cli::cli_abort(
         c(
-          "Invalid YAML configuration",
-          "x" = "Invalid YAML in config file {.file {path}}",
+          error_title,
+          "x" = "Invalid JSON syntax in {.file {path}}",
           "!" = e$message
         ),
-        class = "yaml_options"
+        class = error_class
       )
     }
   )
+}
 
-  config
+# Bootloader Layers (Internal) --------------------------------------------
+
+#' Load Runtime Layer
+#'
+#' Retrieves and validates required runtime environment variables.
+#'
+#' @return List of runtime settings.
+#' @keywords internal
+.load_runtime_layer <- function() {
+  runtime <- list()
+  runtime$pepper <- Sys.getenv("XNE_PEPPER_KEY")
+  runtime$loaded_at <- Sys.time()
+
+  if (is.null(runtime$pepper) || runtime$pepper == "") {
+    cli::cli_abort(
+      "Environment variable {.envvar XNE_PEPPER_KEY} not found.",
+      class = c("config", "runtime", "crypto")
+    )
+  }
+
+  runtime
+}
+
+#' Load Local Layer
+#'
+#' @param path Character scalar. Path to the local JSON file.
+#' @param project_root Character scalar. Base path for relative resolution.
+#' @return List of normalized local configuration paths and settings.
+#' @keywords internal
+.load_local_layer <- function(path = NULL, project_root = NULL) {
+  if (is.null(path)) {
+    path <- .find_asset("_xne", "local.json")
+  }
+
+  .validate_json_schema(
+    json_path = path,
+    schema_name = "local.schema.json",
+    title = "Invalid local.json",
+    class = c("config_options", "schema")
+  )
+
+  local_config <- .read_json_safe(
+    path = path,
+    error_title = "Invalid local configuration",
+    error_class = "local_options"
+  )
+
+  .normalize_paths(local_config, project_root)
 }
 
 
 #' Normalize Configuration Paths
 #'
-#' Processes the configuration list to ensure all filesystem paths are
+#' Processes the local configuration to ensure all filesystem paths are
 #' absolute and normalized.
 #'
-#' Key operations:
-#' \itemize{
-#'   \item Resolves relative paths against \code{project_root}.
-#'   \item Validates that required paths exist (aborts if not).
-#'   \item Emits warnings for optional paths not yet present.
-#' }
-#'
-#' @param config List. The raw configuration from \code{.load_yaml()}.
+#' @param local_config List. The raw configuration from \code{.load_local_config()}.
 #' @param project_root Character scalar. Base path for relative resolution.
-#' @return The normalized configuration list.
-#'
+#' @return The normalized local configuration list.
 #' @keywords internal
-.normalize_paths <- function(config, project_root = NULL) {
-
+.normalize_paths <- function(local_config, project_root = NULL) {
   if (is.null(project_root)) {
     project_root <- fs::path_abs(".")
   }
 
-  if (is.null(config$paths)) {
+  if (is.null(local_config$paths)) {
     cli::cli_abort(
       c(
-        "Invalid YAML configuration",
+        "Invalid configuration",
         "x" = "Required section {.field paths} not set"
       ),
-      class = c("yaml_options", "paths")
+      class = c("local_options", "paths")
     )
   }
 
-  config$paths <- lapply(config$paths, function(p) {
+  local_config$paths <- lapply(local_config$paths, function(p) {
     p <- fs::path_expand(p)
 
     p <- if (fs::is_absolute_path(p)) {
@@ -100,7 +224,7 @@ box::use(
           "Invalid configuration path",
           "x" = "Path {.file {p}} does not exist"
         ),
-        class = c("yaml_options", "paths")
+        class = c("local_options", "paths")
       )
     }
 
@@ -108,26 +232,24 @@ box::use(
   })
 
   # Normalize logging path (non-fatal)
-  if (!is.null(config$logging$path)) {
-    p <- fs::path_norm(fs::path(project_root, config$logging$path))
+  if (!is.null(local_config$logging$path)) {
+    p <- fs::path_norm(fs::path(project_root, local_config$logging$path))
 
-    if (!fs::dir_exists(p)) {
+    if (!fs::dir_exists(fs::path_dir(p))) {
       cli::cli_alert_warning(
         c(
-          "YAML warning",
-          "Path {.file {p}} does not exist yet",
+          "Config warning",
+          "Logging directory does not exist yet",
           "i" = "It may be created later during the import process"
-        ),
-        class = c("yaml_options", "logging")
+        )
       )
     }
 
-    config$logging$path <- p
+    local_config$logging$path <- p
   }
 
-  config
+  local_config
 }
-
 
 
 # Bronze options ----------------------------------------------------------
@@ -137,29 +259,32 @@ box::use(
 #' @param config List. Normalized YAML configuration.
 #' @return Character scalar. Full path to bronze.json.
 #' @keywords internal
-.validate_bronze_layer <- function(config) {
-
-  bronze_path <- config$paths$bronze
+.validate_bronze_layer <- function(local_config) {
+  bronze_path <- local_config$paths$bronze
 
   if (is.null(bronze_path)) {
     cli::cli_abort(
       c(
-        "Invalid YAML configuration",
+        "Invalid configuration",
         "x" = "Bronze layer path not set",
         "i" = "Expected field: paths.bronze"
       ),
-      class = c("yaml_options", "paths")
+      class = c("local_options", "paths")
     )
   }
 
-  if (!is.character(bronze_path) || length(bronze_path) != 1 || !nzchar(bronze_path)) {
+  if (
+    !is.character(bronze_path) ||
+      length(bronze_path) != 1 ||
+      !nzchar(bronze_path)
+  ) {
     cli::cli_abort(
       c(
-        "Invalid YAML configuration",
+        "Invalid configuration",
         "x" = "paths.bronze must be a non-empty string",
         "!" = "Found: {.val {bronze_path}}"
       ),
-      class = c("yaml_options", "paths")
+      class = c("local_options", "paths")
     )
   }
 
@@ -170,7 +295,7 @@ box::use(
         "x" = "Bronze directory does not exist",
         "i" = "Path: {.file {bronze_path}}"
       ),
-      class = c("yaml_options", "paths")
+      class = c("local_options", "paths")
     )
   }
 
@@ -183,7 +308,7 @@ box::use(
         "x" = "Required file not found",
         "i" = "Expected: bronze.json in {.file {bronze_path}}"
       ),
-      class = c("yaml_options", "paths")
+      class = c("local_options", "paths")
     )
   }
 
@@ -196,21 +321,7 @@ box::use(
 #' @param bronze_json_path Character scalar. Path to bronze.json.
 #' @keywords internal
 .validate_bronze_schema <- function(bronze_json_path) {
-
-
-  schema_path <- fs::path(
-    "inst",
-    "schema",
-    "bronze.schema.json"
-  )
-
-
-
-  #schema_path <- system.file(
-  #  "schema",
-  #  "bronze.schema.json",
-  #  package = utils::packageName()
-  #)
+  schema_path <- .find_asset("schema", "bronze.schema.json")
 
   if (schema_path == "") {
     cli::cli_abort(
@@ -244,37 +355,12 @@ box::use(
 }
 
 
-#' Load Bronze JSON Options
-#'
-#' @param bronze_json_path Character scalar. Path to bronze.json.
-#' @return List. Parsed JSON options.
-#' @keywords internal
-.load_bronze_json <- function(bronze_json_path) {
-
-  tryCatch(
-    jsonlite::fromJSON(bronze_json_path),
-    error = function(e) {
-      cli::cli_abort(
-        c(
-          "Invalid bronze.json",
-          "x" = "File is not valid JSON",
-          "i" = "Path: {.file {bronze_json_path}}",
-          "!" = e$message
-        ),
-        class = c("json_options", "bronze")
-      )
-    }
-  )
-}
-
-
 #' Validate Bronze Datastream Options
 #'
 #' @param bronze_options List. Parsed bronze.json options.
 #' @return The validated options.
 #' @keywords internal
 .validate_bronze_datastream <- function(bronze_options) {
-
   if (is.null(bronze_options$datastream)) {
     cli::cli_abort(
       c(
@@ -286,12 +372,13 @@ box::use(
   }
 
   for (nm in names(bronze_options$datastream)) {
-
     stream <- bronze_options$datastream[[nm]]
 
     alt_val <- stream$alt
-    if (!is.null(alt_val) &&
-        (!is.character(alt_val) || length(alt_val) != 1 || !nzchar(alt_val))) {
+    if (
+      !is.null(alt_val) &&
+        (!is.character(alt_val) || length(alt_val) != 1 || !nzchar(alt_val))
+    ) {
       cli::cli_abort(
         c(
           "Invalid bronze.json",
@@ -328,10 +415,11 @@ box::use(
 #' @param pepper Character scalar. Runtime encryption key.
 #' @param test_string Character scalar. Test string for hashing.
 #' @keywords internal
-.validate_bronze_hash <- function(bronze_options,
-                                  pepper,
-                                  test_string = "byut5f778DfOPth567") {
-
+.validate_bronze_hash <- function(
+  bronze_options,
+  pepper,
+  test_string = "byut5f778DfOPth567"
+) {
   expected_hash <- bronze_options$expected_hash
 
   if (is.null(expected_hash) || expected_hash == "") {
@@ -362,67 +450,141 @@ box::use(
 
 #' Load and Validate Bronze Layer
 #'
-#' @param config List. Normalized YAML configuration.
-#' @return Updated configuration with validated bronze options attached.
+#' @param local_config List. Normalized local configuration.
+#' @param runtime_config List. Runtime environment variables.
+#' @return A list containing the validated bronze options.
 #' @keywords internal
-.load_bronze_layer <- function(config) {
+.load_bronze_layer <- function(local_config, runtime_config) {
+  bronze_json <- .validate_bronze_layer(local_config)
 
-  bronze_json <- .validate_bronze_layer(config)
+  .validate_json_schema(
+    json_path = bronze_json,
+    schema_name = "bronze.schema.json",
+    title = "Invalid bronze.json",
+    class = c("json_options", "schema")
+  )
 
-  .validate_bronze_schema(bronze_json)
-
-  bronze_options <- .load_bronze_json(bronze_json)
+  bronze_options <- .read_json_safe(
+    path = bronze_json,
+    error_title = "Invalid bronze.json",
+    error_class = c("json_options", "bronze")
+  )
 
   bronze_options <- .validate_bronze_datastream(bronze_options)
 
   .validate_bronze_hash(
     bronze_options,
-    pepper = config$runtime$pepper
+    pepper = runtime_config$pepper
   )
 
-  config$bronze <- bronze_options
-  config
+  bronze_options
 }
 
 
-
-# Bootloader --------------------------------------------------------------
+# Bootloader (Public API) -------------------------------------------------
 
 #' Load and Validate Configuration
 #'
-#' Orchestrates the full loading process: reading YAML, injecting runtime
-#' variables, normalizing paths, and loading validated medallion layer
-#' options.
+#' Orchestrates the full loading process: reading local settings,
+#' injecting runtime variables, normalizing paths, and loading validated
+#' medallion layer options.
 #'
-#' @param path Character scalar. Path to the YAML file.
+#' @param path Character scalar. Path to the local JSON file.
 #' @param project_root Character scalar. Base path for relative resolution.
-#' @return The fully validated configuration list.
-#' @keywords internal
-.load_options <- function(
-    path = "inst/_xne/xacc.yml",
-    project_root = NULL
+#' @return An S3 object of class \code{xacc_config}.
+#' @export
+load_options <- function(
+  path = NULL,
+  project_root = NULL
 ) {
-  cli::cli_alert_info("Loading configuration...")
+  cli::cli_alert_info("Loading configuration system...")
 
-  config <- .load_yaml(path)
-  #cli::cli_alert_success("YAML options loaded.")
+  config <- list()
 
-  config$runtime <- list()
-  config$runtime$pepper <- Sys.getenv("XNE_PEPPER_KEY")
+  config$runtime <- .load_runtime_layer()
+  config$local <- .load_local_layer(path, project_root)
+  config$bronze <- .load_bronze_layer(config$local, config$runtime)
 
-  if (is.null(config$runtime$pepper) || config$runtime$pepper == "") {
-    cli::cli_abort(
-      "{.envvar XNE_PEPPER_KEY} not found in .Renviron.",
-      class = c("config", "runtime", "crypto")
+  cli::cli_alert_success("Configuration system loaded and validated.")
+
+  structure(config, class = "xacc_config")
+}
+
+
+#' Render Configuration Gracefully
+#'
+#' Provides a stylish, detailed console summary of the configuration object.
+#'
+#' @param x An S3 object of class \code{xacc_config}.
+#' @param ... Additional arguments (ignored).
+#' @export
+render_config <- function(x, ...) {
+  cli::cli_div(
+    theme = list(rule = list(color = "cyan", "line-type" = "double"))
+  )
+  cli::cli_rule("XACC Configuration Summary")
+
+  # 1. Layer: Runtime
+  cli::cli_h2("Layer: Runtime")
+  if (!is.null(x$runtime$pepper)) {
+    cli::cli_alert_success(
+      "Pepper loaded: {.val {substr(x$runtime$pepper, 1, 6)}}... (masked)"
     )
   }
-  cli::cli_alert_success("Cryptographic key loaded from environment.")
+  if (!is.null(x$runtime$loaded_at)) {
+    cli::cli_li("Loaded at: {.val {format(x$runtime$loaded_at)}}")
+  }
 
-  config <- .normalize_paths(config, project_root)
-  cli::cli_alert_success("YAML options loaded and validated.")
+  # 2. Layer: Local
+  cli::cli_h2("Layer: Local")
+  if (!is.null(x$local$paths)) {
+    cli::cli_h3("Paths")
+    cli::cli_bullets(
+      imap_chr(x$local$paths, function(v, k) {
+        paste0("{.strong ", k, "} : {.file ", v, "}")
+      })
+    )
+  }
 
-  config <- .load_bronze_layer(config)
-  cli::cli_alert_success("Bronze layer loaded and validated.")
+  if (!is.null(x$local$logging)) {
+    cli::cli_h3("Logging")
+    cli::cli_bullets(
+      imap_chr(x$local$logging, function(v, k) {
+        paste0("{.strong ", k, "} : {.val ", v, "}")
+      })
+    )
+  }
 
-  config
+  # 3. Layer: Medallion (Bronze)
+  cli::cli_h2("Layer: Medallion (Bronze)")
+  cli::cli_alert_success("Schema validated & Integrity hash verified")
+
+  if (!is.null(x$bronze$datastream)) {
+    cli::cli_h3("Datastreams")
+    cli::cli_bullets(
+      imap_chr(x$bronze$datastream, function(v, k) {
+        tb <- if (is.null(v$time_block)) "?" else v$time_block
+        paste0("{.strong ", k, "} (period: {.val ", tb, "})")
+      })
+    )
+  }
+
+  cli::cli_rule()
+  cli::cli_end()
+
+  invisible(x)
+}
+
+
+# S3 Methods --------------------------------------------------------------
+
+#' Print xacc configuration
+#'
+#' Pretty printer for xacc_config objects.
+#'
+#' @param x An object of class \code{xacc_config}.
+#' @param ... Unused.
+#' @export
+print.xacc_config <- function(x, ...) {
+  render_config(x, ...)
 }

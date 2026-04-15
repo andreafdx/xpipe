@@ -29,8 +29,8 @@ new_batch_job <- function(
   # 1. Config Validation
   if (
     missing(config) ||
-      !inherits(config, "list") ||
-      is.null(config$datastream)
+      !inherits(config, "xacc_config") ||
+      is.null(config$bronze$datastream)
   ) {
     cli::cli_abort(
       "A valid {.arg config} object loaded via {.code .load_options()} is required.",
@@ -46,17 +46,17 @@ new_batch_job <- function(
     )
   }
 
-  if (!(datastream %in% names(config$datastream))) {
+  if (!(datastream %in% names(config$bronze$datastream))) {
     cli::cli_abort(
       c(
         "Invalid datastream: {.val {datastream}}",
-        "i" = "Available datastreams are: {.str {names(config$datastream)}}"
+        "i" = "Available datastreams are: {.str {names(config$bronze$datastream)}}"
       ),
       class = c("batch_job", "datastream")
     )
   }
 
-  ds_config <- config$datastream[[datastream]]
+  ds_config <- config$bronze$datastream[[datastream]]
 
   # 3. Filename & Path Resolution
   if (!is.character(filename) || length(filename) != 1 || filename == "") {
@@ -66,10 +66,10 @@ new_batch_job <- function(
     )
   }
 
-  full_path <- fs::path(config$paths$inbox, filename)
+  full_path <- fs::path(config$local$paths$inbox, filename)
   if (!fs::file_exists(full_path)) {
     cli::cli_abort(
-      "The input file {.file {filename}} was not found in {.file {config$paths$inbox}}.",
+      "The input file {.file {filename}} was not found in {.file {config$local$paths$inbox}}.",
       class = c("batch_job", "filename")
     )
   }

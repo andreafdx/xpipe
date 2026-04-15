@@ -47,7 +47,7 @@ box::use(
 #' @return TRUE se la chiave è corretta, FALSE altrimenti
 #' @export
 .verify_pepper <- function(test_string, expected_hash, pepper) {
-  current_hash <- hash_phi(test_string, pepper)
+  current_hash <- .hash_phi(test_string, pepper)
 
   return(current_hash == expected_hash)
 }

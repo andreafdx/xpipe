@@ -6,16 +6,17 @@
 # ======================================================================= #
 
 box::use(
-  ./options[.load_options],
-  ./batch_import[new_batch_job]
+  . / config[load_options, render_config],
+  . / batch_import[new_batch_job]
 )
 
 # 1. Load configuration and options
-source("src/fnc/crypto.R")
-source("src/fnc/config.R")
-.cfg <- .load_options()
+.cfg <- load_options()
 
-# 2. Initialize the pipeline context for a specific datastream:
+# 2. Graceful render
+render_config(.cfg)
+
+# 3. Initialize the pipeline context for a specific datastream:
 # SDO is yearly, so we omit quarter (it would trigger a warning anyway).
 # We also set alt = FALSE as default.
 # The internal logic guarantees this matches the YAML definitions safely.

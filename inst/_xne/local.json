@@ -1,0 +1,10 @@
+{
+  "paths": {
+    "inbox": "inbox",
+    "bronze": "data/bronze"
+  },
+  "logging": {
+    "level": "info",
+    "path": "logs/xpipe.log"
+  }
+}

@@ -1,0 +1,48 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": [
+        "paths"
+    ],
+    "properties": {
+        "paths": {
+            "type": "object",
+            "required": [
+                "bronze"
+            ],
+            "properties": {
+                "inbox": {
+                    "type": "string",
+                    "minLength": 1
+                },
+                "bronze": {
+                    "type": "string",
+                    "minLength": 1
+                }
+            },
+            "additionalProperties": true
+        },
+        "logging": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "enum": [
+                        "trace",
+                        "debug",
+                        "info",
+                        "warn",
+                        "error",
+                        "fatal"
+                    ]
+                },
+                "path": {
+                    "type": "string",
+                    "minLength": 1
+                }
+            },
+            "additionalProperties": true
+        }
+    },
+    "additionalProperties": true
+}
