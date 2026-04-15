@@ -11,6 +11,8 @@ box::use(
 )
 
 # 1. Load configuration and options
+source("src/fnc/crypto.R")
+source("src/fnc/config.R")
 .cfg <- .load_options()
 
 # 2. Initialize the pipeline context for a specific datastream:
@@ -26,7 +28,7 @@ my_job <- new_batch_job(
 )
 
 # 3. Pipeline execution (Coming next!)
-# my_job |> 
-#   extract_raw() |> 
-#   validate_data() |> 
+# my_job |>
+#   extract_raw() |>
+#   validate_data() |>
 #   save_bronze_layer()

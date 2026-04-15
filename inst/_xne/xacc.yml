@@ -5,26 +5,9 @@
 
 paths:
   inbox: "inbox"
-
-medallion:
-  root: "C:/Users/78299/OneDrive - A.O.R.N. Antonio Cardarelli/XN3/data"
-  raw: "10_raw"
-
-datastream:
-  sdo:
-    name: "sdo"
-    time_block: "y"
-    alt: TRUE
-
-
-  ps:
-    name: "ps"
-    time_block: "q"
-    alt: FALSE
+  bronze: "data/bronze"
 
 logging:
   level: "info"
   path: "logs/xpipe.log"
 
-crypto:
-  expected_hash: "de9034e0f94c7e5b141a1302edee2b009dc9283adb225bf79be606caf0669ee9"
