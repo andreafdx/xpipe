@@ -24,7 +24,7 @@ box::use(
   if (missing(pepper) || is.null(pepper) || pepper == "") {
     cli_abort(
       "Parametro {.arg pepper} mancante o vuoto. La chiave deve essere passata esplicitamente.",
-      class = "sdo_crypto_error"
+      class = "crypto"
     )
   }
 

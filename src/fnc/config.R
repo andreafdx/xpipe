@@ -18,7 +18,7 @@ box::use(
 #'
 #' @param ... Character strings defining the subpath within 'inst'.
 #' @return Character scalar. The absolute path to the asset.
-#' @keywords internal
+#' @noRd
 .find_asset <- function(...) {
   # 1. Try development path (search for inst/ in parent directories)
   # This allows the function to work from the project root or subfolders
@@ -56,7 +56,7 @@ box::use(
 #' @param title Character scalar. Error title.
 #' @param class Character vector. Error classes.
 #' @return Logical. Invisibly returns TRUE if successful (otherwise aborts).
-#' @keywords internal
+#' @noRd
 .validate_json_schema <- function(
   json_path,
   schema_name,
@@ -107,7 +107,7 @@ box::use(
 #' @param error_title Character scalar. Title to use in `cli_abort` on failure.
 #' @param error_class Character vector. Error class array for `cli_abort`.
 #' @return A named list.
-#' @keywords internal
+#' @noRd
 .read_json_safe <- function(path, error_title, error_class) {
   if (!fs::file_exists(path)) {
     cli::cli_abort(
@@ -134,14 +134,15 @@ box::use(
   )
 }
 
-# Bootloader Layers (Internal) --------------------------------------------
+
+# Bootloader Layers (Local) --------------------------------------------
 
 #' Load Runtime Layer
 #'
 #' Retrieves and validates required runtime environment variables.
 #'
 #' @return List of runtime settings.
-#' @keywords internal
+#' @noRd
 .load_runtime_layer <- function() {
   runtime <- list()
   runtime$pepper <- Sys.getenv("XNE_PEPPER_KEY")
@@ -162,7 +163,7 @@ box::use(
 #' @param path Character scalar. Path to the local JSON file.
 #' @param project_root Character scalar. Base path for relative resolution.
 #' @return List of normalized local configuration paths and settings.
-#' @keywords internal
+#' @noRd
 .load_local_layer <- function(path = NULL, project_root = NULL) {
   if (is.null(path)) {
     path <- .find_asset("_xne", "local.json")
@@ -193,7 +194,7 @@ box::use(
 #' @param local_config List. The raw configuration from \code{.load_local_config()}.
 #' @param project_root Character scalar. Base path for relative resolution.
 #' @return The normalized local configuration list.
-#' @keywords internal
+#' @noRd
 .normalize_paths <- function(local_config, project_root = NULL) {
   if (is.null(project_root)) {
     project_root <- fs::path_abs(".")
@@ -237,11 +238,7 @@ box::use(
 
     if (!fs::dir_exists(fs::path_dir(p))) {
       cli::cli_alert_warning(
-        c(
-          "Config warning",
-          "Logging directory does not exist yet",
-          "i" = "It may be created later during the import process"
-        )
+        "Config warning: Logging directory does not exist yet"
       )
     }
 
@@ -252,13 +249,13 @@ box::use(
 }
 
 
-# Bronze options ----------------------------------------------------------
+# Bronze options (Remote) ----------------------------------------------------------
 
 #' Validate Bronze Layer Path and Presence of bronze.json
 #'
 #' @param config List. Normalized YAML configuration.
 #' @return Character scalar. Full path to bronze.json.
-#' @keywords internal
+#' @noRd
 .validate_bronze_layer <- function(local_config) {
   bronze_path <- local_config$paths$bronze
 
@@ -319,7 +316,7 @@ box::use(
 #' Validate Bronze JSON Against Schema
 #'
 #' @param bronze_json_path Character scalar. Path to bronze.json.
-#' @keywords internal
+#' @noRd
 .validate_bronze_schema <- function(bronze_json_path) {
   schema_path <- .find_asset("schema", "bronze.schema.json")
 
@@ -359,7 +356,7 @@ box::use(
 #'
 #' @param bronze_options List. Parsed bronze.json options.
 #' @return The validated options.
-#' @keywords internal
+#' @noRd
 .validate_bronze_datastream <- function(bronze_options) {
   if (is.null(bronze_options$datastream)) {
     cli::cli_abort(
@@ -414,7 +411,7 @@ box::use(
 #' @param bronze_options List. Parsed bronze.json options.
 #' @param pepper Character scalar. Runtime encryption key.
 #' @param test_string Character scalar. Test string for hashing.
-#' @keywords internal
+#' @noRd
 .validate_bronze_hash <- function(
   bronze_options,
   pepper,
@@ -453,7 +450,7 @@ box::use(
 #' @param local_config List. Normalized local configuration.
 #' @param runtime_config List. Runtime environment variables.
 #' @return A list containing the validated bronze options.
-#' @keywords internal
+#' @noRd
 .load_bronze_layer <- function(local_config, runtime_config) {
   bronze_json <- .validate_bronze_layer(local_config)
 
@@ -497,7 +494,7 @@ load_options <- function(
   path = NULL,
   project_root = NULL
 ) {
-  cli::cli_alert_info("Loading configuration system...")
+  #cli::cli_alert_info("Loading configuration system...")
 
   config <- list()
 
@@ -517,8 +514,8 @@ load_options <- function(
 #'
 #' @param x An S3 object of class \code{xacc_config}.
 #' @param ... Additional arguments (ignored).
-#' @export
-render_config <- function(x, ...) {
+#' @noRd
+.render_config <- function(x, ...) {
   cli::cli_div(
     theme = list(rule = list(color = "cyan", "line-type" = "double"))
   )
@@ -528,11 +525,11 @@ render_config <- function(x, ...) {
   cli::cli_h2("Layer: Runtime")
   if (!is.null(x$runtime$pepper)) {
     cli::cli_alert_success(
-      "Pepper loaded: {.val {substr(x$runtime$pepper, 1, 6)}}... (masked)"
+      "Secret key: {.val {substr(x$runtime$pepper, 1, 6)}}... (masked)"
     )
   }
   if (!is.null(x$runtime$loaded_at)) {
-    cli::cli_li("Loaded at: {.val {format(x$runtime$loaded_at)}}")
+    cli::cli_bullets("Loaded at: {.val {format(x$runtime$loaded_at)}}")
   }
 
   # 2. Layer: Local
@@ -541,7 +538,7 @@ render_config <- function(x, ...) {
     cli::cli_h3("Paths")
     cli::cli_bullets(
       imap_chr(x$local$paths, function(v, k) {
-        paste0("{.strong ", k, "} : {.file ", v, "}")
+        paste0(k," : {.file ", v, "}")
       })
     )
   }
@@ -550,13 +547,14 @@ render_config <- function(x, ...) {
     cli::cli_h3("Logging")
     cli::cli_bullets(
       imap_chr(x$local$logging, function(v, k) {
-        paste0("{.strong ", k, "} : {.val ", v, "}")
+        paste0(k, " : {.val ", v, "}")
       })
     )
   }
 
-  # 3. Layer: Medallion (Bronze)
-  cli::cli_h2("Layer: Medallion (Bronze)")
+  # 3. Layer: Bronze
+  bronze <- cli::make_ansi_style("#cd7f32")
+  cli::cli_h2("Layer: {bronze('Bronze')}")
   cli::cli_alert_success("Schema validated & Integrity hash verified")
 
   if (!is.null(x$bronze$datastream)) {
@@ -564,7 +562,7 @@ render_config <- function(x, ...) {
     cli::cli_bullets(
       imap_chr(x$bronze$datastream, function(v, k) {
         tb <- if (is.null(v$time_block)) "?" else v$time_block
-        paste0("{.strong ", k, "} (period: {.val ", tb, "})")
+        paste0("{.strong ", k, "} (time block: {.val ", tb, "})")
       })
     )
   }
@@ -584,7 +582,7 @@ render_config <- function(x, ...) {
 #'
 #' @param x An object of class \code{xacc_config}.
 #' @param ... Unused.
-#' @export
+#' @noRd
 print.xacc_config <- function(x, ...) {
-  render_config(x, ...)
+  .render_config(x, ...)
 }
