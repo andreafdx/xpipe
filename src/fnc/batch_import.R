@@ -355,7 +355,7 @@ new_batch_job <- function(
   .assert_alt_flag(alt)
   storage_stream <- .resolve_storage_stream(datastream, ds_config, alt)
 
-  batch_id   <- .normalize_or_generate_batch_id(batch_id)
+  batch_id   <- .normalize_or_generate_batch_id(storage_stream, batch_id)
   bronze_dir <- .build_bronze_target_dir(config, storage_stream, batch_id)
 
   .build_batch_job(
@@ -371,3 +371,87 @@ new_batch_job <- function(
     batch_id = batch_id
   )
 }
+
+
+# S3 Methods --------------------------------------------------------------
+
+
+#' Print xacc batch job
+#'
+#' Pretty printer for xacc_batch_job objects.
+#'
+#' @param x An object of class \code{xacc_batch_job}.
+#' @param ... Unused.
+#' @export
+print.xacc_batch_job <- function(x, ...) {
+
+  cli::cli_div(
+    theme = list(rule = list(color = "cyan", "line-type" = "double"))
+  )
+  cli::cli_rule("XACC Batch Job")
+
+  # Status
+  cli::cli_h2("Status")
+
+  status <- x$status %||% "unknown"
+  if (identical(status, "initialized")) {
+    cli::cli_alert_success("initialized")
+  } else {
+    cli::cli_alert_info(status)
+  }
+
+  # Input
+  cli::cli_h2("Input")
+
+  variant <- if (isTRUE(x$alt)) {
+    paste0("alternate (", x$storage_stream, ")")
+  } else {
+    "none"
+  }
+
+  time_info <- if (is.null(x$quarter)) {
+    paste0("year = ", x$year)
+  } else {
+    paste0("year = ", x$year, ", quarter = ", x$quarter)
+  }
+
+
+  cli::cli_bullets(c(
+    "file        : {.file {x$filepath}}",
+    "datastream  : {.val {x$datastream}}",
+    "time        : {.val {time_info}}"
+  ))
+
+  cli::cli_warn(
+    c(
+      "Alternate variant enabled",
+      "i" = "Data will be stored under {.val {x$storage_stream}} instead of {.val {x$datastream}}"
+    ),
+    class = c("batch_job", "alt")
+  )
+
+
+
+  # Storage (Bronze)
+  bronze <- cli::make_ansi_style("#cd7f32")
+  cli::cli_h2("Storage ({bronze('Bronze')})")
+
+  # Evidenzia variante SOLO se rilevante
+  if (isTRUE(x$alt)) {
+    alt_style <- cli::make_ansi_style("red", bold = TRUE)
+
+    styled_stream <- alt_style(x$storage_stream)
+
+    cli::cli_bullets(c(
+      "root        : {.file {x$bronze_root}}",
+      paste0("stream      : ", styled_stream),
+      "batch_id    : {.val {x$batch_id}}",
+      "target dir  : {.file {x$bronze_dir}}"
+    ))
+  }
+  cli::cli_rule()
+  cli::cli_end()
+
+  invisible(x)
+}
+

@@ -23,13 +23,13 @@ render_config(.cfg)
 # The internal logic guarantees this matches the YAML definitions safely.
 my_job <- new_batch_job(
   filename = "2025_full.mdb",
-  datastream = "ps",
+  datastream = "sdo",
   year = 2025,
-  q = 5,
+  q = 4,
   alt = TRUE,
   config = .cfg
 )
-
+print(my_job)
 # 3. Pipeline execution (Coming next!)
 # my_job |>
 #   extract_raw() |>
