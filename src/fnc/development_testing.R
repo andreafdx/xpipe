@@ -21,49 +21,79 @@ source("src/fnc/2. bronze_promotion.R")
 # 3. Real Access Extractor (Cross-Platform)
 source("src/fnc/access.R")
 
-extract_access_db <- function(job, path) {
-  con <- .connect_access_db(path)
-  on.exit(DBI::dbDisconnect(con))
-  
-  # For now, we only extract the main 'TblScheda' as an example
-  # In a full run, this would loop through all required tables
-  cli::cli_alert_info("Extracting TblScheda from {.file {path}}")
-  df <- DBI::dbReadTable(con, "TblScheda")
-  return(df)
+# Mock XML Extractor for testing
+extract_xml <- function(job, path) {
+  cli::cli_alert_info("MOCK: Extracting XML from {.file {basename(path)}}")
+  data.frame(
+    id = 1:2,
+    source_file = basename(path),
+    data_dimissione = as.Date("2025-05-20"),
+    numero_scheda = c("2001", "2002"),
+    codice_istituto = "HOSP_TEST",
+    cf = "MOCK_CF",
+    stringsAsFactors = FALSE
+  )
 }
 
-if (!dir.exists("inbox")) dir.create("inbox")
-cat("dummy data", file = "inbox/test_sdo_2025.mdb")
+# --- Setup Mock SDO Folder ---
+sdo_folder_name <- "sdo_2025_xml"
+inbox_path <- .cfg$local$paths$inbox
+sdo_folder_full <- fs::path(inbox_path, sdo_folder_name)
+
+if (!dir.exists(sdo_folder_full)) {
+  fs::dir_create(sdo_folder_full, recurse = TRUE)
+}
+
+# Create A, B, C, D dummy files
+for (suffix in c("A", "B", "C", "D")) {
+  cat("dummy xml", file = fs::path(sdo_folder_full, paste0("fls_", suffix, ".xml")))
+}
 
 # --- EXECUTION ---
 
-# A. First Ingestion
-cli::cli_h2("Act 1: First Ingestion")
-mock_batch_version <<- 1
-job1 <- new_batch_job(filename = "test_sdo_2025.mdb", method = "sdo_hosp_a", config = .cfg)
-materialize_batch_job(job1, .cfg)
+cli::cli_h1("Phase 3: Multi-File XML Test")
 
-# B. Second Ingestion (The Correction)
-cli::cli_h2("Act 1: Second Ingestion (Correction)")
-Sys.sleep(1.1) # Ensure different timestamp
-mock_batch_version <<- 2
-job2 <- new_batch_job(filename = "test_sdo_2025.mdb", method = "sdo_hosp_a", config = .cfg)
-materialize_batch_job(job2, .cfg)
+# A. Initialize Multi-File Job
+cli::cli_h2("Act 1: Initialize Multi-File Job")
+xml_job <- new_batch_job(
+  filename = sdo_folder_name, 
+  method = "sdo_campania_xml", 
+  config = .cfg
+)
+print(xml_job)
 
-# C. Promotion to Bronze (The Librarian)
-cli::cli_h2("Act 2: Bronze Promotion")
-promote_to_bronze(.cfg)
+# B. Materialize Multi-File Batch
+cli::cli_h2("Act 1: Materialize Multi-File Batch")
+xml_job <- materialize_batch_job(xml_job, .cfg)
 
-# D. Verification
-cli::cli_h2("Verification: The Current Truth")
-bronze_2025_file <- fs::path(.cfg$local$paths$bronze, "sdo", "year=2025", "data.parquet")
-truth <- arrow::read_parquet(bronze_2025_file)
-print(truth)
+# C. Verify Output
+cli::cli_h2("Verification: Multi-File Batch Content")
+batch_files <- fs::dir_ls(xml_job$batch_dir, glob = "*.parquet")
+cli::cli_alert_info("Files in batch: {.val {basename(batch_files)}}")
 
-# Check if 1001 has the new date (2025-03-20)
-p1001 <- truth[truth$numero_scheda == "1001", ]
-if (nrow(p1001) == 1 && p1001$data_dimissione == as.Date("2025-03-20")) {
-  cli::cli_alert_success("VERIFIED: 'Latest Wins' logic correctly applied.")
+if (length(batch_files) == 4) {
+  cli::cli_alert_success("VERIFIED: All 4 components bundled into the same batch.")
 } else {
-  cli::cli_alert_danger("FAILED: 'Latest Wins' logic failed or record duplicated.")
+  cli::cli_alert_danger("FAILED: Missing components in batch.")
+}
+
+# D. Promote to Bronze
+cli::cli_h2("Act 2: Promote to Bronze")
+promote_to_bronze(.cfg, stream_id = "sdo")
+
+# E. Verify Bronze
+cli::cli_h2("Verification: Bronze Content")
+bronze_stream_dir <- fs::path(.cfg$local$paths$bronze, "sdo")
+bronze_tables <- fs::dir_ls(bronze_stream_dir, type = "directory")
+cli::cli_alert_info("Bronze tables discovered: {.val {basename(bronze_tables)}}")
+
+for (tbl in bronze_tables) {
+  # Direct check for folder existence
+  year_folder <- fs::path(tbl, "year=2025")
+  if (fs::dir_exists(year_folder)) {
+    cli::cli_alert_success("VERIFIED: Table {.val {basename(tbl)}} exists for year 2025.")
+  } else {
+    cli::cli_alert_danger("FAILED: Table {.val {basename(tbl)}} missing year 2025 folder.")
+    cli::cli_inform("Search path: {.file {year_folder}}")
+  }
 }
