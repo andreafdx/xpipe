@@ -21,10 +21,41 @@ box::use(
 # Connect to Access database using ODBC
 .connect_access_db <- function(path_to_mdb) {
   .mdb_path_abs <- normalizePath(path_to_mdb, winslash = "/", mustWork = TRUE)
+  
+  # 1. Resolve Driver based on OS
+  is_windows <- .Platform$OS.type == "windows"
+  
+  if (is_windows) {
+    driver_name <- "Microsoft Access Driver (*.mdb, *.accdb)"
+  } else {
+    # Linux/mdbtools: Usually "MDBTools" or a path to the .so
+    # We first check if 'MDBTools' is registered
+    drivers <- odbcListDrivers()
+    has_mdb <- any(grepl("MDBTools", drivers$name, ignore.case = TRUE))
+    
+    if (has_mdb) {
+      driver_name <- drivers$name[grep("MDBTools", drivers$name, ignore.case = TRUE)][1]
+    } else {
+      # Fallback to common library path if not registered in odbcinst.ini
+      driver_name <- "/usr/lib/x86_64-linux-gnu/odbc/libmdbodbc.so"
+      if (!fs::file_exists(driver_name)) {
+        cli::cli_abort(
+          c(
+            "Access driver not found",
+            "x" = "MDBTools is not registered and {.file {driver_name}} does not exist.",
+            "i" = "Please install {.pkg mdbtools} and {.pkg odbc-mdbtools}."
+          )
+        )
+      }
+    }
+  }
+
+  cli::cli_alert_info("Connecting using driver: {.val {driver_name}}")
+
   con <- dbConnect(
     odbc(),
     .connection_string = paste0(
-      "Driver={Microsoft Access Driver (*.mdb, *.accdb)};",
+      "Driver={", driver_name, "};",
       "DBQ=", .mdb_path_abs, ";"
     )
   )

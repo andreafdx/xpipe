@@ -18,34 +18,18 @@ source("src/fnc/2. bronze_promotion.R")
 # 2. Load Configuration
 .cfg <- load_options()
 
-# 3. Mock Extractor
-# We use a global to toggle which batch data we return
-mock_batch_version <<- 1
+# 3. Real Access Extractor (Cross-Platform)
+source("src/fnc/access.R")
 
-extract_access_db <<- function(job, path) {
-  if (mock_batch_version == 1) {
-    # Original data
-    data.frame(
-      numero_scheda = c("1001", "1002"),
-      codice_istituto = c("HOSP01", "HOSP01"),
-      cf = c("RSSMRA80A01H501U", "PLTMRA75L41F205K"),
-      nome = c("Mario", "Maria"),
-      cognome = c("Rossi", "Pilati"),
-      data_dimissione = as.Date(c("2025-03-15", "2025-04-20")),
-      stringsAsFactors = FALSE
-    )
-  } else {
-    # Updated data: Patient 1001 has a new discharge date
-    data.frame(
-      numero_scheda = c("1001"),
-      codice_istituto = c("HOSP01"),
-      cf = c("RSSMRA80A01H501U"),
-      nome = c("Mario"),
-      cognome = c("Rossi"),
-      data_dimissione = as.Date(c("2025-03-20")), # CHANGED
-      stringsAsFactors = FALSE
-    )
-  }
+extract_access_db <- function(job, path) {
+  con <- .connect_access_db(path)
+  on.exit(DBI::dbDisconnect(con))
+  
+  # For now, we only extract the main 'TblScheda' as an example
+  # In a full run, this would loop through all required tables
+  cli::cli_alert_info("Extracting TblScheda from {.file {path}}")
+  df <- DBI::dbReadTable(con, "TblScheda")
+  return(df)
 }
 
 if (!dir.exists("inbox")) dir.create("inbox")
