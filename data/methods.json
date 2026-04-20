@@ -2,9 +2,21 @@
   "sdo_hosp_a": {
     "stream": "sdo",
     "type": "access_db",
+    "input_type": "file",
     "table": "EXPORT_TABLE",
     "mapping": {
       "PK_ID": "numero_scheda"
+    }
+  },
+  "sdo_campania_xml": {
+    "stream": "sdo",
+    "type": "xml",
+    "input_type": "directory",
+    "components": {
+      "TblAnagrafica": "*_A.xml",
+      "TblRicoveroICD9": "*_B.xml",
+      "TblRicoveroICD10": "*_D.xml",
+      "TblProcedures": "*_C.xml"
     }
   }
 }

@@ -3,10 +3,12 @@
   "type": "object",
   "additionalProperties": {
     "type": "object",
-    "required": ["stream", "type"],
+    "required": ["stream", "type", "input_type"],
     "properties": {
       "stream": { "type": "string" },
       "type": { "type": "string", "enum": ["access_db", "xml", "csv"] },
+      "input_type": { "type": "string", "enum": ["file", "directory"] },
+      "components": { "type": "object", "additionalProperties": { "type": "string" } },
       "table": { "type": "string" },
       "mapping": { "type": "object", "additionalProperties": { "type": "string" } }
     }
