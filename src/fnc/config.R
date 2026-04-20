@@ -4,6 +4,7 @@
 # System configuration and options loading
 #
 # ======================================================================= #
+
 box::use(
   ./crypto[.hash_phi],
   purrr[imap_chr]
@@ -14,14 +15,12 @@ box::use(
 #' Find Internal Asset
 #'
 #' Resilient helper to locate internal files (config, schemas) in both
-#' development mode (local paths) and package mode (system.file).
+#' development and installed package modes.
 #'
 #' @param ... Character strings defining the subpath within 'inst'.
 #' @return Character scalar. The absolute path to the asset.
 #' @noRd
 .find_asset <- function(...) {
-  # 1. Try development path (search for inst/ in parent directories)
-  # This allows the function to work from the project root or subfolders
   search_paths <- c(".", "..", "../..")
 
   for (base in search_paths) {
@@ -31,44 +30,32 @@ box::use(
     }
   }
 
-  # 2. Try package path (when installed)
   pkg_path <- system.file(..., package = "xacc")
-
   if (pkg_path != "") {
     return(pkg_path)
   }
 
-  # 3. Fail gracefully
   cli::cli_abort(
     c(
       "Internal asset not found",
-      "x" = "Could not locate {.file {fs::path(...)}} in dev or package mode"
+      "x" = "Could not locate {.file {fs::path(...)}}"
     ),
     class = "asset_not_found"
   )
 }
 
-
 #' Validate JSON File Against Internal Schema
 #'
-#' @param json_path Character scalar. Path to the JSON file.
-#' @param schema_name Character scalar. Schema file name (e.g. "local.schema.json").
-#' @param title Character scalar. Error title.
-#' @param class Character vector. Error classes.
-#' @return Logical. Invisibly returns TRUE if successful (otherwise aborts).
+#' @param json_path Path to JSON file.
+#' @param schema_name Schema file name.
+#' @param title Error title.
+#' @param class Error classes.
+#' @return Invisibly TRUE if valid.
 #' @noRd
-.validate_json_schema <- function(
-  json_path,
-  schema_name,
-  title,
-  class
-) {
+.validate_json_schema <- function(json_path, schema_name, title, class) {
   if (!fs::file_exists(json_path)) {
     cli::cli_abort(
-      c(
-        title,
-        "x" = "JSON file not found: {.file {json_path}}"
-      ),
+      c(title, "x" = "JSON file not found: {.file {json_path}}"),
       class = class
     )
   }
@@ -97,24 +84,17 @@ box::use(
   invisible(TRUE)
 }
 
-
 #' Read JSON Safely
 #'
-#' Safely reads any JSON configuration and converts it to a list. Throws
-#' a classed error if the file is missing or contains invalid JSON syntax.
-#'
-#' @param path Character scalar. Path to the JSON file.
-#' @param error_title Character scalar. Title to use in `cli_abort` on failure.
-#' @param error_class Character vector. Error class array for `cli_abort`.
-#' @return A named list.
+#' @param path Path to JSON file.
+#' @param error_title Error title.
+#' @param error_class Error classes.
+#' @return Parsed JSON as list.
 #' @noRd
 .read_json_safe <- function(path, error_title, error_class) {
   if (!fs::file_exists(path)) {
     cli::cli_abort(
-      c(
-        error_title,
-        "x" = "JSON file not found: {.file {path}}"
-      ),
+      c(error_title, "x" = "JSON file not found: {.file {path}}"),
       class = error_class
     )
   }
@@ -125,7 +105,7 @@ box::use(
       cli::cli_abort(
         c(
           error_title,
-          "x" = "Invalid JSON syntax in {.file {path}}",
+          "x" = "Invalid JSON syntax",
           "!" = e$message
         ),
         class = error_class
@@ -134,19 +114,17 @@ box::use(
   )
 }
 
-
-# Bootloader Layers (Local) --------------------------------------------
+# Runtime layer ----------------------------------------------------------
 
 #' Load Runtime Layer
 #'
-#' Retrieves and validates required runtime environment variables.
-#'
-#' @return List of runtime settings.
+#' @return Runtime configuration.
 #' @noRd
 .load_runtime_layer <- function() {
-  runtime <- list()
-  runtime$pepper <- Sys.getenv("XNE_PEPPER_KEY")
-  runtime$loaded_at <- Sys.time()
+  runtime <- list(
+    pepper = Sys.getenv("XNE_PEPPER_KEY"),
+    loaded_at = Sys.time()
+  )
 
   if (is.null(runtime$pepper) || runtime$pepper == "") {
     cli::cli_abort(
@@ -158,11 +136,13 @@ box::use(
   runtime
 }
 
+# Local layer ------------------------------------------------------------
+
 #' Load Local Layer
 #'
-#' @param path Character scalar. Path to the local JSON file.
-#' @param project_root Character scalar. Base path for relative resolution.
-#' @return List of normalized local configuration paths and settings.
+#' @param path Path to local.json.
+#' @param project_root Root for relative paths.
+#' @return Normalized local configuration.
 #' @noRd
 .load_local_layer <- function(path = NULL, project_root = NULL) {
   if (is.null(path)) {
@@ -176,24 +156,20 @@ box::use(
     class = c("config_options", "schema")
   )
 
-  local_config <- .read_json_safe(
-    path = path,
+  local_cfg <- .read_json_safe(
+    path,
     error_title = "Invalid local configuration",
     error_class = "local_options"
   )
 
-  .normalize_paths(local_config, project_root)
+  .normalize_paths(local_cfg, project_root)
 }
-
 
 #' Normalize Configuration Paths
 #'
-#' Processes the local configuration to ensure all filesystem paths are
-#' absolute and normalized.
-#'
-#' @param local_config List. The raw configuration from \code{.load_local_config()}.
-#' @param project_root Character scalar. Base path for relative resolution.
-#' @return The normalized local configuration list.
+#' @param local_config Raw local config.
+#' @param project_root Base path.
+#' @return Normalized config.
 #' @noRd
 .normalize_paths <- function(local_config, project_root = NULL) {
   if (is.null(project_root)) {
@@ -202,29 +178,19 @@ box::use(
 
   if (is.null(local_config$paths)) {
     cli::cli_abort(
-      c(
-        "Invalid configuration",
-        "x" = "Required section {.field paths} not set"
-      ),
+      c("Invalid configuration", "x" = "Missing {.field paths}"),
       class = c("local_options", "paths")
     )
   }
 
   local_config$paths <- lapply(local_config$paths, function(p) {
     p <- fs::path_expand(p)
-
-    p <- if (fs::is_absolute_path(p)) {
-      fs::path_norm(p)
-    } else {
-      fs::path_norm(fs::path(project_root, p))
-    }
+    p <- if (fs::is_absolute_path(p)) fs::path_norm(p)
+    else fs::path_norm(fs::path(project_root, p))
 
     if (!fs::dir_exists(p)) {
       cli::cli_abort(
-        c(
-          "Invalid configuration path",
-          "x" = "Path {.file {p}} does not exist"
-        ),
+        c("Invalid configuration path", "x" = "Path {.file {p}} does not exist"),
         class = c("local_options", "paths")
       )
     }
@@ -232,211 +198,142 @@ box::use(
     p
   })
 
-  # Normalize logging path (non-fatal)
   if (!is.null(local_config$logging$path)) {
     p <- fs::path_norm(fs::path(project_root, local_config$logging$path))
-
-    if (!fs::dir_exists(fs::path_dir(p))) {
-      cli::cli_alert_warning(
-        "Config warning: Logging directory does not exist yet"
-      )
-    }
-
     local_config$logging$path <- p
   }
 
   local_config
 }
 
+# Batch layer (Remote) ---------------------------------------------------
 
-# Bronze options (Remote) ----------------------------------------------------------
-
-#' Validate Bronze Layer Path and Presence of bronze.json
+#' Validate Batch Layer Path and Presence of batch.json
 #'
-#' @param config List. Normalized YAML configuration.
-#' @return Character scalar. Full path to bronze.json.
+#' @param local_config Local configuration.
+#' @return Path to batch.json.
 #' @noRd
-.validate_bronze_layer <- function(local_config) {
-  bronze_path <- local_config$paths$bronze
+.validate_batch_layer <- function(local_config) {
+  batch_path <- local_config$paths$batch
 
-  if (is.null(bronze_path)) {
+  if (is.null(batch_path) || !nzchar(batch_path)) {
     cli::cli_abort(
       c(
         "Invalid configuration",
-        "x" = "Bronze layer path not set",
-        "i" = "Expected field: paths.bronze"
+        "x" = "Batch layer path not set",
+        "i" = "Expected field: paths.batch"
       ),
       class = c("local_options", "paths")
     )
   }
 
-  if (
-    !is.character(bronze_path) ||
-      length(bronze_path) != 1 ||
-      !nzchar(bronze_path)
-  ) {
+  if (!fs::dir_exists(batch_path)) {
     cli::cli_abort(
-      c(
-        "Invalid configuration",
-        "x" = "paths.bronze must be a non-empty string",
-        "!" = "Found: {.val {bronze_path}}"
-      ),
+      c("Invalid configuration path", "x" = "Batch directory does not exist"),
       class = c("local_options", "paths")
     )
   }
 
-  if (!fs::dir_exists(bronze_path)) {
+  batch_json <- fs::path(batch_path, "batch.json")
+  if (!fs::file_exists(batch_json)) {
     cli::cli_abort(
       c(
-        "Invalid configuration path",
-        "x" = "Bronze directory does not exist",
-        "i" = "Path: {.file {bronze_path}}"
-      ),
-      class = c("local_options", "paths")
-    )
-  }
-
-  bronze_json <- fs::path(bronze_path, "bronze.json")
-
-  if (!fs::file_exists(bronze_json)) {
-    cli::cli_abort(
-      c(
-        "Invalid bronze.json",
+        "Invalid batch.json",
         "x" = "Required file not found",
-        "i" = "Expected: bronze.json in {.file {bronze_path}}"
+        "i" = "Expected: batch.json in {.file {batch_path}}"
       ),
       class = c("local_options", "paths")
     )
   }
 
-  bronze_json
+  batch_json
 }
 
-
-#' Validate Bronze JSON Against Schema
+#' Validate Batch JSON Against Schema
 #'
-#' @param bronze_json_path Character scalar. Path to bronze.json.
+#' @param batch_json_path Path to batch.json.
 #' @noRd
-.validate_bronze_schema <- function(bronze_json_path) {
-  schema_path <- .find_asset("schema", "bronze.schema.json")
-
-  if (schema_path == "") {
-    cli::cli_abort(
-      c(
-        "Internal configuration error",
-        "x" = "Bronze JSON schema not found"
-      ),
-      class = c("json_options", "schema")
-    )
-  }
-
-  ok <- jsonvalidate::json_validate(
-    bronze_json_path,
-    schema = schema_path,
-    engine = "ajv",
-    verbose = TRUE
+.validate_batch_schema <- function(batch_json_path) {
+  .validate_json_schema(
+    json_path = batch_json_path,
+    schema_name = "batch.schema.json",
+    title = "Invalid batch.json",
+    class = c("json_options", "schema")
   )
-
-  if (!ok) {
-    cli::cli_abort(
-      c(
-        "Invalid bronze.json",
-        "x" = "JSON does not conform to schema",
-        "i" = "Schema: {.file {schema_path}}"
-      ),
-      class = c("json_options", "schema")
-    )
-  }
-
-  invisible(TRUE)
 }
 
-
-#' Validate Bronze Datastream Options
+#' Validate Batch Datastream Definitions
 #'
-#' @param bronze_options List. Parsed bronze.json options.
-#' @return The validated options.
+#' @param batch_options Parsed batch.json.
+#' @return Validated options.
 #' @noRd
-.validate_bronze_datastream <- function(bronze_options) {
-  if (is.null(bronze_options$datastream)) {
+.validate_batch_datastream <- function(batch_options) {
+  if (is.null(batch_options$datastream)) {
     cli::cli_abort(
-      c(
-        "Invalid bronze.json",
-        "x" = "Missing required field: datastream"
-      ),
+      c("Invalid batch.json", "x" = "Missing field: datastream"),
       class = c("json_options", "datastream")
     )
   }
 
-  for (nm in names(bronze_options$datastream)) {
-    stream <- bronze_options$datastream[[nm]]
+  for (nm in names(batch_options$datastream)) {
+    stream <- batch_options$datastream[[nm]]
 
-    alt_val <- stream$alt
-    if (
-      !is.null(alt_val) &&
-        (!is.character(alt_val) || length(alt_val) != 1 || !nzchar(alt_val))
-    ) {
+    if (is.null(stream$anchor) || !(stream$anchor %in% c("start", "end"))) {
       cli::cli_abort(
         c(
-          "Invalid bronze.json",
-          "x" = "Invalid value for {.field alt}",
-          "i" = "Path: datastream.{nm}.alt",
-          ">" = "Expected: non-empty string"
+          "Invalid batch.json",
+          "x" = "Invalid value for {.field anchor}",
+          "i" = "Path: datastream.{nm}.anchor",
+          ">" = "Expected: 'start' or 'end'"
         ),
         class = c("json_options", "datastream")
       )
     }
 
-    time_block_val <- stream$time_block
-    if (is.null(time_block_val) || !(time_block_val %in% c("y", "q"))) {
+    if (!is.null(stream$alt) &&
+        (!is.character(stream$alt) || !nzchar(stream$alt))) {
       cli::cli_abort(
-        c(
-          "Invalid bronze.json",
-          "x" = "Invalid value for {.field time_block}",
-          "i" = "Path: datastream.{nm}.time_block",
-          ">" = "Expected: 'y' or 'q'",
-          "!" = "Found: {.val {time_block_val}}"
-        ),
+        c("Invalid batch.json", "x" = "Invalid alt value"),
         class = c("json_options", "datastream")
       )
+    }
+
+    if (!is.null(stream$batch_span)) {
+      if (!is.character(stream$batch_span)) {
+        cli::cli_abort(
+          c("Invalid batch.json", "x" = "batch_span must be a character vector"),
+          class = c("json_options", "datastream")
+        )
+      }
     }
   }
 
-  bronze_options
+  batch_options
 }
 
-
-#' Validate Bronze Integrity Hash
+#' Validate Batch Integrity Hash
 #'
-#' @param bronze_options List. Parsed bronze.json options.
-#' @param pepper Character scalar. Runtime encryption key.
-#' @param test_string Character scalar. Test string for hashing.
+#' @param batch_options Parsed batch.json.
+#' @param pepper Runtime key.
+#' @param test_string Test string.
 #' @noRd
-.validate_bronze_hash <- function(
-  bronze_options,
-  pepper,
-  test_string = "byut5f778DfOPth567"
+.validate_batch_hash <- function(
+    batch_options,
+    pepper,
+    test_string = "byut5f778DfOPth567"
 ) {
-  expected_hash <- bronze_options$expected_hash
+  expected_hash <- batch_options$expected_hash
 
   if (is.null(expected_hash) || expected_hash == "") {
     cli::cli_abort(
-      c(
-        "Invalid bronze.json",
-        "x" = "Missing expected_hash"
-      ),
+      c("Invalid batch.json", "x" = "Missing expected_hash"),
       class = c("json_options", "crypto")
     )
   }
 
-  hash <- .hash_phi(test_string, pepper)
-
-  if (hash != expected_hash) {
+  if (.hash_phi(test_string, pepper) != expected_hash) {
     cli::cli_abort(
-      c(
-        "Invalid bronze.json",
-        "x" = "Hash mismatch. The system will not start."
-      ),
+      c("Invalid batch.json", "x" = "Hash mismatch. System will not start."),
       class = c("json_options", "crypto")
     )
   }
@@ -444,69 +341,48 @@ box::use(
   invisible(TRUE)
 }
 
-
-#' Load and Validate Bronze Layer
+#' Load and Validate Batch Layer
 #'
-#' @param local_config List. Normalized local configuration.
-#' @param runtime_config List. Runtime environment variables.
-#' @return A list containing the validated bronze options.
+#' @param local_config Local configuration.
+#' @param runtime_config Runtime configuration.
+#' @return Validated batch options.
 #' @noRd
-.load_bronze_layer <- function(local_config, runtime_config) {
-  bronze_json <- .validate_bronze_layer(local_config)
+.load_batch_layer <- function(local_config, runtime_config) {
+  batch_json <- .validate_batch_layer(local_config)
 
-  .validate_json_schema(
-    json_path = bronze_json,
-    schema_name = "bronze.schema.json",
-    title = "Invalid bronze.json",
-    class = c("json_options", "schema")
+  .validate_batch_schema(batch_json)
+
+  batch_options <- .read_json_safe(
+    path = batch_json,
+    error_title = "Invalid batch.json",
+    error_class = c("json_options", "batch")
   )
 
-  bronze_options <- .read_json_safe(
-    path = bronze_json,
-    error_title = "Invalid bronze.json",
-    error_class = c("json_options", "bronze")
-  )
+  batch_options <- .validate_batch_datastream(batch_options)
 
-  bronze_options <- .validate_bronze_datastream(bronze_options)
+  .validate_batch_hash(batch_options, runtime_config$pepper)
 
-  .validate_bronze_hash(
-    bronze_options,
-    pepper = runtime_config$pepper
-  )
-
-  bronze_options
+  batch_options
 }
 
-
-# Bootloader (Public API) -------------------------------------------------
+# Bootloader -------------------------------------------------------------
 
 #' Load and Validate Configuration
 #'
-#' Orchestrates the full loading process: reading local settings,
-#' injecting runtime variables, normalizing paths, and loading validated
-#' medallion layer options.
-#'
-#' @param path Character scalar. Path to the local JSON file.
-#' @param project_root Character scalar. Base path for relative resolution.
-#' @return An S3 object of class \code{xacc_config}.
+#' @param path Path to local.json.
+#' @param project_root Project root.
+#' @return xacc_config object.
 #' @export
-load_options <- function(
-  path = NULL,
-  project_root = NULL
-) {
-  #cli::cli_alert_info("Loading configuration system...")
-
+load_options <- function(path = NULL, project_root = NULL) {
   config <- list()
-
   config$runtime <- .load_runtime_layer()
-  config$local <- .load_local_layer(path, project_root)
-  config$bronze <- .load_bronze_layer(config$local, config$runtime)
+  config$local   <- .load_local_layer(path, project_root)
+  config$batch   <- .load_batch_layer(config$local, config$runtime)
 
   cli::cli_alert_success("Configuration system loaded and validated.")
 
   structure(config, class = "xacc_config")
 }
-
 
 #' Render Configuration Gracefully
 #'
@@ -537,33 +413,37 @@ load_options <- function(
   if (!is.null(x$local$paths)) {
     cli::cli_h3("Paths")
     cli::cli_bullets(
-      imap_chr(x$local$paths, function(v, k) {
-        paste0(k," : {.file ", v, "}")
-      })
+      purrr::imap_chr(
+        x$local$paths,
+        ~ paste0(.y, " : {.file ", .x, "}")
+      )
     )
   }
 
   if (!is.null(x$local$logging)) {
     cli::cli_h3("Logging")
     cli::cli_bullets(
-      imap_chr(x$local$logging, function(v, k) {
-        paste0(k, " : {.val ", v, "}")
-      })
+      purrr::imap_chr(
+        x$local$logging,
+        ~ paste0(.y, " : {.val ", .x, "}")
+      )
     )
   }
 
-  # 3. Layer: Bronze
-  bronze <- cli::make_ansi_style("#cd7f32")
-  cli::cli_h2("Layer: {bronze('Bronze')}")
+  # 3. Layer: Batch (ex Bronze)
+  cli::cli_h2("Layer: Batch")
   cli::cli_alert_success("Schema validated & Integrity hash verified")
 
-  if (!is.null(x$bronze$datastream)) {
+  if (!is.null(x$batch$datastream)) {
     cli::cli_h3("Datastreams")
     cli::cli_bullets(
-      imap_chr(x$bronze$datastream, function(v, k) {
-        tb <- if (is.null(v$time_block)) "?" else v$time_block
-        paste0("{.strong ", k, "} (time block: {.val ", tb, "})")
-      })
+      purrr::imap_chr(
+        x$batch$datastream,
+        ~ paste0(
+          "{.strong ", .y, "} ",
+          "(anchor: {.val ", .x$anchor, "})"
+        )
+      )
     )
   }
 
@@ -573,15 +453,10 @@ load_options <- function(
   invisible(x)
 }
 
-
-# S3 Methods --------------------------------------------------------------
-
-#' Print xacc configuration
+#' Print xacc_config
 #'
-#' Pretty printer for xacc_config objects.
-#'
-#' @param x An object of class \code{xacc_config}.
-#' @param ... Unused.
+#' @param x xacc_config object.
+#' @param ... Ignored.
 #' @noRd
 print.xacc_config <- function(x, ...) {
   .render_config(x, ...)
