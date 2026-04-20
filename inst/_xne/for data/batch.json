@@ -1,0 +1,24 @@
+{
+  "meta": {
+    "name": "XNE_batch-options",
+    "version": "1.0.0",
+    "description": "Configuration options for XNE batch ingestion",
+    "created_at": "2026-04-20"
+  },
+
+  "datastream": {
+    "sdo": {
+      "name": "sdo",
+      "alt": "sdo_alt",
+      "anchor": "end",
+      "batch_span": ["y", "custom"]
+    },
+    "ps": {
+      "name": "ps",
+      "anchor": "start",
+      "batch_span": ["m", "q", "y"]
+    }
+  },
+
+  "expected_hash": "de9034e0f94c7e5b141a1302edee2b009dc9283adb225bf79be606caf0669ee9"
+}

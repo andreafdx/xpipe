@@ -5,7 +5,8 @@
 
   "properties": {
     "meta": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": true
     },
 
     "expected_hash": {
@@ -16,22 +17,38 @@
     "datastream": {
       "type": "object",
       "minProperties": 1,
+
       "additionalProperties": {
         "type": "object",
-        "required": ["time_block"],
+        "required": ["anchor"],
+
         "properties": {
           "name": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
+
           "alt": {
             "type": "string",
             "minLength": 1
           },
-          "time_block": {
+
+          "anchor": {
             "type": "string",
-            "enum": ["y", "q"]
+            "enum": ["start", "end"]
+          },
+
+          "batch_span": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": ["m", "q", "y", "custom"]
+            },
+            "uniqueItems": true
           }
         },
+
         "additionalProperties": false
       }
     }

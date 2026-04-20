@@ -1,6 +1,8 @@
 {
   "paths": {
     "inbox": "inbox",
+    "raw": "data/raw",
+    "batch": "data/batch",
     "bronze": "data/bronze"
   },
   "logging": {
