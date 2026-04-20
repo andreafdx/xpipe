@@ -35,6 +35,7 @@ my_job <- new_batch_job(
   alt = FALSE,
   config = .cfg
 )
+print(.cfg) # Should now trigger the stylish render
 print(my_job)
 
 # 5. Pipeline execution (Materialization)

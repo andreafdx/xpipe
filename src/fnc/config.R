@@ -386,79 +386,62 @@ load_options <- function(path = NULL, project_root = NULL) {
   cli::cli_div(
     theme = list(rule = list(color = "cyan", "line-type" = "double"))
   )
-  cli::cli_rule("XACC Configuration Summary")
+  cli::cli_rule("XACC Configuration Map")
 
-  # 1. Layer: Runtime
-  cli::cli_h2("Layer: Runtime")
-  if (!is.null(x$runtime$pepper)) {
-    cli::cli_alert_success(
-      "Secret key: {.val {substr(x$runtime$pepper, 1, 6)}}... (masked)"
-    )
-  }
-  if (!is.null(x$runtime$loaded_at)) {
-    cli::cli_bullets("Loaded at: {.val {format(x$runtime$loaded_at)}}")
-  }
+  # 1. RUNTIME & SECURITY
+  cli::cli_h2("System Context")
+  cli::cli_bullets(c(
+    "Loaded at : {.val {format(x$runtime$loaded_at)}}",
+    "Security  : HMAC-SHA256 (Pepper masked: {.val {substr(x$runtime$pepper, 1, 4)}}...)"
+  ))
 
-  # 2. Layer: Local
-  cli::cli_h2("Layer: Local")
+  # 2. LOCAL PATHS
+  cli::cli_h2("Local Infrastructure (Mounts)")
   if (!is.null(x$local$paths)) {
-    cli::cli_h3("Paths")
     cli::cli_bullets(
       purrr::imap_chr(
         x$local$paths,
-        ~ paste0(.y, " : {.file ", .x, "}")
+        ~ paste0("{.strong ", format(.y, width = 8), "} : {.file ", .x, "}")
       )
     )
   }
 
-  if (!is.null(x$local$logging)) {
-    cli::cli_h3("Logging")
-    cli::cli_bullets(
-      purrr::imap_chr(
-        x$local$logging,
-        ~ paste0(.y, " : {.val ", .x, "}")
-      )
-    )
-  }
-
-  # 3. Layer: Batch (ex Bronze)
-  cli::cli_h2("Layer: Batch")
-  cli::cli_alert_success("Schema validated & Integrity hash verified")
-
-  if (!is.null(x$batch$datastream)) {
-    cli::cli_h3("Datastreams")
-    cli::cli_bullets(
-      purrr::imap_chr(
-        x$batch$datastream,
-        ~ paste0(
-          "{.strong ", .y, "} ",
-          "(anchor: {.val ", .x$anchor, "})"
-        )
-      )
-    )
-  }
-
-  # 4. Layer: Streams
-  cli::cli_h2("Layer: Streams")
+  # 3. REMOTE LOGIC (The Brain)
+  cli::cli_h2("Shared Logic (Remote)")
+  
+  cli::cli_h3("Datastreams (The Truth)")
   if (!is.null(x$streams)) {
-    cli::cli_bullets(
-      purrr::imap_chr(
-        x$streams,
-        ~ paste0("{.strong ", .y, "}")
-      )
+    stream_bullets <- purrr::imap_chr(
+      x$streams,
+      function(v, nm) {
+        paste0(
+          "{.strong ", nm, "} ",
+          "(keys: ", paste(v$identity_keys, collapse = ", "), " | ",
+          "anchor: ", v$anchor, ")"
+        )
+      }
     )
+    cli::cli_bullets(stream_bullets)
   }
 
-  # 5. Layer: Methods
-  cli::cli_h2("Layer: Methods")
+  cli::cli_h3("Ingest Methods (Adapters)")
   if (!is.null(x$methods)) {
-    cli::cli_bullets(
-      purrr::imap_chr(
-        x$methods,
-        ~ paste0("{.strong ", .y, "} (stream: {.val ", .x$stream, "})")
-      )
+    method_bullets <- purrr::imap_chr(
+      x$methods,
+      function(v, nm) {
+        paste0(
+          "{.strong ", nm, "} ",
+          "➔ stream: ", v$stream, " ",
+          "[", v$type, "]"
+        )
+      }
     )
+    cli::cli_bullets(method_bullets)
   }
+
+  # 4. LAYER STATUS
+  cli::cli_h2("Layer Integrity")
+  cli::cli_alert_success("Batch Layer Security: Validated & Verified.")
 
   cli::cli_rule()
   cli::cli_end()
