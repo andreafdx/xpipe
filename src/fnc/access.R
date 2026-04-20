@@ -53,24 +53,49 @@ box::use(
 #' @return A named list of data frames.
 #' @export
 extract_access_db <- function(job, path) {
-  con <- .connect_access_db(path)
-  on.exit(dbDisconnect(con))
-
-  # Tables to extract (A, B, C, D equivalent in Access)
+  is_windows <- .Platform$OS.type == "windows"
   target_tables <- c("TblScheda", "TblSchedaDiagnosi", "TblSchedaProcedure")
   
-  cli_alert_info("Reading {length(target_tables)} tables from Access...")
-
-  dfs <- list()
-  for (t in target_tables) {
-    if (t %in% dbListTables(con)) {
-      cli_inform("Reading: {.val {t}}")
-      dfs[[t]] <- dbReadTable(con, t) |> as_tibble()
-      cli_alert_success("Read {.val {t}} : {nrow(dfs[[t]])} rows")
+  if (is_windows) {
+    # --- ENGINE 1: ODBC (Windows) ---
+    con <- .connect_access_db(path)
+    on.exit(dbDisconnect(con))
+    
+    cli_alert_info("Reading {length(target_tables)} tables via ODBC (Windows)...")
+    dfs <- list()
+    for (t in target_tables) {
+      if (t %in% dbListTables(con)) {
+        cli_inform("Reading: {.val {t}}")
+        dfs[[t]] <- dbReadTable(con, t) |> as_tibble()
+        cli_alert_success("Read {.val {t}} : {nrow(dfs[[t]])} rows")
+      }
     }
+    return(dfs)
+    
+  } else {
+    # --- ENGINE 2: MDB-EXPORT (Linux) ---
+    cli_alert_info("Reading {length(target_tables)} tables via mdb-export (Linux)...")
+    
+    # 1. Get list of available tables
+    available_tables <- system2("mdb-tables", args = c("-1", shQuote(path)), stdout = TRUE)
+    
+    dfs <- list()
+    for (t in target_tables) {
+      if (t %in% available_tables) {
+        cli_inform("Exporting: {.val {t}}")
+        
+        # Read CSV directly from mdb-export pipe
+        # We use read.csv because it's standard, then convert to tibble
+        csv_data <- read.csv(pipe(paste("mdb-export", shQuote(path), shQuote(t))), stringsAsFactors = FALSE)
+        
+        dfs[[t]] <- as_tibble(csv_data)
+        cli_alert_success("Extracted {.val {t}} : {nrow(dfs[[t]])} rows")
+      } else {
+        cli_alert_warning("Table {.val {t}} not found in .mdb file.")
+      }
+    }
+    return(dfs)
   }
-
-  return(dfs)
 }
 
 
