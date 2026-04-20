@@ -36,11 +36,11 @@ box::use(
       )
     )
   } else {
-    # On Linux, using explicit arguments is often more robust for unixODBC
+    # On Linux, MDBTools often requires 'DBQ' as the key even via arguments
     dbConnect(
       odbc(),
       Driver = driver_name,
-      Database = .mdb_path_abs
+      DBQ = .mdb_path_abs
     )
   }
   return(con)
