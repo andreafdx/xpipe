@@ -111,39 +111,113 @@ box::use(
 
 ## Inbox ------------------------------------------------------------------
 
-#' Resolve input file from inbox
+#' Resolve input path from inbox
 #'
 #' @param config xacc_config object.
-#' @param filename Character scalar.
-#' @return Normalized absolute file path.
+#' @param path Character scalar.
+#' @return Normalized absolute path.
 #' @keywords internal
 #' @noRd
-.resolve_inbox_file <- function(config, filename) {
-  if (!is.character(filename) || length(filename) != 1 || !nzchar(filename)) {
+.resolve_inbox_path <- function(config, path) {
+  if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
     cli::cli_abort(
       c(
-        "Invalid filename",
-        "x" = "{.arg filename} must be a non-empty string"
+        "Invalid path",
+        "x" = "{.arg path} must be a non-empty string"
       ),
-      class = c("batch_job", "filename")
+      class = c("batch_job", "path")
     )
   }
 
-  full_path <- fs::path(config$local$paths$inbox, filename)
+  full_path <- fs::path(config$local$paths$inbox, path)
   if (!fs::file_exists(full_path)) {
     cli::cli_abort(
       c(
-        "Input file not found",
-        "x" = "File {.file {filename}} was not found in inbox",
+        "Input path not found",
+        "x" = "Path {.file {path}} was not found in inbox",
         "i" = "Inbox: {.file {config$local$paths$inbox}}"
       ),
-      class = c("batch_job", "filename")
+      class = c("batch_job", "path")
     )
   }
 
   fs::path_norm(full_path)
 }
 
+#' Validate input type against method requirement
+#'
+#' @keywords internal
+#' @noRd
+.validate_input_type <- function(filepath, method_config) {
+  required_type <- method_config$input_type
+  actual_is_dir <- fs::is_dir(filepath)
+
+  if (required_type == "file" && actual_is_dir) {
+    cli::cli_abort(
+      c(
+        "Invalid input type",
+        "x" = "Method {.val {method_config$method_id}} requires a file, but a directory was provided.",
+        "i" = "Path: {.file {filepath}}"
+      ),
+      class = c("batch_job", "input_type")
+    )
+  }
+
+  if (required_type == "directory" && !actual_is_dir) {
+    cli::cli_abort(
+      c(
+        "Invalid input type",
+        "x" = "Method {.val {method_config$method_id}} requires a directory, but a file was provided.",
+        "i" = "Path: {.file {filepath}}"
+      ),
+      class = c("batch_job", "input_type")
+    )
+  }
+}
+
+#' Discover and validate method components in a directory
+#'
+#' @keywords internal
+#' @noRd
+.discover_components <- function(dir_path, method_config) {
+  components <- method_config$components
+  if (is.null(components)) return(NULL)
+
+  resolved <- list()
+
+  for (nm in names(components)) {
+    pattern <- components[[nm]]
+    matches <- fs::dir_ls(dir_path, glob = pattern)
+
+    if (length(matches) == 0) {
+      cli::cli_abort(
+        c(
+          "Missing component",
+          "x" = "Could not find file for component {.val {nm}}",
+          "i" = "Pattern: {.val {pattern}}",
+          "i" = "Directory: {.file {dir_path}}"
+        ),
+        class = c("batch_job", "components")
+      )
+    }
+
+    if (length(matches) > 1) {
+      cli::cli_abort(
+        c(
+          "Ambiguous component",
+          "x" = "Multiple files found for component {.val {nm}}",
+          "i" = "Pattern: {.val {pattern}}",
+          "i" = "Found: {.file {basename(matches)}}"
+        ),
+        class = c("batch_job", "components")
+      )
+    }
+
+    resolved[[nm]] <- as.character(matches)
+  }
+
+  resolved
+}
 ## Alt --------------------------------------------------------------------
 
 # Validate alt flag
@@ -218,7 +292,8 @@ box::use(
     stream_id, stream_config,
     alt,
     batch_root, batch_dir,
-    batch_id
+    batch_id,
+    components = NULL
 ) {
   structure(
     list(
@@ -232,7 +307,8 @@ box::use(
       alt = alt,
       batch_root = batch_root,
       batch_dir = batch_dir,
-      status = "initialized"
+      status = "initialized",
+      components = components
     ),
     class = "xacc_batch_job"
   )
@@ -259,7 +335,17 @@ new_batch_job <- function(
   # Inject stream_id into stream_config for downstream use
   stream_config$stream_id <- stream_id
   
-  filepath  <- .resolve_inbox_file(config, filename)
+  filepath  <- .resolve_inbox_path(config, filename)
+
+  # Validation against method requirement
+  .validate_input_type(filepath, method_config)
+  
+  # Discover components if it's a directory
+  components <- if (fs::is_dir(filepath)) {
+    .discover_components(filepath, method_config)
+  } else {
+    NULL
+  }
 
   .assert_alt_flag(alt)
 
@@ -276,7 +362,8 @@ new_batch_job <- function(
     alt = alt,
     batch_root = config$local$paths$batch,
     batch_dir = batch_dir,
-    batch_id = batch_id
+    batch_id = batch_id,
+    components = components
   )
 }
 
@@ -296,11 +383,18 @@ print.xacc_batch_job <- function(x, ...) {
 
   cli::cli_h2("Input")
   cli::cli_bullets(c(
-    "file        : {.file {x$filepath}}",
-    "method      : {.val {x$method_id}}",
+    "path        : {.file {x$filepath}}",
+    "method      : {.val {x$method_id}} [{.val {x$method_config$type}}]",
     "stream      : {.val {x$stream_id}}",
     "anchor      : {.val {x$stream_config$anchor}}"
   ))
+  
+  if (!is.null(x$components)) {
+    cli::cli_h3("Components discovered")
+    cli::cli_bullets(
+      purrr::imap_chr(x$components, ~ paste0("{.strong ", .y, "} : {.file ", basename(.x), "}"))
+    )
+  }
 
   if (isTRUE(x$alt)) {
     cli::cli_warn(

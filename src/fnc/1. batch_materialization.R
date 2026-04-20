@@ -149,7 +149,31 @@
 #' @noRd
 .run_extraction <- function(job, instrument) {
 
-  extracted <- instrument(job, job$filepath)
+  if (!is.null(job$components)) {
+    # Multi-component extraction (Directory based)
+    cli::cli_alert_info("Running multi-component extraction ({length(job$components)} files)")
+    
+    extracted <- list()
+    for (nm in names(job$components)) {
+      path <- job$components[[nm]]
+      cli::cli_inform("Component {.val {nm}} : {.file {basename(path)}}")
+      
+      # Call instrument for each component
+      res <- instrument(job, path)
+      
+      # If instrument returns a list (unlikely for single component but possible), merge
+      if (is.data.frame(res)) {
+        extracted[[nm]] <- res
+      } else if (is.list(res)) {
+        # Prefix keys to avoid name collisions if multiple files return same table names
+        names(res) <- paste0(nm, "_", names(res))
+        extracted <- c(extracted, res)
+      }
+    }
+  } else {
+    # Single-file extraction
+    extracted <- instrument(job, job$filepath)
+  }
 
   if (is.data.frame(extracted)) {
     extracted <- list(data = extracted)
