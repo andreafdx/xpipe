@@ -202,14 +202,15 @@ promote_to_bronze <- function(config, stream_id = NULL) {
 
         -- 2. Deduplicate pending: latest batch wins for each identity
         CREATE OR REPLACE TEMP TABLE dedup_pending AS
-        SELECT pv.* EXCLUDE(batch_id, filename)
+        SELECT pv.* EXCLUDE(batch_id, filename), year(pv.%s) as year
         FROM pending_view pv
         JOIN pending_meta pm ON pv.batch_id = pm.batch_id
         WHERE year(pv.%s) = %d
         QUALIFY row_number() OVER(PARTITION BY %s ORDER BY pm.created_at DESC) = 1;
       ",
       batch_paths_sql,
-      stream_cfg$partition_column,
+      stream_cfg$partition_column, # FOR THE SELECT
+      stream_cfg$partition_column, # FOR THE WHERE
       yr,
       paste(stream_cfg$identity_keys, collapse = ", ")
       )
@@ -225,7 +226,7 @@ promote_to_bronze <- function(config, stream_id = NULL) {
               SELECT 1 FROM dedup_pending d 
               WHERE %s
             )
-            UNION ALL
+            UNION ALL BY NAME
             SELECT * FROM dedup_pending
           ) TO '%s' (FORMAT PARQUET);
         ",
