@@ -1,0 +1,10 @@
+{
+  "sdo_hosp_a": {
+    "stream": "sdo",
+    "type": "access_db",
+    "table": "EXPORT_TABLE",
+    "mapping": {
+      "PK_ID": "numero_scheda"
+    }
+  }
+}
