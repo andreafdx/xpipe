@@ -27,14 +27,22 @@ box::use(
 
   cli_alert_info("Connecting using driver: {.val {driver_name}}")
 
-  con <- dbConnect(
-    odbc(),
-    .connection_string = paste0(
-      "Driver={", driver_name, "};",
-      "DBQ=", .mdb_path_abs, ";",
-      "UID=;PWD=;"
+  con <- if (is_windows) {
+    dbConnect(
+      odbc(),
+      .connection_string = paste0(
+        "Driver={", driver_name, "};",
+        "DBQ=", .mdb_path_abs, ";"
+      )
     )
-  )
+  } else {
+    # On Linux, using explicit arguments is often more robust for unixODBC
+    dbConnect(
+      odbc(),
+      Driver = driver_name,
+      Database = .mdb_path_abs
+    )
+  }
   return(con)
 }
 
