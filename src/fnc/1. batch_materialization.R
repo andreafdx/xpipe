@@ -194,19 +194,10 @@
       )
     }
 
-    # Fallback to RDS if arrow is not available
-    if (requireNamespace("arrow", quietly = TRUE)) {
-      arrow::write_parquet(
-        tbl, 
-        fs::path(job$batch_dir, paste0(nm, ".parquet"))
-      )
-    } else {
-      cli::cli_alert_warning("Package {.pkg arrow} not found. Falling back to RDS.")
-      saveRDS(
-        tbl, 
-        fs::path(job$batch_dir, paste0(nm, ".rds"))
-      )
-    }
+    arrow::write_parquet(
+      tbl, 
+      fs::path(job$batch_dir, paste0(nm, ".parquet"))
+    )
   }
 
   # Meta file as JSON for cross-platform compatibility
