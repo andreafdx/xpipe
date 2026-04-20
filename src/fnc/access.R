@@ -36,12 +36,11 @@ box::use(
       )
     )
   } else {
-    # On Linux, some MDBTools versions prefer a raw string without braces
+    # Disable attributes that often fail in MDBTools on Linux
     dbConnect(
       odbc(),
-      .connection_string = paste0(
-        "Driver=MDBTools;DBQ=", .mdb_path_abs, ";"
-      )
+      .connection_string = paste0("Driver=MDBTools;DBQ=", .mdb_path_abs, ";"),
+      timeout = 0 # Disables SQL_ATTR_CONNECTION_TIMEOUT which often fails
     )
   }
   return(con)
