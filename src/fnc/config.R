@@ -208,10 +208,10 @@ box::use(
 
 # Batch layer (Remote) ---------------------------------------------------
 
-#' Validate Batch Layer Path and Presence of batch.json
+#' Validate Batch Layer Path and Presence of layer.json
 #'
 #' @param local_config Local configuration.
-#' @return Path to batch.json.
+#' @return Path to layer.json.
 #' @noRd
 .validate_batch_layer <- function(local_config) {
   batch_path <- local_config$paths$batch
@@ -234,91 +234,29 @@ box::use(
     )
   }
 
-  batch_json <- fs::path(batch_path, "batch.json")
-  if (!fs::file_exists(batch_json)) {
+  layer_json <- fs::path(batch_path, "layer.json")
+  if (!fs::file_exists(layer_json)) {
     cli::cli_abort(
       c(
-        "Invalid batch.json",
-        "x" = "Required file not found",
-        "i" = "Expected: batch.json in {.file {batch_path}}"
+        "Invalid layer metadata",
+        "x" = "Required file {.file layer.json} not found",
+        "i" = "Expected: layer.json in {.file {batch_path}}"
       ),
       class = c("local_options", "paths")
     )
   }
 
-  batch_json
-}
-
-#' Validate Batch JSON Against Schema
-#'
-#' @param batch_json_path Path to batch.json.
-#' @noRd
-.validate_batch_schema <- function(batch_json_path) {
-  .validate_json_schema(
-    json_path = batch_json_path,
-    schema_name = "batch.schema.json",
-    title = "Invalid batch.json",
-    class = c("json_options", "schema")
-  )
-}
-
-#' Validate Batch Datastream Definitions
-#'
-#' @param batch_options Parsed batch.json.
-#' @return Validated options.
-#' @noRd
-.validate_batch_datastream <- function(batch_options) {
-  if (is.null(batch_options$datastream)) {
-    cli::cli_abort(
-      c("Invalid batch.json", "x" = "Missing field: datastream"),
-      class = c("json_options", "datastream")
-    )
-  }
-
-  for (nm in names(batch_options$datastream)) {
-    stream <- batch_options$datastream[[nm]]
-
-    if (is.null(stream$anchor) || !(stream$anchor %in% c("start", "end"))) {
-      cli::cli_abort(
-        c(
-          "Invalid batch.json",
-          "x" = "Invalid value for {.field anchor}",
-          "i" = "Path: datastream.{nm}.anchor",
-          ">" = "Expected: 'start' or 'end'"
-        ),
-        class = c("json_options", "datastream")
-      )
-    }
-
-    if (!is.null(stream$alt) &&
-        (!is.character(stream$alt) || !nzchar(stream$alt))) {
-      cli::cli_abort(
-        c("Invalid batch.json", "x" = "Invalid alt value"),
-        class = c("json_options", "datastream")
-      )
-    }
-
-    if (!is.null(stream$batch_span)) {
-      if (!is.character(stream$batch_span)) {
-        cli::cli_abort(
-          c("Invalid batch.json", "x" = "batch_span must be a character vector"),
-          class = c("json_options", "datastream")
-        )
-      }
-    }
-  }
-
-  batch_options
+  layer_json
 }
 
 #' Validate Batch Integrity Hash
 #'
-#' @param batch_options Parsed batch.json.
+#' @param layer_options Parsed layer.json.
 #' @param pepper Runtime key.
 #' @param test_string Test string.
 #' @noRd
 .validate_batch_hash <- function(
-    batch_options,
+    layer_options,
     pepper,
     test_string = "byut5f778DfOPth567"
 ) {
@@ -328,18 +266,18 @@ box::use(
     return(invisible(TRUE))
   }
 
-  expected_hash <- batch_options$expected_hash
+  expected_hash <- layer_options$expected_hash
 
   if (is.null(expected_hash) || expected_hash == "") {
     cli::cli_abort(
-      c("Invalid batch.json", "x" = "Missing expected_hash"),
+      c("Invalid layer.json", "x" = "Missing expected_hash"),
       class = c("json_options", "crypto")
     )
   }
 
   if (.hash_phi(test_string, pepper) != expected_hash) {
     cli::cli_abort(
-      c("Invalid batch.json", "x" = "Hash mismatch. System will not start."),
+      c("Invalid layer.json", "x" = "Hash mismatch. System will not start."),
       class = c("json_options", "crypto")
     )
   }
@@ -351,24 +289,21 @@ box::use(
 #'
 #' @param local_config Local configuration.
 #' @param runtime_config Runtime configuration.
-#' @return Validated batch options.
+#' @return Validated layer options.
 #' @noRd
 .load_batch_layer <- function(local_config, runtime_config) {
-  batch_json <- .validate_batch_layer(local_config)
+  layer_json <- .validate_batch_layer(local_config)
 
-  .validate_batch_schema(batch_json)
-
-  batch_options <- .read_json_safe(
-    path = batch_json,
-    error_title = "Invalid batch.json",
+  # Note: Add layer.schema.json if rigorous validation is needed later
+  layer_options <- .read_json_safe(
+    path = layer_json,
+    error_title = "Invalid layer.json",
     error_class = c("json_options", "batch")
   )
 
-  batch_options <- .validate_batch_datastream(batch_options)
+  .validate_batch_hash(layer_options, runtime_config$pepper)
 
-  .validate_batch_hash(batch_options, runtime_config$pepper)
-
-  batch_options
+  layer_options
 }
 
 # Streams layer (Remote) --------------------------------------------------
@@ -379,10 +314,7 @@ box::use(
 #' @return Validated streams configuration.
 #' @noRd
 .load_streams_layer <- function(local_config) {
-  # Resolve from data root (parent of batch/bronze usually)
-  # Assuming streams.json is in the same directory as batch/bronze or their parent
-  # Per vision: data/streams.json
-  path <- fs::path(fs::path_dir(local_config$paths$batch), "streams.json")
+  path <- fs::path(local_config$paths$logic, "streams.json")
 
   .validate_json_schema(
     json_path = path,
@@ -406,7 +338,7 @@ box::use(
 #' @return Validated methods configuration.
 #' @noRd
 .load_methods_layer <- function(local_config) {
-  path <- fs::path(fs::path_dir(local_config$paths$batch), "methods.json")
+  path <- fs::path(local_config$paths$logic, "methods.json")
 
   .validate_json_schema(
     json_path = path,
