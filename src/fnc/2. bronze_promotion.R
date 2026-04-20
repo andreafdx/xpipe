@@ -3,7 +3,8 @@ box::use(
   fs,
   cli,
   duckdb,
-  DBI
+  DBI,
+  purrr[imap_chr]
 )
 
 #' Get Bronze State
@@ -14,9 +15,9 @@ box::use(
 #' @return A list with the current state.
 #' @export
 get_bronze_state <- function(config) {
-  path <- fs$path(config$local$paths$bronze, "layer.json")
+  path <- fs::path(config$local$paths$bronze, "layer.json")
   
-  if (!fs$file_exists(path)) {
+  if (!fs::file_exists(path)) {
     cli$cli_abort(
       c(
         "Bronze layer state not found",
@@ -49,7 +50,7 @@ get_bronze_state <- function(config) {
 #' @param state A list representing the updated state.
 #' @export
 save_bronze_state <- function(config, state) {
-  path <- fs$path(config$local$paths$bronze, "layer.json")
+  path <- fs::path(config$local$paths$bronze, "layer.json")
   
   tryCatch(
     {
@@ -164,103 +165,70 @@ promote_to_bronze <- function(config, stream_id = NULL) {
       next
     }
     
+    primary_tbl <- stream_cfg$primary_table
     s_pending <- pending[pending$stream_id == s_id, ]
     
-    # 1. Identify all tables in the pending batches
+    # 1. Discover all tables in this stream's pending batches
     all_parquet_files <- fs::dir_ls(
       fs::path(config$local$paths$batch, s_id, s_pending$batch_id), 
       glob = "*.parquet"
     )
-    
     table_names <- unique(fs::path_ext_remove(fs::path_file(all_parquet_files)))
-    
-    for (tbl_nm in table_names) {
-      cli$cli_h3("Table: {.val {tbl_nm}}")
+
+    # 2. Process batches individually
+    for (i in seq_len(nrow(s_pending))) {
+      b_meta <- s_pending[i, ]
+      cli$cli_h3("Batch: {.val {b_meta$batch_id}}")
       
-      # 2. Resolve paths for this specific table across batches
-      table_batches <- s_pending
-      table_batches$table_path <- fs::path(
-        config$local$paths$batch, 
-        s_id, 
-        table_batches$batch_id, 
-        paste0(tbl_nm, ".parquet")
-      )
+      # 2.1 Determine years using the PRIMARY table
+      primary_path <- fs::path(config$local$paths$batch, s_id, b_meta$batch_id, paste0(primary_tbl, ".parquet"))
       
-      table_batches <- table_batches[fs::file_exists(table_batches$table_path), ]
+      if (!fs::file_exists(primary_path)) {
+        cli$cli_alert_danger("Primary table {.val {primary_tbl}} missing in batch. Skipping batch.")
+        next
+      }
       
-      if (nrow(table_batches) == 0) next
-      
-      batch_paths_sql <- paste0("'", table_batches$table_path, "'", collapse = ", ")
-      
-      # 3. Identify affected years for this table
       years_query <- sprintf(
-        "SELECT DISTINCT year(%s) as year FROM read_parquet([%s])",
-        stream_cfg$partition_column,
-        batch_paths_sql
+        "SELECT DISTINCT year(%s) as year FROM read_parquet('%s')",
+        stream_cfg$partition_column, primary_path
       )
-      
       affected_years <- DBI$dbGetQuery(con, years_query)$year
       
-      for (yr in affected_years) {
-        cli$cli_alert_info("Merging Year: {.val {yr}}")
+      # 2.2 Apply these years to all tables in the batch
+      for (tbl_nm in table_names) {
+        batch_tbl_path <- fs::path(config$local$paths$batch, s_id, b_meta$batch_id, paste0(tbl_nm, ".parquet"))
+        if (!fs::file_exists(batch_tbl_path)) next
         
-        # Flat structure: bronze/{stream}/year=YYYY/{table}.parquet
-        bronze_yr_dir <- fs::path(config$local$paths$bronze, s_id, paste0("year=", yr))
-        fs::dir_create(bronze_yr_dir, recurse = TRUE)
-        bronze_file <- fs::path(bronze_yr_dir, paste0(tbl_nm, ".parquet"))
-        
-        # Step A: Load Pending Data for this year and table
-        DBI$dbWriteTable(con, "pending_meta", table_batches, overwrite = TRUE)
-        
-        merge_sql <- sprintf("
-          -- 1. Create a view of all pending data with batch IDs
-          CREATE OR REPLACE VIEW pending_view AS 
-          SELECT *, regexp_extract(filename, '.*/([^/]+)/[^/]+\\.parquet', 1) as batch_id
-          FROM read_parquet([%s], filename=TRUE);
-
-          -- 2. Deduplicate pending: latest batch wins for each identity
-          CREATE OR REPLACE TEMP TABLE dedup_pending AS
-          SELECT pv.* EXCLUDE(batch_id, filename), year(pv.%s) as year
-          FROM pending_view pv
-          JOIN pending_meta pm ON pv.batch_id = pm.batch_id
-          WHERE year(pv.%s) = %d
-          QUALIFY row_number() OVER(PARTITION BY %s ORDER BY pm.created_at DESC) = 1;
-        ",
-        batch_paths_sql,
-        stream_cfg$partition_column,
-        stream_cfg$partition_column,
-        yr,
-        paste(stream_cfg$identity_keys, collapse = ", ")
-        )
-        
-        DBI$dbExecute(con, merge_sql)
-        
-        # Step B: Combine with existing Bronze
-        if (fs::file_exists(bronze_file)) {
-          combine_sql <- sprintf("
-            COPY (
-              SELECT * FROM read_parquet('%s') b
-              WHERE NOT EXISTS (
-                SELECT 1 FROM dedup_pending d 
-                WHERE %s
-              )
-              UNION ALL BY NAME
-              SELECT * FROM dedup_pending
-            ) TO '%s' (FORMAT PARQUET);
-          ",
-          bronze_file,
-          paste(paste0("b.", stream_cfg$identity_keys, " = d.", stream_cfg$identity_keys), collapse = " AND "),
-          bronze_file
-          )
-        } else {
-          combine_sql <- sprintf("
-            COPY dedup_pending TO '%s' (FORMAT PARQUET);
-          ",
-          bronze_file
-          )
+        for (yr in affected_years) {
+          cli$cli_alert_info("Table {.val {tbl_nm}} -> Year {.val {yr}}")
+          
+          bronze_yr_dir <- fs::path(config$local$paths$bronze, s_id, paste0("year=", yr))
+          fs::dir_create(bronze_yr_dir, recurse = TRUE)
+          bronze_file <- fs::path(bronze_yr_dir, paste0(tbl_nm, ".parquet"))
+          
+          if (fs::file_exists(bronze_file)) {
+            combine_sql <- sprintf("
+              COPY (
+                SELECT * FROM read_parquet('%s') b
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM read_parquet('%s') p 
+                  WHERE %s
+                )
+                UNION ALL BY NAME
+                SELECT * FROM read_parquet('%s')
+              ) TO '%s' (FORMAT PARQUET);
+            ",
+            bronze_file,
+            batch_tbl_path,
+            paste(paste0("b.", stream_cfg$identity_keys, " = p.", stream_cfg$identity_keys), collapse = " AND "),
+            batch_tbl_path,
+            bronze_file
+            )
+          } else {
+            combine_sql <- sprintf("COPY (SELECT * FROM read_parquet('%s')) TO '%s' (FORMAT PARQUET);", batch_tbl_path, bronze_file)
+          }
+          DBI$dbExecute(con, combine_sql)
         }
-        
-        DBI$dbExecute(con, combine_sql)
       }
     }
   }
@@ -274,4 +242,3 @@ promote_to_bronze <- function(config, stream_id = NULL) {
   cli$cli_alert_success("Promotion complete. {nrow(pending)} batches merged.")
   invisible(TRUE)
 }
-
