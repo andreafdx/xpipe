@@ -1,0 +1,10 @@
+{
+  "sdo": {
+    "identity_keys": ["numero_scheda", "codice_istituto"],
+    "partition_column": "data_dimissione",
+    "partition_granularity": "year",
+    "anchor": "end",
+    "pseudonymize": ["cf", "id_paziente"],
+    "skip": ["nome", "cognome"]
+  }
+}

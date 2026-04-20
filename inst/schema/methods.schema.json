@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "required": ["stream", "type"],
+    "properties": {
+      "stream": { "type": "string" },
+      "type": { "type": "string", "enum": ["access_db", "xml", "csv"] },
+      "table": { "type": "string" },
+      "mapping": { "type": "object", "additionalProperties": { "type": "string" } }
+    }
+  }
+}

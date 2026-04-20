@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": {
+    "type": "object",
+    "required": ["identity_keys", "partition_column", "anchor"],
+    "properties": {
+      "identity_keys": { "type": "array", "items": { "type": "string" } },
+      "partition_column": { "type": "string" },
+      "partition_granularity": { "type": "string", "enum": ["year", "month"] },
+      "anchor": { "type": "string", "enum": ["start", "end"] },
+      "pseudonymize": { "type": "array", "items": { "type": "string" } },
+      "skip": { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}

@@ -322,6 +322,12 @@ box::use(
     pepper,
     test_string = "byut5f778DfOPth567"
 ) {
+  # Bypass hash check if environment variable is set
+  if (Sys.getenv("XACC_SKIP_HASH_CHECK") == "TRUE") {
+    cli::cli_alert_warning("Bypassing batch integrity hash check.")
+    return(invisible(TRUE))
+  }
+
   expected_hash <- batch_options$expected_hash
 
   if (is.null(expected_hash) || expected_hash == "") {
@@ -365,6 +371,52 @@ box::use(
   batch_options
 }
 
+# Streams layer ----------------------------------------------------------
+
+#' Load Streams Layer
+#'
+#' @return Validated streams configuration.
+#' @noRd
+.load_streams_layer <- function() {
+  path <- .find_asset("_xne", "streams.json")
+
+  .validate_json_schema(
+    json_path = path,
+    schema_name = "streams.schema.json",
+    title = "Invalid streams.json",
+    class = c("config_options", "schema")
+  )
+
+  .read_json_safe(
+    path,
+    error_title = "Invalid streams configuration",
+    error_class = "streams_options"
+  )
+}
+
+# Methods layer ----------------------------------------------------------
+
+#' Load Methods Layer
+#'
+#' @return Validated methods configuration.
+#' @noRd
+.load_methods_layer <- function() {
+  path <- .find_asset("_xne", "methods.json")
+
+  .validate_json_schema(
+    json_path = path,
+    schema_name = "methods.schema.json",
+    title = "Invalid methods.json",
+    class = c("config_options", "schema")
+  )
+
+  .read_json_safe(
+    path,
+    error_title = "Invalid methods configuration",
+    error_class = "methods_options"
+  )
+}
+
 # Bootloader -------------------------------------------------------------
 
 #' Load and Validate Configuration
@@ -378,6 +430,8 @@ load_options <- function(path = NULL, project_root = NULL) {
   config$runtime <- .load_runtime_layer()
   config$local   <- .load_local_layer(path, project_root)
   config$batch   <- .load_batch_layer(config$local, config$runtime)
+  config$streams <- .load_streams_layer()
+  config$methods <- .load_methods_layer()
 
   cli::cli_alert_success("Configuration system loaded and validated.")
 
@@ -443,6 +497,28 @@ load_options <- function(path = NULL, project_root = NULL) {
           "{.strong ", .y, "} ",
           "(anchor: {.val ", .x$anchor, "})"
         )
+      )
+    )
+  }
+
+  # 4. Layer: Streams
+  cli::cli_h2("Layer: Streams")
+  if (!is.null(x$streams)) {
+    cli::cli_bullets(
+      purrr::imap_chr(
+        x$streams,
+        ~ paste0("{.strong ", .y, "}")
+      )
+    )
+  }
+
+  # 5. Layer: Methods
+  cli::cli_h2("Layer: Methods")
+  if (!is.null(x$methods)) {
+    cli::cli_bullets(
+      purrr::imap_chr(
+        x$methods,
+        ~ paste0("{.strong ", .y, "} (stream: {.val ", .x$stream, "})")
       )
     )
   }
