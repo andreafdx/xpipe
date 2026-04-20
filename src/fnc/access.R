@@ -31,8 +31,7 @@ box::use(
     odbc(),
     .connection_string = paste0(
       "Driver={", driver_name, "};",
-      if (is_windows) "DBQ=" else "Database=",
-      .mdb_path_abs, ";"
+      "DBQ=", .mdb_path_abs, ";"
     )
   )
   return(con)
