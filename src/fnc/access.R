@@ -31,7 +31,8 @@ box::use(
     odbc(),
     .connection_string = paste0(
       "Driver={", driver_name, "};",
-      "DBQ=", .mdb_path_abs, ";"
+      "DBQ=", .mdb_path_abs, ";",
+      "UID=;PWD=;"
     )
   )
   return(con)
