@@ -4,10 +4,6 @@
 # Pipeline Initialization and Run Script
 # ======================================================================= #
 
-# 1. Setup Dev Environment
-Sys.setenv(XNE_PEPPER_KEY = "dev_testing_pepper_123")
-Sys.setenv(XACC_SKIP_HASH_CHECK = "TRUE")
-
 # Assumes you run this script with the working directory set to the project root ("R projects/xacc")
 source("src/fnc/config.R")
 source("src/fnc/crypto.R")
