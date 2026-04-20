@@ -8,7 +8,7 @@ box::use(
 #' Assert configuration validity for batch creation
 #'
 #' Ensures that a valid `xacc_config` object is provided and that
-#' all required branches (local paths, batch datastreams) are present.
+#' all required branches (local paths, streams, methods) are present.
 #'
 #' @param config An object of class `xacc_config`.
 #' @return Invisibly returns TRUE if valid, otherwise aborts.
@@ -25,64 +25,88 @@ box::use(
     )
   }
 
-  if (is.null(config$local$paths$inbox) ||
-      is.null(config$local$paths$batch)) {
+  required_paths <- c("inbox", "raw", "batch")
+  missing_paths <- setdiff(required_paths, names(config$local$paths))
+  
+  if (length(missing_paths) > 0) {
     cli::cli_abort(
       c(
         "Invalid configuration",
-        "x" = "Missing required paths in config",
-        "i" = "Expected: config$local$paths$inbox and config$local$paths$batch"
+        "x" = "Missing required paths in config: {.val {missing_paths}}"
       ),
       class = c("batch_job", "config", "paths")
     )
   }
 
-  if (is.null(config$batch$datastream)) {
+  if (is.null(config$streams) || is.null(config$methods)) {
     cli::cli_abort(
       c(
         "Invalid configuration",
-        "x" = "Batch datastream options not loaded"
+        "x" = "Streams or Methods options not loaded"
       ),
-      class = c("batch_job", "config", "datastream")
+      class = c("batch_job", "config", "metadata")
     )
   }
 
   invisible(TRUE)
 }
 
-# Datastream validation ---------------------------------------------------
+# Method and Stream validation --------------------------------------------
 
-#' Retrieve datastream configuration from batch layer
+#' Retrieve method configuration
 #'
 #' @param config xacc_config object.
-#' @param datastream Character scalar.
-#' @return A list with the datastream configuration.
+#' @param method_id Character scalar.
+#' @return A list with the method configuration.
 #' @keywords internal
 #' @noRd
-.get_datastream_config <- function(config, datastream) {
-  if (!is.character(datastream) || length(datastream) != 1 || !nzchar(datastream)) {
+.get_method_config <- function(config, method_id) {
+  if (!is.character(method_id) || length(method_id) != 1 || !nzchar(method_id)) {
     cli::cli_abort(
       c(
-        "Invalid datastream",
-        "x" = "{.arg datastream} must be a non-empty string"
+        "Invalid method",
+        "x" = "{.arg method_id} must be a non-empty string"
       ),
-      class = c("batch_job", "datastream")
+      class = c("batch_job", "method")
     )
   }
 
-  available <- names(config$batch$datastream)
-  if (!(datastream %in% available)) {
+  available <- names(config$methods)
+  if (!(method_id %in% available)) {
     cli::cli_abort(
       c(
-        "Invalid datastream",
-        "x" = "Unknown datastream: {.val {datastream}}",
-        "i" = "Available datastreams: {.str {available}}"
+        "Invalid method",
+        "x" = "Unknown method: {.val {method_id}}",
+        "i" = "Available methods: {.str {available}}"
       ),
-      class = c("batch_job", "datastream")
+      class = c("batch_job", "method")
     )
   }
 
-  config$batch$datastream[[datastream]]
+  config$methods[[method_id]]
+}
+
+#' Retrieve stream configuration
+#'
+#' @param config xacc_config object.
+#' @param stream_id Character scalar.
+#' @return A list with the stream configuration.
+#' @keywords internal
+#' @noRd
+.get_stream_config <- function(config, stream_id) {
+  available <- names(config$streams)
+  if (!(stream_id %in% available)) {
+    cli::cli_abort(
+      c(
+        "Invalid stream",
+        "x" = "Unknown stream: {.val {stream_id}}",
+        "i" = "Available streams: {.str {available}}"
+      ),
+      class = c("batch_job", "stream")
+    )
+  }
+
+  config$streams[[stream_id]]
 }
 
 ## Inbox ------------------------------------------------------------------
@@ -161,7 +185,7 @@ box::use(
 
 ## Batch id & storage -----------------------------------------------------
 
-.normalize_or_generate_batch_id <- function(storage_stream, batch_id = NULL) {
+.normalize_or_generate_batch_id <- function(stream_id, batch_id = NULL) {
   if (!is.null(batch_id)) {
     if (!is.character(batch_id) || length(batch_id) != 1 || !nzchar(batch_id)) {
       cli::cli_abort(
@@ -178,20 +202,21 @@ box::use(
   ts <- format(Sys.time(), "%Y%m%d_%H%M%OS3")
   ts <- gsub("\\.", "", ts)
 
-  paste0(storage_stream, "_", ts)
+  paste0(stream_id, "_", ts)
 }
 
-.build_batch_target_dir <- function(config, storage_stream, batch_id) {
+.build_batch_target_dir <- function(config, stream_id, batch_id) {
   fs::path_norm(
-    fs::path(config$local$paths$batch, storage_stream, batch_id)
+    fs::path(config$local$paths$batch, stream_id, batch_id)
   )
 }
 
 # Build S3 batch job object
 .build_batch_job <- function(
     filename, filepath,
-    datastream, storage_stream,
-    anchor, alt,
+    method_id, method_config,
+    stream_id, stream_config,
+    alt,
     batch_root, batch_dir,
     batch_id
 ) {
@@ -200,9 +225,10 @@ box::use(
       batch_id = batch_id,
       filename = filename,
       filepath = filepath,
-      datastream = datastream,
-      storage_stream = storage_stream,
-      anchor = anchor,
+      method_id = method_id,
+      method_config = method_config,
+      stream_id = stream_id,
+      stream_config = stream_config,
       alt = alt,
       batch_root = batch_root,
       batch_dir = batch_dir,
@@ -219,30 +245,34 @@ box::use(
 #' @export
 new_batch_job <- function(
     filename,
-    datastream,
+    method,
     alt = FALSE,
     config,
     batch_id = NULL
 ) {
   .assert_config_for_batch(config)
 
-  ds_config <- .get_datastream_config(config, datastream)
+  method_config <- .get_method_config(config, method)
+  stream_id     <- method_config$stream
+  stream_config <- .get_stream_config(config, stream_id)
+  
+  # Inject stream_id into stream_config for downstream use
+  stream_config$stream_id <- stream_id
+  
   filepath  <- .resolve_inbox_file(config, filename)
 
   .assert_alt_flag(alt)
-  storage_stream <- .resolve_storage_stream(datastream, ds_config, alt)
 
-  anchor <- ds_config$anchor
-
-  batch_id  <- .normalize_or_generate_batch_id(storage_stream, batch_id)
-  batch_dir <- .build_batch_target_dir(config, storage_stream, batch_id)
+  batch_id  <- .normalize_or_generate_batch_id(stream_id, batch_id)
+  batch_dir <- .build_batch_target_dir(config, stream_id, batch_id)
 
   .build_batch_job(
     filename = filename,
     filepath = filepath,
-    datastream = datastream,
-    storage_stream = storage_stream,
-    anchor = anchor,
+    method_id = method,
+    method_config = method_config,
+    stream_id = stream_id,
+    stream_config = stream_config,
     alt = alt,
     batch_root = config$local$paths$batch,
     batch_dir = batch_dir,
@@ -267,15 +297,15 @@ print.xacc_batch_job <- function(x, ...) {
   cli::cli_h2("Input")
   cli::cli_bullets(c(
     "file        : {.file {x$filepath}}",
-    "datastream  : {.val {x$datastream}}",
-    "anchor      : {.val {x$anchor}}"
+    "method      : {.val {x$method_id}}",
+    "stream      : {.val {x$stream_id}}",
+    "anchor      : {.val {x$stream_config$anchor}}"
   ))
 
   if (isTRUE(x$alt)) {
     cli::cli_warn(
       c(
-        "Alternate variant enabled",
-        "i" = "Stored under {.val {x$storage_stream}}"
+        "Alternate variant enabled"
       ),
       class = c("batch_job", "alt")
     )
@@ -284,7 +314,7 @@ print.xacc_batch_job <- function(x, ...) {
   cli::cli_h2("Storage (Batch)")
   cli::cli_bullets(c(
     "root        : {.file {x$batch_root}}",
-    "stream      : {.val {x$storage_stream}}",
+    "stream      : {.val {x$stream_id}}",
     "batch_id    : {.val {x$batch_id}}",
     "target dir  : {.file {x$batch_dir}}"
   ))

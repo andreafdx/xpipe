@@ -118,12 +118,13 @@
 #' @noRd
 .resolve_extraction_instrument <- function(job, config) {
 
-  datastream <- job$datastream
+  method_type <- job$method_config$type
 
   instrument <- switch(
-    datastream,
-    "sdo" = extract_sdo,
-    "ps"  = extract_ps,
+    method_type,
+    "access_db" = extract_access_db,
+    "xml"       = extract_xml,
+    "csv"       = extract_csv,
     NULL
   )
 
@@ -131,7 +132,7 @@
     cli::cli_abort(
       c(
         "No extraction instrument available",
-        "x" = "No extractor registered for datastream {.val {datastream}}"
+        "x" = "No extractor registered for method type {.val {method_type}}"
       ),
       class = c("batch_job", "instrument")
     )
@@ -177,7 +178,7 @@
 #' @noRd
 .persist_to_batch <- function(job, extracted_data) {
 
-  fs::dir_create(job$batch_dir)
+  fs::dir_create(job$batch_dir, recurse = TRUE)
 
   for (nm in names(extracted_data)) {
     tbl <- extracted_data[[nm]]
@@ -193,17 +194,36 @@
       )
     }
 
-    saveRDS(tbl, fs::path(job$batch_dir, paste0(nm, ".rds")))
+    # Fallback to RDS if arrow is not available
+    if (requireNamespace("arrow", quietly = TRUE)) {
+      arrow::write_parquet(
+        tbl, 
+        fs::path(job$batch_dir, paste0(nm, ".parquet"))
+      )
+    } else {
+      cli::cli_alert_warning("Package {.pkg arrow} not found. Falling back to RDS.")
+      saveRDS(
+        tbl, 
+        fs::path(job$batch_dir, paste0(nm, ".rds"))
+      )
+    }
   }
 
-  saveRDS(
-    list(
-      batch_id   = job$batch_id,
-      datastream = job$datastream,
-      anchor     = job$anchor,
-      created_at = Sys.time()
-    ),
-    fs::path(job$batch_dir, "_batch_metadata.rds")
+  # Meta file as JSON for cross-platform compatibility
+  meta <- list(
+    batch_id   = job$batch_id,
+    stream_id  = job$stream_id,
+    method_id  = job$method_id,
+    alt        = job$alt,
+    anchor     = job$stream_config$anchor,
+    created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+  )
+  
+  jsonlite::write_json(
+    meta, 
+    fs::path(job$batch_dir, "_batch_metadata.json"),
+    pretty = TRUE,
+    auto_unbox = TRUE
   )
 
   invisible(TRUE)
@@ -214,7 +234,7 @@
 #' Materialize a batch job
 #'
 #' Executes the full batch materialization lifecycle:
-#' guardrails → extraction → batch persistence.
+#' guardrails → extraction → privacy → batch persistence.
 #'
 #' @export
 materialize_batch_job <- function(job, config) {
@@ -225,6 +245,15 @@ materialize_batch_job <- function(job, config) {
 
   instrument     <- .resolve_extraction_instrument(job, config)
   extracted_data <- .run_extraction(job, instrument)
+
+  # Apply privacy rules to each extracted table
+  extracted_data <- lapply(extracted_data, function(df) {
+    apply_privacy_rules(
+      df, 
+      job$stream_config, 
+      config$runtime$pepper
+    )
+  })
 
   .persist_to_batch(job, extracted_data)
 
