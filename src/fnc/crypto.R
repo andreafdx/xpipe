@@ -101,42 +101,37 @@ box::use(
 
 
 
-# Applica tutte le regole di privacy all'elenco dei dataframe -------------
-
-.apply_privacy <- function(dfs, pepper) {
-
-  cli::cli_alert_info("Applico le regole di privacy")
-
-  if ("TblScheda" %in% names(dfs)) {
-    cli::cli_inform("TblScheda in lavorazione")
-
-    dfs$TblScheda <- dfs$TblScheda |>
-      .pseudonymize_cols(
-        cols = c("c_CodicePaziente", "c_CodiceMadre"),
-        pepper = pepper
-      ) |>
-      .remove_nome_cognome()
+# Applica tutte le regole di privacy a un dataframe basato sulla configurazione dello stream
+#'
+#' @param df Dataframe da elaborare.
+#' @param stream_config Lista contenente le opzioni dello stream (pseudonymize, skip).
+#' @param pepper Character. La chiave segreta HMAC.
+#' @return Dataframe elaborato.
+#' @export
+apply_privacy_rules <- function(df, stream_config, pepper) {
+  
+  cli::cli_alert_info("Applico le regole di privacy per lo stream: {.val {stream_config$stream_id}}")
+  
+  # 1. Pseudonimizzazione
+  if (!is.null(stream_config$pseudonymize) && length(stream_config$pseudonymize) > 0) {
+    df <- .pseudonymize_cols(df, stream_config$pseudonymize, pepper)
   }
-
-  if ("TblSchedaProcedure" %in% names(dfs)) {
-    cli::cli_inform("TblSchedaProcedure in lavorazione")
-
-    dfs$TblSchedaProcedure <- dfs$TblSchedaProcedure |>
-      .pseudonymize_cols(
-        cols = c(
-          "c_Chirurgo1",
-          "c_Chirurgo2",
-          "c_Chirurgo3",
-          "c_Anestesista"
-        ),
-        pepper = pepper
-      )
+  
+  # 2. Rimozione colonne (skip)
+  if (!is.null(stream_config$skip) && length(stream_config$skip) > 0) {
+    existing_skip <- intersect(stream_config$skip, names(df))
+    if (length(existing_skip) > 0) {
+      cli::cli_inform("Rimuovo le colonne saltate: {paste(existing_skip, collapse = ', ')}")
+      df <- dplyr::select(df, -dplyr::all_of(existing_skip))
+    }
   }
-
-  cli::cli_alert_success("Tutte le regole di privacy applicate")
-
-  return(dfs)
+  
+  cli::cli_alert_success("Regole di privacy applicate correttamente.")
+  
+  return(df)
 }
+
+# Funzioni legacy per compatibilità (opzionale, se usate altrove) -----------
 
 
 
