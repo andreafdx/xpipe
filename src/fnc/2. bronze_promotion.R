@@ -1,7 +1,9 @@
 box::use(
   jsonlite,
   fs,
-  cli
+  cli,
+  duckdb,
+  DBI
 )
 
 #' Get Bronze State
@@ -102,6 +104,13 @@ identify_pending_batches <- function(config) {
   # Bind into a data.frame for easier sorting/filtering
   batches_df <- do.call(rbind, lapply(batches, as.data.frame, stringsAsFactors = FALSE))
   
+  # Ensure we only include batches that physically have data.parquet
+  batches_df$has_parquet <- sapply(meta_files, function(p) {
+    fs$file_exists(fs$path(fs$path_dir(p), "data.parquet"))
+  })
+  
+  batches_df <- batches_df[batches_df$has_parquet, ]
+  
   # Filter out promoted batches
   pending <- batches_df[!batches_df$batch_id %in% promoted, ]
   
@@ -111,5 +120,138 @@ identify_pending_batches <- function(config) {
   }
   
   return(pending)
+}
+
+#' Promote Batches to Bronze
+#'
+#' Orchestrates the bulk promotion of pending batches to the Bronze layer.
+#'
+#' @param config xacc_config object.
+#' @param stream_id Optional filter for a specific stream.
+#' @export
+promote_to_bronze <- function(config, stream_id = NULL) {
+  pending <- identify_pending_batches(config)
+  
+  if (nrow(pending) == 0) {
+    cli$cli_alert_info("No pending batches to promote.")
+    return(invisible(TRUE))
+  }
+  
+  if (!is.null(stream_id)) {
+    pending <- pending[pending$stream_id == stream_id, ]
+    if (nrow(pending) == 0) {
+      cli$cli_alert_info("No pending batches for stream {.val {stream_id}}.")
+      return(invisible(TRUE))
+    }
+  }
+  
+  cli$cli_h1("Bronze Promotion (The Librarian)")
+  
+  # Connect to in-memory DuckDB
+  con <- DBI$dbConnect(duckdb$duckdb())
+  on.exit(DBI$dbDisconnect(con, shutdown = TRUE))
+  
+  # Group by stream
+  streams <- unique(pending$stream_id)
+  
+  for (s_id in streams) {
+    cli$cli_h2("Processing stream: {.val {s_id}}")
+    
+    stream_cfg <- config$streams[[s_id]]
+    if (is.null(stream_cfg)) {
+      cli$cli_alert_danger("Configuration missing for stream {.val {s_id}}. Skipping.")
+      next
+    }
+    
+    s_pending <- pending[pending$stream_id == s_id, ]
+    
+    # 1. Resolve physical paths for pending batches
+    s_pending$data_path <- fs::path(
+      config$local$paths$batch, 
+      s_id, 
+      s_pending$batch_id, 
+      "data.parquet"
+    )
+    
+    # 2. Identify affected years
+    batch_paths_sql <- paste0("'", s_pending$data_path, "'", collapse = ", ")
+    
+    years_query <- sprintf(
+      "SELECT DISTINCT year(%s) as year FROM read_parquet([%s])",
+      stream_cfg$partition_column,
+      batch_paths_sql
+    )
+    
+    affected_years <- DBI$dbGetQuery(con, years_query)$year
+    
+    for (yr in affected_years) {
+      cli$cli_alert_info("Merging Year: {.val {yr}}")
+      
+      bronze_yr_dir <- fs::path(config$local$paths$bronze, s_id, paste0("year=", yr))
+      fs::dir_create(bronze_yr_dir, recurse = TRUE)
+      bronze_file <- fs::path(bronze_yr_dir, "data.parquet")
+      
+      # Step A: Load Pending Data for this specific year, deduplicated (Latest Wins)
+      DBI$dbWriteTable(con, "pending_meta", s_pending, overwrite = TRUE)
+      
+      merge_sql <- sprintf("
+        -- 1. Create a view of all pending data with batch IDs
+        CREATE OR REPLACE VIEW pending_view AS 
+        SELECT *, regexp_extract(filename, '.*/([^/]+)/data\\.parquet', 1) as batch_id
+        FROM read_parquet([%s], filename=TRUE);
+
+        -- 2. Deduplicate pending: latest batch wins for each identity
+        CREATE OR REPLACE TEMP TABLE dedup_pending AS
+        SELECT pv.* EXCLUDE(batch_id, filename)
+        FROM pending_view pv
+        JOIN pending_meta pm ON pv.batch_id = pm.batch_id
+        WHERE year(pv.%s) = %d
+        QUALIFY row_number() OVER(PARTITION BY %s ORDER BY pm.created_at DESC) = 1;
+      ",
+      batch_paths_sql,
+      stream_cfg$partition_column,
+      yr,
+      paste(stream_cfg$identity_keys, collapse = ", ")
+      )
+      
+      DBI$dbExecute(con, merge_sql)
+      
+      # Step B: Combine with existing Bronze
+      if (fs::file_exists(bronze_file)) {
+        combine_sql <- sprintf("
+          COPY (
+            SELECT * FROM read_parquet('%s') b
+            WHERE NOT EXISTS (
+              SELECT 1 FROM dedup_pending d 
+              WHERE %s
+            )
+            UNION ALL
+            SELECT * FROM dedup_pending
+          ) TO '%s' (FORMAT PARQUET);
+        ",
+        bronze_file,
+        paste(paste0("b.", stream_cfg$identity_keys, " = d.", stream_cfg$identity_keys), collapse = " AND "),
+        bronze_file
+        )
+      } else {
+        combine_sql <- sprintf("
+          COPY dedup_pending TO '%s' (FORMAT PARQUET);
+        ",
+        bronze_file
+        )
+      }
+      
+      DBI$dbExecute(con, combine_sql)
+    }
+  }
+  
+  # Update State
+  state <- get_bronze_state(config)
+  state$promoted_batches <- unique(c(state$promoted_batches, pending$batch_id))
+  state$last_promotion_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+  save_bronze_state(config, state)
+  
+  cli$cli_alert_success("Promotion complete. {nrow(pending)} batches merged.")
+  invisible(TRUE)
 }
 

@@ -4,44 +4,82 @@
 # Pipeline Initialization and Run Script
 # ======================================================================= #
 
+# 1. Setup Dev Environment
+Sys.setenv(XNE_PEPPER_KEY = "dev_testing_pepper_123")
+Sys.setenv(XACC_SKIP_HASH_CHECK = "TRUE")
+
 # Assumes you run this script with the working directory set to the project root ("R projects/xacc")
 source("src/fnc/config.R")
 source("src/fnc/crypto.R")
 source("src/fnc/0. batch_initialization.R")
 source("src/fnc/1. batch_materialization.R")
+source("src/fnc/2. bronze_promotion.R")
 
 # 2. Load Configuration
 .cfg <- load_options()
 
-# 3. Mock Extractor (To simulate Access DB without needing a real file)
+# 3. Mock Extractor
+# We use a global to toggle which batch data we return
+mock_batch_version <<- 1
+
 extract_access_db <<- function(job, path) {
-  data.frame(
-    numero_scheda = c("1001", "1002"),
-    codice_istituto = c("HOSP01", "HOSP01"),
-    cf = c("RSSMRA80A01H501U", "PLTMRA75L41F205K"),
-    nome = c("Mario", "Maria"),
-    cognome = c("Rossi", "Pilati"),
-    data_dimissione = as.Date(c("2025-03-15", "2025-04-20")),
-    stringsAsFactors = FALSE
-  )
+  if (mock_batch_version == 1) {
+    # Original data
+    data.frame(
+      numero_scheda = c("1001", "1002"),
+      codice_istituto = c("HOSP01", "HOSP01"),
+      cf = c("RSSMRA80A01H501U", "PLTMRA75L41F205K"),
+      nome = c("Mario", "Maria"),
+      cognome = c("Rossi", "Pilati"),
+      data_dimissione = as.Date(c("2025-03-15", "2025-04-20")),
+      stringsAsFactors = FALSE
+    )
+  } else {
+    # Updated data: Patient 1001 has a new discharge date
+    data.frame(
+      numero_scheda = c("1001"),
+      codice_istituto = c("HOSP01"),
+      cf = c("RSSMRA80A01H501U"),
+      nome = c("Mario"),
+      cognome = c("Rossi"),
+      data_dimissione = as.Date(c("2025-03-20")), # CHANGED
+      stringsAsFactors = FALSE
+    )
+  }
 }
+
 if (!dir.exists("inbox")) dir.create("inbox")
 cat("dummy data", file = "inbox/test_sdo_2025.mdb")
 
-# 4. Initialize the pipeline context
-my_job <- new_batch_job(
-  filename = "test_sdo_2025.mdb",
-  method = "sdo_hosp_a",
-  alt = FALSE,
-  config = .cfg
-)
-print(.cfg) # Should now trigger the stylish render
-print(my_job)
+# --- EXECUTION ---
 
-# 5. Pipeline execution (Materialization)
-my_job <- materialize_batch_job(my_job, .cfg)
-print(my_job)
+# A. First Ingestion
+cli::cli_h2("Act 1: First Ingestion")
+mock_batch_version <<- 1
+job1 <- new_batch_job(filename = "test_sdo_2025.mdb", method = "sdo_hosp_a", config = .cfg)
+materialize_batch_job(job1, .cfg)
 
-# Read the generated Parquet to verify
-cat("\n--- Resulting Parquet File ---\n")
-print(arrow::read_parquet(fs::path(my_job$batch_dir, "data.parquet")))
+# B. Second Ingestion (The Correction)
+cli::cli_h2("Act 1: Second Ingestion (Correction)")
+Sys.sleep(1.1) # Ensure different timestamp
+mock_batch_version <<- 2
+job2 <- new_batch_job(filename = "test_sdo_2025.mdb", method = "sdo_hosp_a", config = .cfg)
+materialize_batch_job(job2, .cfg)
+
+# C. Promotion to Bronze (The Librarian)
+cli::cli_h2("Act 2: Bronze Promotion")
+promote_to_bronze(.cfg)
+
+# D. Verification
+cli::cli_h2("Verification: The Current Truth")
+bronze_2025_file <- fs::path(.cfg$local$paths$bronze, "sdo", "year=2025", "data.parquet")
+truth <- arrow::read_parquet(bronze_2025_file)
+print(truth)
+
+# Check if 1001 has the new date (2025-03-20)
+p1001 <- truth[truth$numero_scheda == "1001", ]
+if (nrow(p1001) == 1 && p1001$data_dimissione == as.Date("2025-03-20")) {
+  cli::cli_alert_success("VERIFIED: 'Latest Wins' logic correctly applied.")
+} else {
+  cli::cli_alert_danger("FAILED: 'Latest Wins' logic failed or record duplicated.")
+}
