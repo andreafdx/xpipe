@@ -84,22 +84,21 @@ promote_to_bronze(.cfg, stream_id = "sdo")
 # E. Verify Bronze
 cli::cli_h2("Verification: Bronze Content")
 bronze_stream_dir <- fs::path(.cfg$local$paths$bronze, "sdo")
-# Check year folder first
 year_folder <- fs::path(bronze_stream_dir, "year=2025")
 
 if (fs::dir_exists(year_folder)) {
   cli::cli_alert_success("VERIFIED: Year partition folder {.val year=2025} exists.")
   
-  # Check tables inside year
-  bronze_tables <- fs::dir_ls(year_folder, type = "directory")
-  cli::cli_alert_info("Tables discovered in 2025: {.val {basename(bronze_tables)}}")
+  # Check for flat parquet files inside the year folder
+  bronze_files <- fs::dir_ls(year_folder, glob = "*.parquet")
+  cli::cli_alert_info("Parquet files discovered in 2025: {.val {basename(bronze_files)}}")
   
-  expected_tables <- c("TblAnagrafica", "TblProcedures", "TblRicoveroICD10", "TblRicoveroICD9")
-  for (et in expected_tables) {
-    if (fs::dir_exists(fs::path(year_folder, et))) {
-      cli::cli_alert_success("VERIFIED: Table {.val {et}} correctly partitioned under year.")
+  expected_files <- c("TblAnagrafica.parquet", "TblProcedures.parquet", "TblRicoveroICD10.parquet", "TblRicoveroICD9.parquet")
+  for (ef in expected_files) {
+    if (fs::file_exists(fs::path(year_folder, ef))) {
+      cli::cli_alert_success("VERIFIED: Flat file {.val {ef}} exists under year.")
     } else {
-      cli::cli_alert_danger("FAILED: Table {.val {et}} missing under year partition.")
+      cli::cli_alert_danger("FAILED: Flat file {.val {ef}} missing under year.")
     }
   }
 } else {

@@ -204,10 +204,10 @@ promote_to_bronze <- function(config, stream_id = NULL) {
       for (yr in affected_years) {
         cli$cli_alert_info("Merging Year: {.val {yr}}")
         
-        # New structure: bronze/{stream}/year=YYYY/{table}/data.parquet
-        bronze_yr_dir <- fs::path(config$local$paths$bronze, s_id, paste0("year=", yr), tbl_nm)
+        # Flat structure: bronze/{stream}/year=YYYY/{table}.parquet
+        bronze_yr_dir <- fs::path(config$local$paths$bronze, s_id, paste0("year=", yr))
         fs::dir_create(bronze_yr_dir, recurse = TRUE)
-        bronze_file <- fs::path(bronze_yr_dir, "data.parquet")
+        bronze_file <- fs::path(bronze_yr_dir, paste0(tbl_nm, ".parquet"))
         
         # Step A: Load Pending Data for this year and table
         DBI$dbWriteTable(con, "pending_meta", table_batches, overwrite = TRUE)
