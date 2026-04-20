@@ -3,14 +3,12 @@ box::use(
   cli
 )
 
-
 # Helper functions --------------------------------------------------------
-
 
 #' Assert configuration validity for batch creation
 #'
 #' Ensures that a valid `xacc_config` object is provided and that
-#' all required branches (local paths, bronze datastreams) are present.
+#' all required branches (local paths, batch datastreams) are present.
 #'
 #' @param config An object of class `xacc_config`.
 #' @return Invisibly returns TRUE if valid, otherwise aborts.
@@ -27,22 +25,23 @@ box::use(
     )
   }
 
-  if (is.null(config$local$paths$inbox) || is.null(config$local$paths$bronze)) {
+  if (is.null(config$local$paths$inbox) ||
+      is.null(config$local$paths$batch)) {
     cli::cli_abort(
       c(
         "Invalid configuration",
         "x" = "Missing required paths in config",
-        "i" = "Expected: config$local$paths$inbox and config$local$paths$bronze"
+        "i" = "Expected: config$local$paths$inbox and config$local$paths$batch"
       ),
       class = c("batch_job", "config", "paths")
     )
   }
 
-  if (is.null(config$bronze$datastream)) {
+  if (is.null(config$batch$datastream)) {
     cli::cli_abort(
       c(
         "Invalid configuration",
-        "x" = "Bronze datastream options not loaded"
+        "x" = "Batch datastream options not loaded"
       ),
       class = c("batch_job", "config", "datastream")
     )
@@ -51,14 +50,9 @@ box::use(
   invisible(TRUE)
 }
 
-
 # Datastream validation ---------------------------------------------------
 
-
-#' Retrieve datastream configuration from bronze layer
-#'
-#' Validates the datastream identifier and returns the corresponding
-#' configuration from `config$bronze$datastream`.
+#' Retrieve datastream configuration from batch layer
 #'
 #' @param config xacc_config object.
 #' @param datastream Character scalar.
@@ -76,7 +70,7 @@ box::use(
     )
   }
 
-  available <- names(config$bronze$datastream)
+  available <- names(config$batch$datastream)
   if (!(datastream %in% available)) {
     cli::cli_abort(
       c(
@@ -88,16 +82,12 @@ box::use(
     )
   }
 
-  config$bronze$datastream[[datastream]]
+  config$batch$datastream[[datastream]]
 }
-
 
 ## Inbox ------------------------------------------------------------------
 
 #' Resolve input file from inbox
-#'
-#' Validates the filename and resolves the absolute path inside
-#' `config$local$paths$inbox`.
 #'
 #' @param config xacc_config object.
 #' @param filename Character scalar.
@@ -130,77 +120,9 @@ box::use(
   fs::path_norm(full_path)
 }
 
-
-## Time block -------------------------------------------------------------
-
-# Validate year
-.assert_year <- function(year) {
-  if (!is.numeric(year) || length(year) != 1 || is.na(year)) {
-    cli::cli_abort(
-      c(
-        "Invalid year",
-        "x" = "{.arg year} must be a single numeric value (e.g., 2025)"
-      ),
-      class = c("batch_job", "year")
-    )
-  }
-  invisible(TRUE)
-}
-
-
-#' Normalize quarter according to time_block
-#'
-#' Applies datastream time logic:
-#' - quarterly streams require quarter 1–4
-#' - yearly streams ignore quarter
-#'
-#' @param datastream Character scalar.
-#' @param ds_config Datastream configuration.
-#' @param quarter Numeric or NULL.
-#' @return Normalized quarter value or NULL.
-#' @keywords internal
-#' @noRd
-.normalize_quarter_by_time_block <- function(datastream, ds_config, quarter) {
-  tb <- ds_config$time_block
-
-  if (identical(tb, "q")) {
-    if (is.null(quarter) || !is.numeric(quarter) || length(quarter) != 1 ||
-        is.na(quarter) || !(quarter %in% 1:4)) {
-      cli::cli_abort(
-        c(
-          "Invalid quarter: {.val {quarter}}",
-          "x" = "Datastream {.val {datastream}} has time block 'q': quarter must be 1..4"
-        ),
-        class = c("batch_job", "quarter")
-      )
-    }
-    return(quarter)
-  }
-
-  if (identical(tb, "y")) {
-    if (!is.null(quarter)) {
-      cli::cli_alert_warning(
-        "Quarter ignored. Datastream {.val {datastream}} has time block 'y'",
-        class = c("batch_job", "quarter")
-      )
-    }
-    return(NULL)
-  }
-
-  cli::cli_abort(
-    c(
-      "Invalid datastream configuration",
-      "x" = "Unexpected time_block",
-      "!" = "Found: {.val {tb}}"
-    ),
-    class = c("batch_job", "config", "datastream")
-  )
-}
-
-
 ## Alt --------------------------------------------------------------------
 
-# Validate alt flag (banale)
+# Validate alt flag
 .assert_alt_flag <- function(alt) {
   if (!is.logical(alt) || length(alt) != 1 || is.na(alt)) {
     cli::cli_abort(
@@ -214,29 +136,19 @@ box::use(
   invisible(TRUE)
 }
 
-
-#' Resolve effective bronze storage stream
+#' Resolve effective batch storage stream
 #'
-#' If `alt = TRUE`, returns the alternate folder name declared
-#' in `ds_config$alt`. Otherwise returns the base datastream name.
-#'
-#' @param datastream Character scalar.
-#' @param ds_config Datastream configuration.
-#' @param alt Logical scalar.
-#' @return Character scalar. Folder name used for bronze storage.
 #' @keywords internal
 #' @noRd
 .resolve_storage_stream <- function(datastream, ds_config, alt) {
   alt_folder <- ds_config$alt
 
   if (isTRUE(alt)) {
-    if (is.null(alt_folder) || !is.character(alt_folder) ||
-        length(alt_folder) != 1 || !nzchar(alt_folder)) {
+    if (is.null(alt_folder) || !is.character(alt_folder) || !nzchar(alt_folder)) {
       cli::cli_abort(
         c(
           "Alternative version not supported",
-          "x" = "Datastream {.val {datastream}} does not declare an alternate folder",
-          "i" = "Define {.field alt} in bronze.json or set {.code alt = FALSE}"
+          "x" = "Datastream {.val {datastream}} does not declare an alternate folder"
         ),
         class = c("batch_job", "alt", "datastream")
       )
@@ -247,16 +159,9 @@ box::use(
   datastream
 }
 
+## Batch id & storage -----------------------------------------------------
 
-
-# Batch id & storage ------------------------------------------------------
-
-
-# Generate or validate batch_id
-.normalize_or_generate_batch_id <- function(
-    storage_stream,
-    batch_id = NULL
-) {
+.normalize_or_generate_batch_id <- function(storage_stream, batch_id = NULL) {
   if (!is.null(batch_id)) {
     if (!is.character(batch_id) || length(batch_id) != 1 || !nzchar(batch_id)) {
       cli::cli_abort(
@@ -270,28 +175,24 @@ box::use(
     return(batch_id)
   }
 
-
   ts <- format(Sys.time(), "%Y%m%d_%H%M%OS3")
-  ts <- gsub("\\.", "", ts)   # rimuove il punto dei millisecondi
+  ts <- gsub("\\.", "", ts)
 
   paste0(storage_stream, "_", ts)
 }
 
-
-# Build bronze target directory
-.build_bronze_target_dir <- function(config, storage_stream, batch_id) {
+.build_batch_target_dir <- function(config, storage_stream, batch_id) {
   fs::path_norm(
-    fs::path(config$local$paths$bronze, storage_stream, batch_id)
+    fs::path(config$local$paths$batch, storage_stream, batch_id)
   )
 }
-
 
 # Build S3 batch job object
 .build_batch_job <- function(
     filename, filepath,
     datastream, storage_stream,
-    year, quarter, alt,
-    bronze_root, bronze_dir,
+    anchor, alt,
+    batch_root, batch_dir,
     batch_id
 ) {
   structure(
@@ -301,45 +202,24 @@ box::use(
       filepath = filepath,
       datastream = datastream,
       storage_stream = storage_stream,
-      year = year,
-      quarter = quarter,
+      anchor = anchor,
       alt = alt,
-      bronze_root = bronze_root,
-      bronze_dir = bronze_dir,
+      batch_root = batch_root,
+      batch_dir = batch_dir,
       status = "initialized"
     ),
     class = "xacc_batch_job"
   )
 }
 
-
-
-# Job building (Public API) -----------------------------------------------
-
+## Public API -------------------------------------------------------------
 
 #' Create a new Batch Import Job
 #'
-#' Constructs and validates a batch job context for the ingestion pipeline.
-#'
-#' The job encapsulates all validated metadata required to import a file
-#' into the Bronze layer, including time semantics and alternate storage
-#' logic.
-#'
-#' @param filename Character. File name located in `config$local$paths$inbox`.
-#' @param datastream Character. Datastream identifier (e.g. "sdo", "ps").
-#' @param year Numeric. Reference year.
-#' @param quarter Numeric. Quarter (1–4) if required by the datastream.
-#' @param alt Logical. If TRUE, use alternate bronze storage folder.
-#' @param config xacc_config. Configuration object returned by `load_options()`.
-#' @param batch_id Character. Optional batch identifier.
-#'
-#' @return An S3 object of class \code{xacc_batch_job}.
 #' @export
 new_batch_job <- function(
     filename,
     datastream,
-    year,
-    quarter = NULL,
     alt = FALSE,
     config,
     batch_id = NULL
@@ -349,109 +229,68 @@ new_batch_job <- function(
   ds_config <- .get_datastream_config(config, datastream)
   filepath  <- .resolve_inbox_file(config, filename)
 
-  .assert_year(year)
-  quarter <- .normalize_quarter_by_time_block(datastream, ds_config, quarter)
-
   .assert_alt_flag(alt)
   storage_stream <- .resolve_storage_stream(datastream, ds_config, alt)
 
-  batch_id   <- .normalize_or_generate_batch_id(storage_stream, batch_id)
-  bronze_dir <- .build_bronze_target_dir(config, storage_stream, batch_id)
+  anchor <- ds_config$anchor
+
+  batch_id  <- .normalize_or_generate_batch_id(storage_stream, batch_id)
+  batch_dir <- .build_batch_target_dir(config, storage_stream, batch_id)
 
   .build_batch_job(
     filename = filename,
     filepath = filepath,
     datastream = datastream,
     storage_stream = storage_stream,
-    year = year,
-    quarter = quarter,
+    anchor = anchor,
     alt = alt,
-    bronze_root = config$local$paths$bronze,
-    bronze_dir = bronze_dir,
+    batch_root = config$local$paths$batch,
+    batch_dir = batch_dir,
     batch_id = batch_id
   )
 }
 
-
-# S3 Methods --------------------------------------------------------------
-
+## S3 print ---------------------------------------------------------------
 
 #' Print xacc batch job
 #'
-#' Pretty printer for xacc_batch_job objects.
-#'
-#' @param x An object of class \code{xacc_batch_job}.
-#' @param ... Unused.
 #' @export
 print.xacc_batch_job <- function(x, ...) {
-
   cli::cli_div(
     theme = list(rule = list(color = "cyan", "line-type" = "double"))
   )
   cli::cli_rule("XACC Batch Job")
 
-  # Status
   cli::cli_h2("Status")
+  cli::cli_alert_success(x$status)
 
-  status <- x$status %||% "unknown"
-  if (identical(status, "initialized")) {
-    cli::cli_alert_success("initialized")
-  } else {
-    cli::cli_alert_info(status)
-  }
-
-  # Input
   cli::cli_h2("Input")
-
-  variant <- if (isTRUE(x$alt)) {
-    paste0("alternate (", x$storage_stream, ")")
-  } else {
-    "none"
-  }
-
-  time_info <- if (is.null(x$quarter)) {
-    paste0("year = ", x$year)
-  } else {
-    paste0("year = ", x$year, ", quarter = ", x$quarter)
-  }
-
-
   cli::cli_bullets(c(
     "file        : {.file {x$filepath}}",
     "datastream  : {.val {x$datastream}}",
-    "time        : {.val {time_info}}"
+    "anchor      : {.val {x$anchor}}"
   ))
 
-  cli::cli_warn(
-    c(
-      "Alternate variant enabled",
-      "i" = "Data will be stored under {.val {x$storage_stream}} instead of {.val {x$datastream}}"
-    ),
-    class = c("batch_job", "alt")
-  )
-
-
-
-  # Storage (Bronze)
-  bronze <- cli::make_ansi_style("#cd7f32")
-  cli::cli_h2("Storage ({bronze('Bronze')})")
-
-  # Evidenzia variante SOLO se rilevante
   if (isTRUE(x$alt)) {
-    alt_style <- cli::make_ansi_style("red", bold = TRUE)
-
-    styled_stream <- alt_style(x$storage_stream)
-
-    cli::cli_bullets(c(
-      "root        : {.file {x$bronze_root}}",
-      paste0("stream      : ", styled_stream),
-      "batch_id    : {.val {x$batch_id}}",
-      "target dir  : {.file {x$bronze_dir}}"
-    ))
+    cli::cli_warn(
+      c(
+        "Alternate variant enabled",
+        "i" = "Stored under {.val {x$storage_stream}}"
+      ),
+      class = c("batch_job", "alt")
+    )
   }
+
+  cli::cli_h2("Storage (Batch)")
+  cli::cli_bullets(c(
+    "root        : {.file {x$batch_root}}",
+    "stream      : {.val {x$storage_stream}}",
+    "batch_id    : {.val {x$batch_id}}",
+    "target dir  : {.file {x$batch_dir}}"
+  ))
+
   cli::cli_rule()
   cli::cli_end()
 
   invisible(x)
 }
-
