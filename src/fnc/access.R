@@ -3,7 +3,8 @@ box::use(
   DBI[dbReadTable, dbConnect, dbListTables, dbDisconnect],
   odbc[odbc, odbcListDrivers],
   tibble[as_tibble],
-  cli[cli_alert_info, cli_alert_success, cli_inform, cli_abort],
+  cli[cli_alert_info, cli_alert_success, cli_inform, cli_abort, cli_alert_warning],
+  dplyr,
   fs
 )
 
@@ -89,6 +90,20 @@ extract_access_db <- function(job, path) {
         csv_data <- read.csv(pipe(paste("mdb-export", shQuote(path), shQuote(t))), stringsAsFactors = FALSE)
         
         dfs[[t]] <- as_tibble(csv_data)
+        
+        # --- Smart Date Casting (Linux) ---
+        # mdb-export returns dates as strings like "01/14/25 00:00:00"
+        # We find columns starting with "d_" and cast them to Date
+        date_cols <- grep("^d_", names(dfs[[t]]), value = TRUE)
+        if (length(date_cols) > 0) {
+          cli_inform("Casting {length(date_cols)} date columns...")
+          dfs[[t]] <- dfs[[t]] |>
+            dplyr::mutate(dplyr::across(
+              dplyr::all_of(date_cols),
+              ~ as.Date(., format = "%m/%d/%y %H:%M:%S")
+            ))
+        }
+        
         cli_alert_success("Extracted {.val {t}} : {nrow(dfs[[t]])} rows")
       } else {
         cli_alert_warning("Table {.val {t}} not found in .mdb file.")
