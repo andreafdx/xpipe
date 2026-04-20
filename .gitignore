@@ -10,3 +10,5 @@ data/
 output/
 .superpowers/
 bronze.txt
+!data/**/*.json
+!data/*.json

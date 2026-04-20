@@ -371,14 +371,18 @@ box::use(
   batch_options
 }
 
-# Streams layer ----------------------------------------------------------
+# Streams layer (Remote) --------------------------------------------------
 
 #' Load Streams Layer
 #'
+#' @param local_config Local configuration.
 #' @return Validated streams configuration.
 #' @noRd
-.load_streams_layer <- function() {
-  path <- .find_asset("_xne", "streams.json")
+.load_streams_layer <- function(local_config) {
+  # Resolve from data root (parent of batch/bronze usually)
+  # Assuming streams.json is in the same directory as batch/bronze or their parent
+  # Per vision: data/streams.json
+  path <- fs::path(fs::path_dir(local_config$paths$batch), "streams.json")
 
   .validate_json_schema(
     json_path = path,
@@ -394,14 +398,15 @@ box::use(
   )
 }
 
-# Methods layer ----------------------------------------------------------
+# Methods layer (Remote) --------------------------------------------------
 
 #' Load Methods Layer
 #'
+#' @param local_config Local configuration.
 #' @return Validated methods configuration.
 #' @noRd
-.load_methods_layer <- function() {
-  path <- .find_asset("_xne", "methods.json")
+.load_methods_layer <- function(local_config) {
+  path <- fs::path(fs::path_dir(local_config$paths$batch), "methods.json")
 
   .validate_json_schema(
     json_path = path,
@@ -430,8 +435,8 @@ load_options <- function(path = NULL, project_root = NULL) {
   config$runtime <- .load_runtime_layer()
   config$local   <- .load_local_layer(path, project_root)
   config$batch   <- .load_batch_layer(config$local, config$runtime)
-  config$streams <- .load_streams_layer()
-  config$methods <- .load_methods_layer()
+  config$streams <- .load_streams_layer(config$local)
+  config$methods <- .load_methods_layer(config$local)
 
   cli::cli_alert_success("Configuration system loaded and validated.")
 
