@@ -68,3 +68,48 @@ save_bronze_state <- function(config, state) {
   
   invisible(TRUE)
 }
+
+#' Identify Pending Batches
+#'
+#' Scans the batch layer for un-promoted batches.
+#'
+#' @param config xacc_config object.
+#' @return A data frame of pending batch metadata, sorted by creation time.
+#' @export
+identify_pending_batches <- function(config) {
+  state <- get_bronze_state(config)
+  promoted <- state$promoted_batches
+  if (is.null(promoted)) promoted <- character(0)
+  
+  batch_root <- config$local$paths$batch
+  
+  if (!fs$dir_exists(batch_root)) {
+    return(data.frame()) # No batches yet
+  }
+  
+  # Find all batch metadata files
+  meta_files <- fs$dir_ls(batch_root, recurse = TRUE, type = "file", glob = "*_batch_metadata.json")
+  
+  if (length(meta_files) == 0) {
+    return(data.frame())
+  }
+  
+  # Load all metadata
+  batches <- lapply(meta_files, function(p) {
+    jsonlite$fromJSON(p, simplifyVector = TRUE)
+  })
+  
+  # Bind into a data.frame for easier sorting/filtering
+  batches_df <- do.call(rbind, lapply(batches, as.data.frame, stringsAsFactors = FALSE))
+  
+  # Filter out promoted batches
+  pending <- batches_df[!batches_df$batch_id %in% promoted, ]
+  
+  if (nrow(pending) > 0) {
+    # Sort by created_at (ascending, so oldest first)
+    pending <- pending[order(pending$created_at), ]
+  }
+  
+  return(pending)
+}
+
