@@ -36,11 +36,12 @@ box::use(
       )
     )
   } else {
-    # On Linux, MDBTools often requires 'DBQ' as the key even via arguments
+    # On Linux, some MDBTools versions prefer a raw string without braces
     dbConnect(
       odbc(),
-      Driver = driver_name,
-      DBQ = .mdb_path_abs
+      .connection_string = paste0(
+        "Driver=MDBTools;DBQ=", .mdb_path_abs, ";"
+      )
     )
   }
   return(con)
