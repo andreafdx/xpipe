@@ -84,16 +84,24 @@ promote_to_bronze(.cfg, stream_id = "sdo")
 # E. Verify Bronze
 cli::cli_h2("Verification: Bronze Content")
 bronze_stream_dir <- fs::path(.cfg$local$paths$bronze, "sdo")
-bronze_tables <- fs::dir_ls(bronze_stream_dir, type = "directory")
-cli::cli_alert_info("Bronze tables discovered: {.val {basename(bronze_tables)}}")
+# Check year folder first
+year_folder <- fs::path(bronze_stream_dir, "year=2025")
 
-for (tbl in bronze_tables) {
-  # Direct check for folder existence
-  year_folder <- fs::path(tbl, "year=2025")
-  if (fs::dir_exists(year_folder)) {
-    cli::cli_alert_success("VERIFIED: Table {.val {basename(tbl)}} exists for year 2025.")
-  } else {
-    cli::cli_alert_danger("FAILED: Table {.val {basename(tbl)}} missing year 2025 folder.")
-    cli::cli_inform("Search path: {.file {year_folder}}")
+if (fs::dir_exists(year_folder)) {
+  cli::cli_alert_success("VERIFIED: Year partition folder {.val year=2025} exists.")
+  
+  # Check tables inside year
+  bronze_tables <- fs::dir_ls(year_folder, type = "directory")
+  cli::cli_alert_info("Tables discovered in 2025: {.val {basename(bronze_tables)}}")
+  
+  expected_tables <- c("TblAnagrafica", "TblProcedures", "TblRicoveroICD10", "TblRicoveroICD9")
+  for (et in expected_tables) {
+    if (fs::dir_exists(fs::path(year_folder, et))) {
+      cli::cli_alert_success("VERIFIED: Table {.val {et}} correctly partitioned under year.")
+    } else {
+      cli::cli_alert_danger("FAILED: Table {.val {et}} missing under year partition.")
+    }
   }
+} else {
+  cli::cli_alert_danger("FAILED: Year partition folder {.val year=2025} missing.")
 }

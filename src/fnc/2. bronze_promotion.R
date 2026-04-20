@@ -103,16 +103,17 @@ identify_pending_batches <- function(config) {
   
   # Bind into a data.frame for easier sorting/filtering
   batches_df <- do.call(rbind, lapply(batches, as.data.frame, stringsAsFactors = FALSE))
-  
-  # Ensure we only include batches that physically have data.parquet
-  batches_df$has_parquet <- sapply(meta_files, function(p) {
-    fs$file_exists(fs$path(fs$path_dir(p), "data.parquet"))
+
+  # Ensure we only include batches that have at least one parquet file
+  batches_df$has_data <- sapply(meta_files, function(p) {
+    length(fs::dir_ls(fs::path_dir(p), glob = "*.parquet")) > 0
   })
-  
-  batches_df <- batches_df[batches_df$has_parquet, ]
-  
+
+  batches_df <- batches_df[batches_df$has_data, ]
+
   # Filter out promoted batches
   pending <- batches_df[!batches_df$batch_id %in% promoted, ]
+
   
   if (nrow(pending) > 0) {
     # Sort by created_at (ascending, so oldest first)
@@ -165,84 +166,102 @@ promote_to_bronze <- function(config, stream_id = NULL) {
     
     s_pending <- pending[pending$stream_id == s_id, ]
     
-    # 1. Resolve physical paths for pending batches
-    s_pending$data_path <- fs::path(
-      config$local$paths$batch, 
-      s_id, 
-      s_pending$batch_id, 
-      "data.parquet"
+    # 1. Identify all tables in the pending batches
+    all_parquet_files <- fs::dir_ls(
+      fs::path(config$local$paths$batch, s_id, s_pending$batch_id), 
+      glob = "*.parquet"
     )
     
-    # 2. Identify affected years
-    batch_paths_sql <- paste0("'", s_pending$data_path, "'", collapse = ", ")
+    table_names <- unique(fs::path_ext_remove(fs::path_file(all_parquet_files)))
     
-    years_query <- sprintf(
-      "SELECT DISTINCT year(%s) as year FROM read_parquet([%s])",
-      stream_cfg$partition_column,
-      batch_paths_sql
-    )
-    
-    affected_years <- DBI$dbGetQuery(con, years_query)$year
-    
-    for (yr in affected_years) {
-      cli$cli_alert_info("Merging Year: {.val {yr}}")
+    for (tbl_nm in table_names) {
+      cli$cli_h3("Table: {.val {tbl_nm}}")
       
-      bronze_yr_dir <- fs::path(config$local$paths$bronze, s_id, paste0("year=", yr))
-      fs::dir_create(bronze_yr_dir, recurse = TRUE)
-      bronze_file <- fs::path(bronze_yr_dir, "data.parquet")
-      
-      # Step A: Load Pending Data for this specific year, deduplicated (Latest Wins)
-      DBI$dbWriteTable(con, "pending_meta", s_pending, overwrite = TRUE)
-      
-      merge_sql <- sprintf("
-        -- 1. Create a view of all pending data with batch IDs
-        CREATE OR REPLACE VIEW pending_view AS 
-        SELECT *, regexp_extract(filename, '.*/([^/]+)/data\\.parquet', 1) as batch_id
-        FROM read_parquet([%s], filename=TRUE);
-
-        -- 2. Deduplicate pending: latest batch wins for each identity
-        CREATE OR REPLACE TEMP TABLE dedup_pending AS
-        SELECT pv.* EXCLUDE(batch_id, filename), year(pv.%s) as year
-        FROM pending_view pv
-        JOIN pending_meta pm ON pv.batch_id = pm.batch_id
-        WHERE year(pv.%s) = %d
-        QUALIFY row_number() OVER(PARTITION BY %s ORDER BY pm.created_at DESC) = 1;
-      ",
-      batch_paths_sql,
-      stream_cfg$partition_column, # FOR THE SELECT
-      stream_cfg$partition_column, # FOR THE WHERE
-      yr,
-      paste(stream_cfg$identity_keys, collapse = ", ")
+      # 2. Resolve paths for this specific table across batches
+      table_batches <- s_pending
+      table_batches$table_path <- fs::path(
+        config$local$paths$batch, 
+        s_id, 
+        table_batches$batch_id, 
+        paste0(tbl_nm, ".parquet")
       )
       
-      DBI$dbExecute(con, merge_sql)
+      table_batches <- table_batches[fs::file_exists(table_batches$table_path), ]
       
-      # Step B: Combine with existing Bronze
-      if (fs::file_exists(bronze_file)) {
-        combine_sql <- sprintf("
-          COPY (
-            SELECT * FROM read_parquet('%s') b
-            WHERE NOT EXISTS (
-              SELECT 1 FROM dedup_pending d 
-              WHERE %s
-            )
-            UNION ALL BY NAME
-            SELECT * FROM dedup_pending
-          ) TO '%s' (FORMAT PARQUET);
+      if (nrow(table_batches) == 0) next
+      
+      batch_paths_sql <- paste0("'", table_batches$table_path, "'", collapse = ", ")
+      
+      # 3. Identify affected years for this table
+      years_query <- sprintf(
+        "SELECT DISTINCT year(%s) as year FROM read_parquet([%s])",
+        stream_cfg$partition_column,
+        batch_paths_sql
+      )
+      
+      affected_years <- DBI$dbGetQuery(con, years_query)$year
+      
+      for (yr in affected_years) {
+        cli$cli_alert_info("Merging Year: {.val {yr}}")
+        
+        # New structure: bronze/{stream}/year=YYYY/{table}/data.parquet
+        bronze_yr_dir <- fs::path(config$local$paths$bronze, s_id, paste0("year=", yr), tbl_nm)
+        fs::dir_create(bronze_yr_dir, recurse = TRUE)
+        bronze_file <- fs::path(bronze_yr_dir, "data.parquet")
+        
+        # Step A: Load Pending Data for this year and table
+        DBI$dbWriteTable(con, "pending_meta", table_batches, overwrite = TRUE)
+        
+        merge_sql <- sprintf("
+          -- 1. Create a view of all pending data with batch IDs
+          CREATE OR REPLACE VIEW pending_view AS 
+          SELECT *, regexp_extract(filename, '.*/([^/]+)/[^/]+\\.parquet', 1) as batch_id
+          FROM read_parquet([%s], filename=TRUE);
+
+          -- 2. Deduplicate pending: latest batch wins for each identity
+          CREATE OR REPLACE TEMP TABLE dedup_pending AS
+          SELECT pv.* EXCLUDE(batch_id, filename), year(pv.%s) as year
+          FROM pending_view pv
+          JOIN pending_meta pm ON pv.batch_id = pm.batch_id
+          WHERE year(pv.%s) = %d
+          QUALIFY row_number() OVER(PARTITION BY %s ORDER BY pm.created_at DESC) = 1;
         ",
-        bronze_file,
-        paste(paste0("b.", stream_cfg$identity_keys, " = d.", stream_cfg$identity_keys), collapse = " AND "),
-        bronze_file
+        batch_paths_sql,
+        stream_cfg$partition_column,
+        stream_cfg$partition_column,
+        yr,
+        paste(stream_cfg$identity_keys, collapse = ", ")
         )
-      } else {
-        combine_sql <- sprintf("
-          COPY dedup_pending TO '%s' (FORMAT PARQUET);
-        ",
-        bronze_file
-        )
+        
+        DBI$dbExecute(con, merge_sql)
+        
+        # Step B: Combine with existing Bronze
+        if (fs::file_exists(bronze_file)) {
+          combine_sql <- sprintf("
+            COPY (
+              SELECT * FROM read_parquet('%s') b
+              WHERE NOT EXISTS (
+                SELECT 1 FROM dedup_pending d 
+                WHERE %s
+              )
+              UNION ALL BY NAME
+              SELECT * FROM dedup_pending
+            ) TO '%s' (FORMAT PARQUET);
+          ",
+          bronze_file,
+          paste(paste0("b.", stream_cfg$identity_keys, " = d.", stream_cfg$identity_keys), collapse = " AND "),
+          bronze_file
+          )
+        } else {
+          combine_sql <- sprintf("
+            COPY dedup_pending TO '%s' (FORMAT PARQUET);
+          ",
+          bronze_file
+          )
+        }
+        
+        DBI$dbExecute(con, combine_sql)
       }
-      
-      DBI$dbExecute(con, combine_sql)
     }
   }
   
