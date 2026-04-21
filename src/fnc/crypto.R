@@ -33,6 +33,8 @@ hash_phi <- function(text, pepper) {
 
 #' Pseudonymize Columns
 #'
+#' Pseudonymize Columns
+#'
 #' @noRd
 .pseudonymize_cols <- function(df, cols, pepper) {
   existing <- intersect(cols, names(df))
@@ -51,7 +53,7 @@ hash_phi <- function(text, pepper) {
 #' @return Processed data frame.
 #' @export
 apply_privacy_rules <- function(df, stream_config, pepper) {
-  cli_alert_info("Applico le regole di privacy per lo stream: {.val {stream_config$stream_id}}")
+  cli_alert_info("Applying privacy rules for stream: {.val {stream_config$stream_id}}")
 
   # 1. Pseudonymization
   if (!is.null(stream_config$pseudonymize)) {
@@ -62,11 +64,11 @@ apply_privacy_rules <- function(df, stream_config, pepper) {
   if (!is.null(stream_config$skip)) {
     existing_skip <- intersect(stream_config$skip, names(df))
     if (length(existing_skip) > 0) {
-      cli_inform("Rimuovo le colonne saltate: {paste(existing_skip, collapse = ', ')}")
+      cli_inform("Removing skipped columns: {paste(existing_skip, collapse = ', ')}")
       df <- select(df, -all_of(existing_skip))
     }
   }
 
-  cli_alert_success("Privacy rules applied.")
+  cli_alert_success("Privacy rules applied successfully.")
   return(df)
 }
