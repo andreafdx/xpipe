@@ -9,9 +9,6 @@
       "TblSchedaProcedure",
       "TblSchedaTrasferimenti"
     ],
-    "mapping": {
-      "c_NumeroScheda": "c_NumeroScheda"
-    },
     "primary_table": "TblScheda",
     "identity_keys": [
       "c_NumeroScheda",
@@ -28,16 +25,16 @@
       "v_Cognome"
     ]
   },
-  "sdo_campania_xml": {
-    "stream": "sdo",
-    "type": "xml",
-    "input_type": "directory",
-    "components": {
-      "TblAnagrafica": "*_A.xml",
-      "TblRicoveroICD9": "*_B.xml",
-      "TblRicoveroICD10": "*_D.xml",
-      "TblProcedures": "*_C.xml"
-    },
+  "sdo_alt_access": {
+    "stream": "sdo_alt",
+    "type": "access_db",
+    "input_type": "file",
+    "components": [
+      "TblScheda",
+      "TblSchedaDiagnosi",
+      "TblSchedaProcedure",
+      "TblSchedaTrasferimenti"
+    ],
     "primary_table": "TblScheda",
     "identity_keys": [
       "c_NumeroScheda",
@@ -53,5 +50,15 @@
       "v_Nome",
       "v_Cognome"
     ]
+  },
+  "ps_csv": {
+    "stream": "ps",
+    "type": "csv",
+    "input_type": "file",
+    "identity_keys": ["id_accesso"],
+    "partition_column": "data_ingresso",
+    "primary_table": "data",
+    "pseudonymize": ["cf"],
+    "skip": ["nome", "cognome"]
   }
 }

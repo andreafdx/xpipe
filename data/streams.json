@@ -1,7 +1,17 @@
 {
   "sdo": {
-    "label": "SDO",
+    "label": "SDO Standard",
     "partition_granularity": "year",
     "anchor": "end"
+  },
+  "sdo_alt": {
+    "label": "SDO Archive",
+    "partition_granularity": "year",
+    "anchor": "end"
+  },
+  "ps": {
+    "label": "Pronto Soccorso",
+    "partition_granularity": "year",
+    "anchor": "start"
   }
 }
