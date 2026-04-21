@@ -12,3 +12,7 @@ output/
 bronze.txt
 !data/**/*.json
 !data/*.json
+node_modules/
+package.json
+package-lock.json
+tests/
