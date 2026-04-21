@@ -11,9 +11,9 @@ box::use(
 # Connect to Access database using ODBC (Auto-detect Win/Linux)
 .connect_access_db <- function(path_to_mdb) {
   .mdb_path_abs <- normalizePath(path_to_mdb, winslash = "/", mustWork = TRUE)
-  
+
   is_windows <- .Platform$OS.type == "windows"
-  
+
   if (is_windows) {
     driver_name <- "Microsoft Access Driver (*.mdb, *.accdb)"
   } else {
@@ -52,16 +52,27 @@ box::use(
 #' @param job Batch job object.
 #' @param path Path to .mdb file.
 #' @return A named list of data frames.
-#' @export
+#' @keywords internal
 extract_access_db <- function(job, path) {
   is_windows <- .Platform$OS.type == "windows"
-  target_tables <- c("TblScheda", "TblSchedaDiagnosi", "TblSchedaProcedure")
-  
-  if (is_windows) {
+
+  # Read components (tables) from JSON configuration
+  target_tables <- job$method_config$components
+
+  if (is.null(target_tables) || length(target_tables) == 0) {
+    cli_abort(
+      c(
+        "No tables defined for extraction",
+        "x" = "Method {.val {job$method_id}} is missing the {.field components} list."
+      ),
+      class = c("batch_job", "config")
+    )
+  }
+
     # --- ENGINE 1: ODBC (Windows) ---
     con <- .connect_access_db(path)
     on.exit(dbDisconnect(con))
-    
+
     cli_alert_info("Reading {length(target_tables)} tables via ODBC (Windows)...")
     dfs <- list()
     for (t in target_tables) {
@@ -72,25 +83,25 @@ extract_access_db <- function(job, path) {
       }
     }
     return(dfs)
-    
+
   } else {
     # --- ENGINE 2: MDB-EXPORT (Linux) ---
     cli_alert_info("Reading {length(target_tables)} tables via mdb-export (Linux)...")
-    
+
     # 1. Get list of available tables
     available_tables <- system2("mdb-tables", args = c("-1", shQuote(path)), stdout = TRUE)
-    
+
     dfs <- list()
     for (t in target_tables) {
       if (t %in% available_tables) {
         cli_inform("Exporting: {.val {t}}")
-        
+
         # Read CSV directly from mdb-export pipe
         # We use read.csv because it's standard, then convert to tibble
         csv_data <- read.csv(pipe(paste("mdb-export", shQuote(path), shQuote(t))), stringsAsFactors = FALSE)
-        
+
         dfs[[t]] <- as_tibble(csv_data)
-        
+
         # --- Smart Date Casting (Linux) ---
         # mdb-export returns dates as strings like "01/14/25 00:00:00"
         # We find columns starting with "d_" and cast them to Date
@@ -103,7 +114,7 @@ extract_access_db <- function(job, path) {
               ~ as.Date(., format = "%m/%d/%y %H:%M:%S")
             ))
         }
-        
+
         cli_alert_success("Extracted {.val {t}} : {nrow(dfs[[t]])} rows")
       } else {
         cli_alert_warning("Table {.val {t}} not found in .mdb file.")
