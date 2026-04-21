@@ -1,3 +1,10 @@
+box::use(
+  fs,
+  cli,
+  jsonlite,
+  arrow,
+  ./crypto[.apply_privacy_rules]
+)
 
 # Batch materialization pipeline ------------------------------------------
 #
@@ -151,16 +158,16 @@
 
   if (!is.null(job$components)) {
     # Multi-component extraction (Directory based)
-    cli::cli_alert_info("Running multi-component extraction ({length(job$components)} files)")
-    
+    cli$cli_alert_info("Running multi-component extraction ({length(job$components)} files)")
+
     extracted <- list()
     for (nm in names(job$components)) {
       path <- job$components[[nm]]
-      cli::cli_inform("Component {.val {nm}} : {.file {basename(path)}}")
-      
+      cli$cli_inform("Component {.val {nm}} : {.file {basename(path)}}")
+
       # Call instrument for each component
       res <- instrument(job, path)
-      
+
       # If instrument returns a list (unlikely for single component but possible), merge
       if (is.data.frame(res)) {
         extracted[[nm]] <- res
@@ -219,7 +226,7 @@
     }
 
     arrow::write_parquet(
-      tbl, 
+      tbl,
       fs::path(job$batch_dir, paste0(nm, ".parquet"))
     )
   }
@@ -229,13 +236,12 @@
     batch_id   = job$batch_id,
     stream_id  = job$stream_id,
     method_id  = job$method_id,
-    alt        = job$alt,
     anchor     = job$stream_config$anchor,
     created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
   )
-  
+
   jsonlite::write_json(
-    meta, 
+    meta,
     fs::path(job$batch_dir, "_batch_metadata.json"),
     pretty = TRUE,
     auto_unbox = TRUE
@@ -262,13 +268,13 @@ materialize_batch_job <- function(job, config) {
   extracted_data <- .run_extraction(job, instrument)
 
   # Apply privacy rules to each extracted table
-  extracted_data <- lapply(extracted_data, function(df) {
-    apply_privacy_rules(
-      df, 
-      job$stream_config, 
+  for (nm in names(extracted_data)) {
+    extracted_data[[nm]] <- .apply_privacy_rules(
+      extracted_data[[nm]],
+      job$stream_config,
       config$runtime$pepper
     )
-  })
+  }
 
   .persist_to_batch(job, extracted_data)
 

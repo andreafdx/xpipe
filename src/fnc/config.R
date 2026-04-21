@@ -6,7 +6,7 @@
 # ======================================================================= #
 
 box::use(
-  ./crypto[.hash_phi],
+  ./crypto[hash_phi],
   purrr[imap_chr]
 )
 
@@ -54,7 +54,7 @@ box::use(
 #' @noRd
 .validate_json_schema <- function(json_path, schema_name, title, class) {
   if (!fs::file_exists(json_path)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(title, "x" = "JSON file not found: {.file {json_path}}"),
       class = class
     )
@@ -70,7 +70,7 @@ box::use(
   )
 
   if (!ok) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         title,
         "x" = "JSON does not conform to schema",
@@ -93,7 +93,7 @@ box::use(
 #' @noRd
 .read_json_safe <- function(path, error_title, error_class) {
   if (!fs::file_exists(path)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(error_title, "x" = "JSON file not found: {.file {path}}"),
       class = error_class
     )
@@ -102,7 +102,7 @@ box::use(
   tryCatch(
     jsonlite::fromJSON(path, simplifyVector = TRUE),
     error = function(e) {
-      cli::cli_abort(
+      cli$cli_abort(
         c(
           error_title,
           "x" = "Invalid JSON syntax",
@@ -127,7 +127,7 @@ box::use(
   )
 
   if (is.null(runtime$pepper) || runtime$pepper == "") {
-    cli::cli_abort(
+    cli$cli_abort(
       "Environment variable {.envvar XNE_PEPPER_KEY} not found.",
       class = c("config", "runtime", "crypto")
     )
@@ -177,7 +177,7 @@ box::use(
   }
 
   if (is.null(local_config$paths)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c("Invalid configuration", "x" = "Missing {.field paths}"),
       class = c("local_options", "paths")
     )
@@ -189,7 +189,7 @@ box::use(
     else fs::path_norm(fs::path(project_root, p))
 
     if (!fs::dir_exists(p)) {
-      cli::cli_abort(
+      cli$cli_abort(
         c("Invalid configuration path", "x" = "Path {.file {p}} does not exist"),
         class = c("local_options", "paths")
       )
@@ -217,7 +217,7 @@ box::use(
   batch_path <- local_config$paths$batch
 
   if (is.null(batch_path) || !nzchar(batch_path)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid configuration",
         "x" = "Batch layer path not set",
@@ -228,7 +228,7 @@ box::use(
   }
 
   if (!fs::dir_exists(batch_path)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c("Invalid configuration path", "x" = "Batch directory does not exist"),
       class = c("local_options", "paths")
     )
@@ -236,7 +236,7 @@ box::use(
 
   layer_json <- fs::path(batch_path, "layer.json")
   if (!fs::file_exists(layer_json)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid layer metadata",
         "x" = "Required file {.file layer.json} not found",
@@ -269,14 +269,14 @@ box::use(
   expected_hash <- layer_options$expected_hash
 
   if (is.null(expected_hash) || expected_hash == "") {
-    cli::cli_abort(
+    cli$cli_abort(
       c("Invalid layer.json", "x" = "Missing expected_hash"),
       class = c("json_options", "crypto")
     )
   }
 
-  if (.hash_phi(test_string, pepper) != expected_hash) {
-    cli::cli_abort(
+  if (hash_phi(test_string, pepper) != expected_hash) {
+    cli$cli_abort(
       c("Invalid layer.json", "x" = "Hash mismatch. System will not start."),
       class = c("json_options", "crypto")
     )
@@ -375,6 +375,12 @@ load_options <- function(path = NULL, project_root = NULL) {
   structure(config, class = "xacc_config")
 }
 
+
+
+
+# S3 Methods --------------------------------------------------------------
+
+
 #' Render Configuration Gracefully
 #'
 #' Provides a stylish, detailed console summary of the configuration object.
@@ -396,7 +402,7 @@ load_options <- function(path = NULL, project_root = NULL) {
   ))
 
   # 2. LOCAL PATHS
-  cli::cli_h2("Local Infrastructure (Mounts)")
+  cli::cli_h2("Local Infrastructure")
   if (!is.null(x$local$paths)) {
     cli::cli_bullets(
       purrr::imap_chr(
@@ -407,24 +413,27 @@ load_options <- function(path = NULL, project_root = NULL) {
   }
 
   # 3. REMOTE LOGIC (The Brain)
-  cli::cli_h2("Shared Logic (Remote)")
-  
-  cli::cli_h3("Datastreams (The Truth)")
+  cli$cli_h2("Shared Logic (Remote)")
+
+  cli$cli_h3("Datastreams (The Truth)")
   if (!is.null(x$streams)) {
     stream_bullets <- purrr::imap_chr(
       x$streams,
       function(v, nm) {
         paste0(
           "{.strong ", nm, "} ",
-          "(keys: ", paste(v$identity_keys, collapse = ", "), " | ",
+          "[", v$label, "] ", # Added Label
+          "(granularity: ", v$partition_granularity, " | ",
           "anchor: ", v$anchor, ")"
         )
       }
     )
-    cli::cli_bullets(stream_bullets)
+    cli$cli_bullets(stream_bullets)
   }
 
-  cli::cli_h3("Ingest Methods (Adapters)")
+
+  cli$cli_h3(
+"Ingest Methods")
   if (!is.null(x$methods)) {
     method_bullets <- purrr::imap_chr(
       x$methods,

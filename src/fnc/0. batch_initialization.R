@@ -1,6 +1,7 @@
 box::use(
   fs,
-  cli
+  cli,
+  purrr[imap_chr]
 )
 
 # Helper functions --------------------------------------------------------
@@ -16,7 +17,7 @@ box::use(
 #' @noRd
 .assert_config_for_batch <- function(config) {
   if (missing(config) || !inherits(config, "xacc_config")) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid configuration",
         "x" = "A valid {.arg config} object loaded via {.code load_options()} is required"
@@ -29,7 +30,7 @@ box::use(
   missing_paths <- setdiff(required_paths, names(config$local$paths))
   
   if (length(missing_paths) > 0) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid configuration",
         "x" = "Missing required paths in config: {.val {missing_paths}}"
@@ -39,7 +40,7 @@ box::use(
   }
 
   if (is.null(config$streams) || is.null(config$methods)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid configuration",
         "x" = "Streams or Methods options not loaded"
@@ -62,7 +63,7 @@ box::use(
 #' @noRd
 .get_method_config <- function(config, method_id) {
   if (!is.character(method_id) || length(method_id) != 1 || !nzchar(method_id)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid method",
         "x" = "{.arg method_id} must be a non-empty string"
@@ -73,7 +74,7 @@ box::use(
 
   available <- names(config$methods)
   if (!(method_id %in% available)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid method",
         "x" = "Unknown method: {.val {method_id}}",
@@ -96,7 +97,7 @@ box::use(
 .get_stream_config <- function(config, stream_id) {
   available <- names(config$streams)
   if (!(stream_id %in% available)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid stream",
         "x" = "Unknown stream: {.val {stream_id}}",
@@ -120,7 +121,7 @@ box::use(
 #' @noRd
 .resolve_inbox_path <- function(config, path) {
   if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid path",
         "x" = "{.arg path} must be a non-empty string"
@@ -131,7 +132,7 @@ box::use(
 
   full_path <- fs::path(config$local$paths$inbox, path)
   if (!fs::file_exists(full_path)) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Input path not found",
         "x" = "Path {.file {path}} was not found in inbox",
@@ -153,7 +154,7 @@ box::use(
   actual_is_dir <- fs::is_dir(filepath)
 
   if (required_type == "file" && actual_is_dir) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid input type",
         "x" = "Method {.val {method_config$method_id}} requires a file, but a directory was provided.",
@@ -164,7 +165,7 @@ box::use(
   }
 
   if (required_type == "directory" && !actual_is_dir) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid input type",
         "x" = "Method {.val {method_config$method_id}} requires a directory, but a file was provided.",
@@ -190,7 +191,7 @@ box::use(
     matches <- fs::dir_ls(dir_path, glob = pattern)
 
     if (length(matches) == 0) {
-      cli::cli_abort(
+      cli$cli_abort(
         c(
           "Missing component",
           "x" = "Could not find file for component {.val {nm}}",
@@ -202,7 +203,7 @@ box::use(
     }
 
     if (length(matches) > 1) {
-      cli::cli_abort(
+      cli$cli_abort(
         c(
           "Ambiguous component",
           "x" = "Multiple files found for component {.val {nm}}",
@@ -218,51 +219,13 @@ box::use(
 
   resolved
 }
-## Alt --------------------------------------------------------------------
-
-# Validate alt flag
-.assert_alt_flag <- function(alt) {
-  if (!is.logical(alt) || length(alt) != 1 || is.na(alt)) {
-    cli::cli_abort(
-      c(
-        "Invalid alt flag",
-        "x" = "{.arg alt} must be TRUE or FALSE"
-      ),
-      class = c("batch_job", "alt")
-    )
-  }
-  invisible(TRUE)
-}
-
-#' Resolve effective batch storage stream
-#'
-#' @keywords internal
-#' @noRd
-.resolve_storage_stream <- function(datastream, ds_config, alt) {
-  alt_folder <- ds_config$alt
-
-  if (isTRUE(alt)) {
-    if (is.null(alt_folder) || !is.character(alt_folder) || !nzchar(alt_folder)) {
-      cli::cli_abort(
-        c(
-          "Alternative version not supported",
-          "x" = "Datastream {.val {datastream}} does not declare an alternate folder"
-        ),
-        class = c("batch_job", "alt", "datastream")
-      )
-    }
-    return(alt_folder)
-  }
-
-  datastream
-}
 
 ## Batch id & storage -----------------------------------------------------
 
 .normalize_or_generate_batch_id <- function(stream_id, batch_id = NULL) {
   if (!is.null(batch_id)) {
     if (!is.character(batch_id) || length(batch_id) != 1 || !nzchar(batch_id)) {
-      cli::cli_abort(
+      cli$cli_abort(
         c(
           "Invalid batch_id",
           "x" = "{.arg batch_id} must be a non-empty string"
@@ -290,7 +253,6 @@ box::use(
     filename, filepath,
     method_id, method_config,
     stream_id, stream_config,
-    alt,
     batch_root, batch_dir,
     batch_id,
     components = NULL
@@ -304,7 +266,6 @@ box::use(
       method_config = method_config,
       stream_id = stream_id,
       stream_config = stream_config,
-      alt = alt,
       batch_root = batch_root,
       batch_dir = batch_dir,
       status = "initialized",
@@ -322,7 +283,6 @@ box::use(
 new_batch_job <- function(
     filename,
     method,
-    alt = FALSE,
     config,
     batch_id = NULL
 ) {
@@ -347,8 +307,6 @@ new_batch_job <- function(
     NULL
   }
 
-  .assert_alt_flag(alt)
-
   batch_id  <- .normalize_or_generate_batch_id(stream_id, batch_id)
   batch_dir <- .build_batch_target_dir(config, stream_id, batch_id)
 
@@ -359,7 +317,6 @@ new_batch_job <- function(
     method_config = method_config,
     stream_id = stream_id,
     stream_config = stream_config,
-    alt = alt,
     batch_root = config$local$paths$batch,
     batch_dir = batch_dir,
     batch_id = batch_id,
@@ -393,15 +350,6 @@ print.xacc_batch_job <- function(x, ...) {
     cli::cli_h3("Components discovered")
     cli::cli_bullets(
       purrr::imap_chr(x$components, ~ paste0("{.strong ", .y, "} : {.file ", basename(.x), "}"))
-    )
-  }
-
-  if (isTRUE(x$alt)) {
-    cli::cli_warn(
-      c(
-        "Alternate variant enabled"
-      ),
-      class = c("batch_job", "alt")
     )
   }
 
