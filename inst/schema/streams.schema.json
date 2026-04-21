@@ -3,14 +3,12 @@
   "type": "object",
   "additionalProperties": {
     "type": "object",
-    "required": ["identity_keys", "partition_column", "anchor"],
+    "required": ["partition_granularity", "anchor"],
     "properties": {
-      "identity_keys": { "type": "array", "items": { "type": "string" } },
-      "partition_column": { "type": "string" },
+      "label": { "type": "string" },
       "partition_granularity": { "type": "string", "enum": ["year", "month"] },
-      "anchor": { "type": "string", "enum": ["start", "end"] },
-      "pseudonymize": { "type": "array", "items": { "type": "string" } },
-      "skip": { "type": "array", "items": { "type": "string" } }
-    }
+      "anchor": { "type": "string", "enum": ["start", "end"] }
+    },
+    "additionalProperties": false
   }
 }

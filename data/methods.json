@@ -1,12 +1,32 @@
 {
-  "sdo_hosp_a": {
+  "sdo_access": {
     "stream": "sdo",
     "type": "access_db",
     "input_type": "file",
-    "table": "EXPORT_TABLE",
+    "components": [
+      "TblScheda",
+      "TblSchedaDiagnosi",
+      "TblSchedaProcedure",
+      "TblSchedaTrasferimenti"
+    ],
     "mapping": {
-      "PK_ID": "numero_scheda"
-    }
+      "c_NumeroScheda": "c_NumeroScheda"
+    },
+    "primary_table": "TblScheda",
+    "identity_keys": [
+      "c_NumeroScheda",
+      "c_CodPresidio",
+      "c_AzUSSL"
+    ],
+    "partition_column": "d_DataDimissione",
+    "pseudonymize": [
+      "c_CodicePaziente",
+      "c_CodiceMadre"
+    ],
+    "skip": [
+      "v_Nome",
+      "v_Cognome"
+    ]
   },
   "sdo_campania_xml": {
     "stream": "sdo",
@@ -17,6 +37,21 @@
       "TblRicoveroICD9": "*_B.xml",
       "TblRicoveroICD10": "*_D.xml",
       "TblProcedures": "*_C.xml"
-    }
+    },
+    "primary_table": "TblScheda",
+    "identity_keys": [
+      "c_NumeroScheda",
+      "c_CodPresidio",
+      "c_AzUSSL"
+    ],
+    "partition_column": "d_DataDimissione",
+    "pseudonymize": [
+      "c_CodicePaziente",
+      "c_CodiceMadre"
+    ],
+    "skip": [
+      "v_Nome",
+      "v_Cognome"
+    ]
   }
 }
