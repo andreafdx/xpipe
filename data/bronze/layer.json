@@ -1,4 +1,6 @@
 {
-  "promoted_batches": [],
-  "last_promotion_at": null
+  "promoted_batches": [
+    "sdo_20260422_014051759"
+  ],
+  "last_promotion_at": "2026-04-22T01:41:08+0200"
 }

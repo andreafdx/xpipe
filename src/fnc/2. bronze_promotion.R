@@ -165,7 +165,6 @@ promote_to_bronze <- function(config, stream_id = NULL) {
       next
     }
     
-    primary_tbl <- stream_cfg$primary_table
     s_pending <- pending[pending$stream_id == s_id, ]
     
     # 1. Discover all tables in this stream's pending batches
@@ -180,7 +179,14 @@ promote_to_bronze <- function(config, stream_id = NULL) {
       b_meta <- s_pending[i, ]
       cli$cli_h3("Batch: {.val {b_meta$batch_id}}")
       
-      # 2.1 Determine years using the PRIMARY table
+      # --- HYBRID RULE LOOKUP ---
+      # 1. Get method rules for this specific batch
+      method_cfg <- config$methods[[b_meta$method_id]]
+      primary_tbl <- method_cfg$primary_table
+      part_col    <- method_cfg$partition_column
+      ident_keys  <- method_cfg$identity_keys
+      
+      # 2. Determine years using the PRIMARY table
       primary_path <- fs::path(config$local$paths$batch, s_id, b_meta$batch_id, paste0(primary_tbl, ".parquet"))
       
       if (!fs::file_exists(primary_path)) {
@@ -188,13 +194,15 @@ promote_to_bronze <- function(config, stream_id = NULL) {
         next
       }
       
+      # Use stream_cfg$partition_granularity here if we wanted to support Month
+      # For now we stick to year() as requested
       years_query <- sprintf(
         "SELECT DISTINCT year(%s) as year FROM read_parquet('%s')",
-        stream_cfg$partition_column, primary_path
+        part_col, primary_path
       )
       affected_years <- DBI$dbGetQuery(con, years_query)$year
       
-      # 2.2 Apply these years to all tables in the batch
+      # 3. Apply these years to all tables in the batch
       for (tbl_nm in table_names) {
         batch_tbl_path <- fs::path(config$local$paths$batch, s_id, b_meta$batch_id, paste0(tbl_nm, ".parquet"))
         if (!fs::file_exists(batch_tbl_path)) next
@@ -220,7 +228,7 @@ promote_to_bronze <- function(config, stream_id = NULL) {
             ",
             bronze_file,
             batch_tbl_path,
-            paste(paste0("b.", stream_cfg$identity_keys, " = p.", stream_cfg$identity_keys), collapse = " AND "),
+            paste(paste0("b.", ident_keys, " = p.", ident_keys), collapse = " AND "),
             batch_tbl_path,
             bronze_file
             )

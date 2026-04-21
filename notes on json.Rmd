@@ -1,0 +1,46 @@
+---
+title: "notes on json"
+output: html_document
+---
+
+How i would expect the json file to look like for sdo batch layer 
+
+streams.json
+
+sdo{
+    "partition_granularity": "year",
+    "anchor": "end",
+    "available methods": ["sdo_access", "sdo_campania_xml"] << this link works in my brain but maybe is probably better implemented in methods so methods can know what kind of datastream they are linked to
+}
+
+
+{
+  "sdo_access": {
+    "stream": "sdo", << this is the link
+    "type": "access_db", << descriptive i suppose
+    "input_type": "file", 
+    "table": "EXPORT_TABLE", <<not sure what this is for and why all caps
+    "components":[
+    "TblScheda", "TblSchedaDiagnosi", "TblSchedaProcedure", "TblSchedaTrasferimenti"
+] <<< these are the tables we need to import from the access object. i think its better to state them here
+    "mapping": {
+      "c_NumeroScheda": "c_NumeroScheda" <<< not sure what this is for
+    }
+    "primary_table": "TblScheda", << this may or may not be important, dont understandits implications
+    "identity_keys": ["c_NumeroScheda", "c_CodPresidio", "c_AzUSSL"], << maybe this is related to primary_table? 
+    "partition_column": "d_DataDimissione",
+    "pseudonymize": ["c_CodicePaziente", "c_CodiceMadre"],
+    "skip": ["v_Nome", "v_Cognome"]
+  },
+  "sdo_campania_xml": { << while this example is almost empty for this method this should be similar to access. the difference is that targeted columns for identity keys and pseudonymization would be different 
+    "stream": "sdo",
+    "type": "xml",
+    "input_type": "directory",
+    "components": {
+      "TblAnagrafica": "*_A.xml",
+      "TblRicoveroICD9": "*_B.xml",
+      "TblRicoveroICD10": "*_D.xml",
+      "TblProcedures": "*_C.xml"
+    }
+  }
+}

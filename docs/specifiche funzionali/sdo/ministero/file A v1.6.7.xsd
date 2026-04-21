@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified"
+xmlns:anagSDO="http://www.anagSDO.com/xml-schema-extensions"
+xmlns:xs="http://www.w3.org/2001/XMLSchema">
+<xs:element name="aInformazioniAnagrafiche">
+<xs:complexType>
+<xs:sequence>
+<xs:element maxOccurs="unbounded" minOccurs="1" name="informazioniAnagrafiche">
+<xs:complexType>
+<xs:sequence>
+<xs:element name="tipoTrasmissione">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="I"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="1"/>
+<xs:enumeration value="I"/>
+<xs:enumeration value="C"/>
+<xs:enumeration value="V"/>
+<xs:enumeration value="i"/>
+<xs:enumeration value="c"/>
+<xs:enumeration value="v"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element minOccurs="0" name="numeroSDOpuerpera">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="16008542"/>
+<anagSDO:example value="99999999"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="8"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element name="sesso">
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="1"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element name="dataNascita" type="xs:date">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="2016-03-16"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+</xs:element>
+<xs:element name="comuneNascita">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="001001"/>
+<anagSDO:example value="999201"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="6"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element name="livelloIstruzione">
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="1"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element name="statoCivile">
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="1"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element name="comuneResidenza">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="001001"/>
+<anagSDO:example value="999201"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="6"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element name="cittadinanza">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="100"/>
+<anagSDO:example value="201"/>
+<anagSDO:example value="999"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="3"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element name="identificativoPaziente">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="aaaaaaaaaaaaaaaaaaaaaaa"/>
+<anagSDO:example
+value="dhghaslflwRWELFGBZSDNSDGHAsvbolas"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:pattern value="[a-zA-Z0-9+/=]{172}"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element minOccurs="0" name="isIdPazienteInVerVal">
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="1"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element minOccurs="0" name="tipIdPazienteInVerVal">
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:maxLength value="2"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element name="regioneResidenza">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="010"/>
+<anagSDO:example value="041"/>
+<anagSDO:example value="201"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="3"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+<xs:element name="aslResidenza">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="102"/>
+<anagSDO:example value="201"/>
+<anagSDO:example value="999"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:length value="3"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:element>
+</xs:sequence>
+<xs:attribute name="codiceIstitutoDiCura" use="required">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="12090100"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:pattern value="[0-9]{8}"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:attribute>
+<xs:attribute name="progressivoSDO" use="required">
+<xs:annotation>
+<xs:appinfo>
+<anagSDO:exampleValues>
+<anagSDO:example value="16008542"/>
+</anagSDO:exampleValues>
+</xs:appinfo>
+</xs:annotation>
+<xs:simpleType>
+<xs:restriction base="xs:string">
+<xs:pattern value="[0-9]{8}"/>
+</xs:restriction>
+</xs:simpleType>
+</xs:attribute>
+</xs:complexType>
+</xs:element>
+</xs:sequence>
+</xs:complexType>
+</xs:element>
+</xs:schema>

@@ -52,7 +52,7 @@ box::use(
 #' @param job Batch job object.
 #' @param path Path to .mdb file.
 #' @return A named list of data frames.
-#' @keywords internal
+#' @export
 extract_access_db <- function(job, path) {
   is_windows <- .Platform$OS.type == "windows"
 
@@ -69,6 +69,7 @@ extract_access_db <- function(job, path) {
     )
   }
 
+  if (is_windows) {
     # --- ENGINE 1: ODBC (Windows) ---
     con <- .connect_access_db(path)
     on.exit(dbDisconnect(con))
@@ -97,14 +98,11 @@ extract_access_db <- function(job, path) {
         cli_inform("Exporting: {.val {t}}")
 
         # Read CSV directly from mdb-export pipe
-        # We use read.csv because it's standard, then convert to tibble
         csv_data <- read.csv(pipe(paste("mdb-export", shQuote(path), shQuote(t))), stringsAsFactors = FALSE)
 
         dfs[[t]] <- as_tibble(csv_data)
 
         # --- Smart Date Casting (Linux) ---
-        # mdb-export returns dates as strings like "01/14/25 00:00:00"
-        # We find columns starting with "d_" and cast them to Date
         date_cols <- grep("^d_", names(dfs[[t]]), value = TRUE)
         if (length(date_cols) > 0) {
           cli_inform("Casting {length(date_cols)} date columns...")
@@ -123,7 +121,3 @@ extract_access_db <- function(job, path) {
     return(dfs)
   }
 }
-
-
-
-

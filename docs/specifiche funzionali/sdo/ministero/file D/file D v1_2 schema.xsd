@@ -1,0 +1,598 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:RicSDO="http://www.RicSDO.com/xml-schema-extensions" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:element name="dInformazioniRicovero">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="informazioniRicovero" minOccurs="1" maxOccurs="unbounded">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="tipoTrasmissione">
+								<xs:annotation>
+									<xs:appinfo>
+										<RicSDO:exampleValues>
+											<RicSDO:example value="I"/>
+										</RicSDO:exampleValues>
+									</xs:appinfo>
+								</xs:annotation>
+								<xs:simpleType>
+										<xs:restriction base="xs:string">
+											<xs:length value="1"/>
+											<xs:enumeration value="I"/>
+											<xs:enumeration value="C"/>
+											<xs:enumeration value="V"/>
+											<xs:enumeration value="i"/>
+											<xs:enumeration value="c"/>
+											<xs:enumeration value="v"/>
+										</xs:restriction>
+									</xs:simpleType>
+							</xs:element>
+							<xs:element name="regimeRicovero">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="1"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="dataPrenotazione" minOccurs="0">
+								<xs:annotation>
+									<xs:appinfo>
+										<RicSDO:exampleValues>
+											<RicSDO:example value="2016-02-01"/>
+										</RicSDO:exampleValues>
+									</xs:appinfo>
+								</xs:annotation>
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="10"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="classePriorita" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="1"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="dataRicovero" type="xs:date">
+								<xs:annotation>
+									<xs:appinfo>
+										<RicSDO:exampleValues>
+											<RicSDO:example value="2016-03-17"/>
+										</RicSDO:exampleValues>
+									</xs:appinfo>
+								</xs:annotation>
+							</xs:element>
+							<xs:element name="oraRicovero" minOccurs="0">
+								<xs:annotation>
+									<xs:appinfo>
+										<RicSDO:exampleValues>
+											<RicSDO:example value="21:46"/>
+										</RicSDO:exampleValues>
+									</xs:appinfo>
+								</xs:annotation>
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="5"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="unitaOperativaAmmissione">
+								<xs:annotation>
+									<xs:appinfo>
+										<RicSDO:exampleValues>
+											<RicSDO:example value="120901000201"/>
+										</RicSDO:exampleValues>
+									</xs:appinfo>
+								</xs:annotation>
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="12"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="onereDegenza">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="1"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="provenienzaPaziente">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="tipoRicovero" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="1"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="traumatismiIntossicazioni" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="1"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="codiceCausaEsterna" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:minLength value="3"/>
+										<xs:maxLength value="7"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="Trasferimenti" minOccurs="0" maxOccurs="15">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="dataTrasferimento" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="2016-03-18"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="10"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="oraTrasferimento" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="15:15"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="5"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="unitaTrasferimento" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="120901000652"/>
+														<RicSDO:example value="120915010438"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="12"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="dimissione">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="unitaOperativaDimissione">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="120901000201"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="12"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="dataDimissioneMorte">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="2016-03-25"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:date"/>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="oraDimissioneMorte" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="16:25"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="5"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="modalitaDimissione">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="2"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="riscontroAutoptico" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="1"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="motivoRicoveroRegimeDiurno" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="1"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="numGiornateRicoveroDiurno" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:integer">
+										<xs:minInclusive value="1"/>
+										<xs:maxInclusive value="999"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="pesoNascita" minOccurs="0">
+								<xs:annotation>
+									<xs:appinfo>
+										<RicSDO:exampleValues>
+											<RicSDO:example value="1523"/>
+										</RicSDO:exampleValues>
+									</xs:appinfo>
+								</xs:annotation>
+								<xs:simpleType>
+									<xs:restriction base="xs:integer">
+										<xs:minInclusive value="100"/>
+										<xs:maxInclusive value="9999"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="diagnosiPrincipale">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="diagnosiPrincipaleDimissione">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:minLength value="3"/>
+													<xs:maxLength value="7"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="diagnosiPrincipaleDimissioneAlRicovero">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="Lateralita" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="stadiazioneCondensata" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="diagnosiSecondarie" minOccurs="0" maxOccurs="5">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="diagnosiSecondarieDimissione">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:minLength value="3"/>
+													<xs:maxLength value="7"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="diagnosiSecondarieDimissioneAlRicovero" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="Lateralita" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="stadiazioneCondensata" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="interventoPrincipale" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="interventoPrincipale">
+											<xs:simpleType>
+ 												<xs:restriction base="xs:string">
+<xs:pattern value="[A-Za-z0-9]{2}\.[A-Za-z0-9]{2}\.[A-Za-z0-9]{2}"/>
+</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="interventoPrincipaleEsterno" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="dataInterventoPrincipale" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="2016-03-21"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="10"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="oraInterventoPrincipale" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="15:06"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="5"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="chirurgoInterventoPrincipale" minOccurs="0" maxOccurs="3">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="qwertyuioplkjhgfdsazxcvbnm,.òàèì"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="88"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="anestesistaInterventoPrincipale" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="yuioplkjhgfdsazxcvbnm,.òàèìqwert"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="88"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="ckListSalaOperatoriaInterventoPrincipale" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="Lateralita" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="interventiSecondari" minOccurs="0" maxOccurs="10">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="interventiSecondari">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:pattern value="[A-Za-z0-9]{2}\.[A-Za-z0-9]{2}\.[A-Za-z0-9]{2}"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="interventiSecondariEsterni" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="dataInterventoSecondario" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="2016-03-22"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="10"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="oraInizioInterventoSecondario" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="18:29"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="5"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="chirurgoInterventoSecondario" minOccurs="0" maxOccurs="3">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="qwertyuiopzxcvbnm,.òàèìlkjhgfdsa"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="88"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="anestesistaInterventoSecondario" minOccurs="0">
+											<xs:annotation>
+												<xs:appinfo>
+													<RicSDO:exampleValues>
+														<RicSDO:example value="lkjhgfdsalkjhgfdsalkjhgfdsakdfty"/>
+													</RicSDO:exampleValues>
+												</xs:appinfo>
+											</xs:annotation>
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:maxLength value="88"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="ckListSalaOperatoriaInterventoSecondario" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+										<xs:element name="Lateralita" minOccurs="0">
+											<xs:simpleType>
+												<xs:restriction base="xs:string">
+													<xs:length value="1"/>
+												</xs:restriction>
+											</xs:simpleType>
+										</xs:element>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="rilevazioneDolore">
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+										<xs:length value="1"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="pressioneArteriosaSistolica" minOccurs="0">
+								<xs:annotation>
+									<xs:appinfo>
+										<RicSDO:exampleValues>
+											<RicSDO:example value="85"/>
+											<RicSDO:example value="135"/>
+										</RicSDO:exampleValues>
+									</xs:appinfo>
+								</xs:annotation>
+								<xs:simpleType>
+									<xs:restriction base="xs:positiveInteger">
+										<xs:totalDigits value="3"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="creatininaSerica" minOccurs="0">
+								<xs:annotation>
+									<xs:appinfo>
+										<RicSDO:exampleValues>
+											<RicSDO:example value="05.30"/>
+											<RicSDO:example value="55.00"/>
+											<RicSDO:example value="00.98"/>
+										</RicSDO:exampleValues>
+									</xs:appinfo>
+								</xs:annotation>
+								<xs:simpleType>
+									<xs:restriction base="xs:string">
+                              						<xs:pattern value="[0-9]{1,2}\.{1}[0-9]{2}"/>
+                             						</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+							<xs:element name="frazioneEiezione" minOccurs="0">
+								<xs:simpleType>
+									<xs:restriction base="xs:nonNegativeInteger">
+										<xs:totalDigits value="2"/>
+									</xs:restriction>
+								</xs:simpleType>
+							</xs:element>
+						</xs:sequence>
+						<xs:attribute name="codiceIstitutoDiCura" use="required">
+							<xs:annotation>
+								<xs:appinfo>
+									<RicSDO:exampleValues>
+										<RicSDO:example value="12090100"/>
+									</RicSDO:exampleValues>
+								</xs:appinfo>
+							</xs:annotation>
+							<xs:simpleType>
+								<xs:restriction base="xs:string">
+									<xs:pattern value="[0-9]{8}"/>
+								</xs:restriction>
+							</xs:simpleType>
+						</xs:attribute>
+						<xs:attribute name="progressivoSDO" use="required">
+							<xs:annotation>
+								<xs:appinfo>
+									<RicSDO:exampleValues>
+										<RicSDO:example value="16008542"/>
+									</RicSDO:exampleValues>
+								</xs:appinfo>
+							</xs:annotation>
+							<xs:simpleType>
+								<xs:restriction base="xs:string">
+									<xs:pattern value="[0-9]{8}"/>
+								</xs:restriction>
+							</xs:simpleType>
+						</xs:attribute>
+					</xs:complexType>
+				</xs:element>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

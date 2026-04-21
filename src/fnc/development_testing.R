@@ -27,10 +27,11 @@ extract_xml <- function(job, path) {
   data.frame(
     id = 1:2,
     source_file = basename(path),
-    data_dimissione = as.Date("2025-05-20"),
-    numero_scheda = c("2001", "2002"),
-    codice_istituto = "HOSP_TEST",
-    cf = "MOCK_CF",
+    d_DataDimissione = as.Date("2025-05-20"), # Real column name
+    c_NumeroScheda = c("2001", "2002"),       # Real column name
+    c_CodPresidio = "HOSP_TEST",
+    c_AzUSSL = "901",
+    c_CodicePaziente = "MOCK_CF",
     stringsAsFactors = FALSE
   )
 }

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<aInformazioniAnagrafiche xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<informazioniAnagrafiche progressivoSDO="16008542" codiceIstitutoDiCura="12090100">
+<tipoTrasmissione>I</tipoTrasmissione>
+<numeroSDOpuerpera>99999999</numeroSDOpuerpera>
+<sesso>2</sesso>
+<dataNascita>2016-03-16</dataNascita>
+<comuneNascita>001001</comuneNascita>
+<livelloIstruzione>0</livelloIstruzione>
+<statoCivile>1</statoCivile>
+<comuneResidenza>001001</comuneResidenza>
+<cittadinanza>100</cittadinanza>
+<identificativoPaziente>hIPwFwcU1DUDqxJodeuhQzCzgG5Y5Rk3WmspJq4rkTyVUC0aDRrIxZN
+2jpxj4rbsMVHmv/z22Ok+DZ9g0id0AEL2ft2kQPsBq5wA6FoxHxHs3xIJLE4gZBEwF3CWipaHCH8UJI
+fXsePlKcd1kgSDMbZzPNOvEnvsvE8CElRHyrc=</identificativoPaziente>
+<isIdPazienteInVerVal>0</isIdPazienteInVerVal>
+<tipIdPazienteInVerVal>99</tipIdPazienteInVerVal>
+<regioneResidenza>010</regioneResidenza>
+<aslResidenza>201</aslResidenza>
+</informazioniAnagrafiche>
+<informazioniAnagrafiche progressivoSDO="16008543" codiceIstitutoDiCura="12090100">
+<tipoTrasmissione>C</tipoTrasmissione>
+<numeroSDOpuerpera>99999999</numeroSDOpuerpera>
+<sesso>2</sesso>
+<dataNascita>2016-03-16</dataNascita>
+<comuneNascita>001001</comuneNascita>
+<livelloIstruzione>0</livelloIstruzione>
+<statoCivile>1</statoCivile>
+<comuneResidenza>001001</comuneResidenza>
+<cittadinanza>100</cittadinanza>
+<identificativoPaziente>hIPwFwcU1DUDqxJodeuhQzCzgG5Y5Rk3WmspJq4rkTyVUC0aDRrIxZN
+2jpxj4rbsMVHmv/z22Ok+DZ9g0id0AEL2ft2kQPsBq5wA6FoxHxHs3xIJLE4gZBEwF3CWipaHCH8UJI
+fXsePlKcd1kgSDMbZzPNOvEnvsvE8CElRHyrc=</identificativoPaziente>
+<isIdPazienteInVerVal>0</isIdPazienteInVerVal>
+<tipIdPazienteInVerVal>99</tipIdPazienteInVerVal>
+<regioneResidenza>010</regioneResidenza>
+<aslResidenza>201</aslResidenza>
+</informazioniAnagrafiche>
+</aInformazioniAnagrafiche>

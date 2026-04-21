@@ -3,7 +3,7 @@ box::use(
   cli,
   jsonlite,
   arrow,
-  ./crypto[.apply_privacy_rules]
+  ./crypto[apply_privacy_rules]
 )
 
 # Batch materialization pipeline ------------------------------------------
@@ -269,13 +269,12 @@ materialize_batch_job <- function(job, config) {
 
   # Apply privacy rules to each extracted table
   for (nm in names(extracted_data)) {
-    extracted_data[[nm]] <- .apply_privacy_rules(
-      extracted_data[[nm]],
-      job$stream_config,
+    extracted_data[[nm]] <- apply_privacy_rules(
+      extracted_data[[nm]], 
+      job$stream_config, 
       config$runtime$pepper
     )
   }
-
   .persist_to_batch(job, extracted_data)
 
   job$status <- "materialized"

@@ -22,7 +22,7 @@ tryCatch({
 
   my_job <- new_batch_job(
     filename = "2025_full.mdb", 
-    method   = "sdo_hosp_a", 
+    method   = "sdo_access", # RENAMED
     config   = .cfg
   )
   print(my_job)

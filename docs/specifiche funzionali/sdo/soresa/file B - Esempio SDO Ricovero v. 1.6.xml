@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<flsbInformazioniRicovero>
+<bInformazioniRicovero>
+	<trasmissione>
+		<tipo>I</tipo>
+	</trasmissione>
+	<informazioniRicovero codiceIstitutoDiCura="16090701" progressivoSDO="16008542">
+		<regimeRicovero>1</regimeRicovero>
+		<dataPrenotazione>2016-02-01</dataPrenotazione>
+		<classePriorita>C</classePriorita>
+		<dataRicovero>2016-03-17</dataRicovero>
+		<oraRicovero>21:46</oraRicovero>
+		<unitaOperativaAmmissione>160907010201</unitaOperativaAmmissione>
+		<onereDegenza>1</onereDegenza>
+		<provenienzaPaziente>11</provenienzaPaziente>
+		<tipoRicovero>3</tipoRicovero>
+		<traumatismiIntossicazioni>4</traumatismiIntossicazioni>
+		<codiceCausaEsterna>E9538</codiceCausaEsterna>
+		<Trasferimenti numTrasferimento="01">
+			<dataTrasferimento>2016-03-18</dataTrasferimento>
+			<oraTrasferimento>15:15</oraTrasferimento>
+			<unitaTrasferimento>160907010601</unitaTrasferimento>
+		</Trasferimenti>
+		<dimissione>
+			<unitaOperativaDimissione>160907010601</unitaOperativaDimissione>
+			<dataDimissioneMorte>2016-03-25</dataDimissioneMorte>
+			<oraDimissioneMorte>16:25</oraDimissioneMorte>
+			<modalitaDimissione>02</modalitaDimissione>
+			<FlagICicloCura>1</FlagICicloCura>
+		</dimissione>
+		<riscontroAutoptico>2</riscontroAutoptico>
+		<motivoRicoveroRegimeDiurno>3</motivoRicoveroRegimeDiurno>
+		<numGiornateRicoveroDiurno>1</numGiornateRicoveroDiurno>
+		<pesoNascita>1523</pesoNascita>
+		<AccessiInDH>
+			<dataAccesso>1991-03-02</dataAccesso>
+			<dataAccesso>1991-03-03</dataAccesso>
+		</AccessiInDH>
+		<diagnosiPrincipale>
+			<diagnosiPrincipaleDimissione>V181</diagnosiPrincipaleDimissione>
+			<diagnosiPrincipaleDimissioneAlRicovero>1</diagnosiPrincipaleDimissioneAlRicovero>
+			<Lateralita>1</Lateralita>
+			<stadiazioneCondensata>4</stadiazioneCondensata>
+		</diagnosiPrincipale>
+		<diagnosiSecondarie numDiagnosiSecondaria="1">
+			<diagnosiSecondarieDimissione>V25</diagnosiSecondarieDimissione>
+			<diagnosiSecondarieDimissioneAlRicovero>0</diagnosiSecondarieDimissioneAlRicovero>
+			<Lateralita>3</Lateralita>
+			<stadiazioneCondensata>7</stadiazioneCondensata>
+		</diagnosiSecondarie>
+		<interventoPrincipale>
+			<interventoPrincipale>8151</interventoPrincipale>
+			<interventoPrincipaleEsterno>1</interventoPrincipaleEsterno>
+			<dataInterventoPrincipale>2016-03-21</dataInterventoPrincipale>
+			<oraInterventoPrincipale>15:06</oraInterventoPrincipale>
+			<chirurgoInterventoPrincipale>ABCCBA88A12B745Z</chirurgoInterventoPrincipale>
+			<anestesistaInterventoPrincipale>ABCDEF75D23A515E</anestesistaInterventoPrincipale>
+			<ckListSalaOperatoriaInterventoPrincipale>1</ckListSalaOperatoriaInterventoPrincipale>
+			<Lateralita>2</Lateralita>
+			<flagRobot>1</flagRobot>
+			<UDI>01234567890123220930A12345987654321</UDI>
+		</interventoPrincipale>
+		<interventiSecondari numInterventoSecondario="01">
+			<interventiSecondari>534</interventiSecondari>
+			<interventiSecondariEsterni>1</interventiSecondariEsterni>
+			<dataInterventoSecondario>2016-03-22</dataInterventoSecondario>
+			<oraInizioInterventoSecondario>18:29</oraInizioInterventoSecondario>
+			<chirurgoInterventoSecondario>ABCCBA88A12B745Z</chirurgoInterventoSecondario>
+			<anestesistaInterventoSecondario>ABCDEF75D23A515E</anestesistaInterventoSecondario>
+			<ckListSalaOperatoriaInterventoSecondario>0</ckListSalaOperatoriaInterventoSecondario>
+			<Lateralita>3</Lateralita>
+			<flagRobot>1</flagRobot>
+		</interventiSecondari>
+		<rilevazioneDolore>1</rilevazioneDolore>
+		<pressioneArteriosaSistolica>85</pressioneArteriosaSistolica>
+		<creatininaSerica>0.98</creatininaSerica>
+		<frazioneEiezione>96</frazioneEiezione>
+		<espianto>1</espianto>
+		<etaGestazionale>32</etaGestazionale>
+		<DRG>741</DRG>
+		<tariffa>0.00</tariffa>
+		<NumeroFattura>111</NumeroFattura>
+		<dataFattura>2016-03-16</dataFattura>
+	</informazioniRicovero>
+</bInformazioniRicovero>
+</flsbInformazioniRicovero>
+
