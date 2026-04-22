@@ -10,7 +10,9 @@
       "TblSchedaTrasferimenti"
     ],
     "primary_table": "TblScheda",
-    "identity_keys": ["i_IDScheda"],
+    "identity_keys": [
+      "i_IDScheda"
+    ],
     "partition_column": "d_DataDimissione",
     "pseudonymize": [
       "c_CodicePaziente",
@@ -32,7 +34,9 @@
       "TblSchedaTrasferimenti"
     ],
     "primary_table": "TblScheda",
-    "identity_keys": ["i_IDScheda"],
+    "identity_keys": [
+      "i_IDScheda"
+    ],
     "partition_column": "d_DataDimissione",
     "pseudonymize": [
       "c_CodicePaziente",
@@ -43,14 +47,47 @@
       "v_Cognome"
     ]
   },
+  "sdo_campania_xml": {
+    "stream": "sdo",
+    "type": "xml",
+    "input_type": "directory",
+    "primary_table": "ricovero",
+    "components": {
+      "anagrafica": "*_A.xml",
+      "ricovero": "*_B.xml",
+      "diagnosi": "*_B.xml",
+      "procedure": "*_B.xml",
+      "accessi_dh": "*_B.xml"
+    },
+    "identity_keys": [
+      "codiceIstitutoDiCura",
+      "progressivoSDO"
+    ],
+    "partition_column": "dim_dataDimissioneMorte",
+    "pseudonymize": [
+      "identificativoPaziente",
+      "codiceFiscale"
+    ],
+    "skip": [
+      "cognome",
+      "nome"
+    ]
+  },
   "ps_csv": {
     "stream": "ps",
     "type": "csv",
     "input_type": "file",
-    "identity_keys": ["id_accesso"],
+    "identity_keys": [
+      "id_accesso"
+    ],
     "partition_column": "data_ingresso",
     "primary_table": "data",
-    "pseudonymize": ["cf"],
-    "skip": ["nome", "cognome"]
+    "pseudonymize": [
+      "cf"
+    ],
+    "skip": [
+      "nome",
+      "cognome"
+    ]
   }
 }
