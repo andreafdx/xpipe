@@ -10,11 +10,7 @@
       "TblSchedaTrasferimenti"
     ],
     "primary_table": "TblScheda",
-    "identity_keys": [
-      "c_NumeroScheda",
-      "c_CodPresidio",
-      "c_AzUSSL"
-    ],
+    "identity_keys": ["i_IDScheda"],
     "partition_column": "d_DataDimissione",
     "pseudonymize": [
       "c_CodicePaziente",
@@ -36,11 +32,7 @@
       "TblSchedaTrasferimenti"
     ],
     "primary_table": "TblScheda",
-    "identity_keys": [
-      "c_NumeroScheda",
-      "c_CodPresidio",
-      "c_AzUSSL"
-    ],
+    "identity_keys": ["i_IDScheda"],
     "partition_column": "d_DataDimissione",
     "pseudonymize": [
       "c_CodicePaziente",

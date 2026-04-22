@@ -28,7 +28,7 @@ box::use(
 
   required_paths <- c("inbox", "raw", "batch")
   missing_paths <- setdiff(required_paths, names(config$local$paths))
-  
+
   if (length(missing_paths) > 0) {
     cli$cli_abort(
       c(
@@ -222,6 +222,18 @@ box::use(
 
 ## Batch id & storage -----------------------------------------------------
 
+
+#' Normalize or Generate Batch Identifier
+#'
+#' Validates an explicit batch identifier or generates a unique
+#' stream-scoped batch ID when none is provided.
+#'
+#' @param stream_id Character scalar identifying the stream.
+#' @param batch_id Optional character scalar. Explicit batch ID.
+#'
+#' @return Character scalar batch identifier.
+#'
+#' @noRd
 .normalize_or_generate_batch_id <- function(stream_id, batch_id = NULL) {
   if (!is.null(batch_id)) {
     if (!is.character(batch_id) || length(batch_id) != 1 || !nzchar(batch_id)) {
@@ -242,13 +254,46 @@ box::use(
   paste0(stream_id, "_", ts)
 }
 
+
+
+#' Build Batch Target Directory Path
+#'
+#' Constructs the normalized filesystem path for a batch within
+#' the Batch layer, based on stream and batch identifiers.
+#'
+#' @param config xacc_config object.
+#' @param stream_id Character scalar identifying the stream.
+#' @param batch_id Character scalar batch identifier.
+#'
+#' @return Normalized filesystem path to the batch directory.
+#'
+#' @noRd
 .build_batch_target_dir <- function(config, stream_id, batch_id) {
   fs::path_norm(
     fs::path(config$local$paths$batch, stream_id, batch_id)
   )
 }
 
-# Build S3 batch job object
+
+#' Construct Batch Job Object
+#'
+#' Assembles a structured \code{xacc_batch_job} object representing
+#' a validated batch import intent in initialized state.
+#'
+#' @param filename Character scalar. Original input name.
+#' @param filepath Character scalar. Resolved absolute input path.
+#' @param method_id Character scalar ingestion method identifier.
+#' @param method_config Method configuration list.
+#' @param stream_id Character scalar identifying the stream.
+#' @param stream_config Stream configuration list.
+#' @param batch_root Character scalar batch root path.
+#' @param batch_dir Character scalar target batch directory.
+#' @param batch_id Character scalar batch identifier.
+#' @param components Optional list of discovered components.
+#'
+#' @return An object of class \code{xacc_batch_job}.
+#'
+#' @noRd
 .build_batch_job <- function(
     filename, filepath,
     method_id, method_config,
@@ -275,9 +320,38 @@ box::use(
   )
 }
 
-## Public API -------------------------------------------------------------
+# Public API -------------------------------------------------------------
 
-#' Create a new Batch Import Job
+#' Create a New Batch Import Job
+#'
+#' Constructs a validated batch import job intent based on an input file
+#' or directory located in the inbox and a configured ingestion method.
+#'
+#' This function performs configuration validation, input resolution,
+#' and method/stream compatibility checks, but does not read, transform,
+#' or write any data. The returned object represents a fully specified
+#' batch job ready for materialization.
+#'
+#' @param filename Character scalar. Name of a file or directory located
+#'   in the inbox path defined in the local configuration.
+#' @param method Character scalar identifying the ingestion method to use,
+#'   as defined in \code{methods.json}.
+#' @param config An object of class \code{xacc_config}, as returned by
+#'   \code{load_options()}.
+#' @param batch_id Optional character scalar. Explicit batch identifier.
+#'   If \code{NULL}, a unique batch identifier is generated automatically.
+#'
+#' @return An object of class \code{xacc_batch_job} in
+#'   \code{"initialized"} state.
+#'
+#' @details
+#' The batch job object encapsulates all metadata required for batch
+#' materialization, including resolved input paths, method and stream
+#' configuration, target batch directory, and any discovered components.
+#'
+#' No filesystem side effects are performed beyond path validation.
+#' Data extraction and persistence occur only during
+#' \code{materialize_batch_job()}.
 #'
 #' @export
 new_batch_job <- function(
@@ -291,15 +365,15 @@ new_batch_job <- function(
   method_config <- .get_method_config(config, method)
   stream_id     <- method_config$stream
   stream_config <- .get_stream_config(config, stream_id)
-  
+
   # Inject stream_id into stream_config for downstream use
   stream_config$stream_id <- stream_id
-  
+
   filepath  <- .resolve_inbox_path(config, filename)
 
   # Validation against method requirement
   .validate_input_type(filepath, method_config)
-  
+
   # Discover components if it's a directory
   components <- if (fs::is_dir(filepath)) {
     .discover_components(filepath, method_config)
@@ -345,7 +419,7 @@ print.xacc_batch_job <- function(x, ...) {
     "stream      : {.val {x$stream_id}}",
     "anchor      : {.val {x$stream_config$anchor}}"
   ))
-  
+
   if (!is.null(x$components)) {
     cli::cli_h3("Components discovered")
     cli::cli_bullets(

@@ -14,12 +14,11 @@ source("src/fnc/crypto.R")
 source("src/fnc/0. batch_initialization.R")
 source("src/fnc/1. batch_materialization.R")
 source("src/fnc/2. bronze_promotion.R")
+source("src/fnc/access.R")
 
 # 2. Load Configuration
 .cfg <- load_options()
 
-# 3. Real Access Extractor (Cross-Platform)
-source("src/fnc/access.R")
 
 # Mock XML Extractor for testing
 extract_xml <- function(job, path) {
@@ -57,8 +56,8 @@ cli::cli_h1("Phase 3: Multi-File XML Test")
 # A. Initialize Multi-File Job
 cli::cli_h2("Act 1: Initialize Multi-File Job")
 xml_job <- new_batch_job(
-  filename = sdo_folder_name, 
-  method = "sdo_campania_xml", 
+  filename = sdo_folder_name,
+  method = "sdo_campania_xml",
   config = .cfg
 )
 print(xml_job)
@@ -89,11 +88,11 @@ year_folder <- fs::path(bronze_stream_dir, "year=2025")
 
 if (fs::dir_exists(year_folder)) {
   cli::cli_alert_success("VERIFIED: Year partition folder {.val year=2025} exists.")
-  
+
   # Check for flat parquet files inside the year folder
   bronze_files <- fs::dir_ls(year_folder, glob = "*.parquet")
   cli::cli_alert_info("Parquet files discovered in 2025: {.val {basename(bronze_files)}}")
-  
+
   expected_files <- c("TblAnagrafica.parquet", "TblProcedures.parquet", "TblRicoveroICD10.parquet", "TblRicoveroICD9.parquet")
   for (ef in expected_files) {
     if (fs::file_exists(fs::path(year_folder, ef))) {

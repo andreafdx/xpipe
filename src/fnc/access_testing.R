@@ -21,15 +21,15 @@ tryCatch({
   .cfg <- load_options()
 
   my_job <- new_batch_job(
-    filename = "2025_full.mdb", 
-    method   = "sdo_access", # RENAMED
+    filename = "2025_full.mdb",
+    method   = "sdo_access",
     config   = .cfg
   )
   print(my_job)
 
   cli::cli_h2("Step 1: Materializing Batch")
   my_job <- materialize_batch_job(my_job, .cfg)
-  
+
   cli::cli_h2("Step 2: Promoting to Bronze")
   promote_to_bronze(.cfg, stream_id = "sdo")
 

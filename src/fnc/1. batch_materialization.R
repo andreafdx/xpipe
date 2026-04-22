@@ -252,10 +252,34 @@ box::use(
 
 # Public API -------------------------------------------------------------
 
-#' Materialize a batch job
+#' Materialize a Batch Job
 #'
-#' Executes the full batch materialization lifecycle:
-#' guardrails → extraction → privacy → batch persistence.
+#' Executes the full batch materialization lifecycle, transforming a
+#' validated batch job intent into an immutable, on-disk batch
+#' representation.
+#'
+#' The materialization process performs the following steps:
+#' \itemize{
+#'   \item Pre-materialization guardrails and state validation
+#'   \item Data extraction using the method-specific instrument
+#'   \item Application of stream privacy rules
+#'   \item Persistence of canonical batch data to the Batch layer
+#' }
+#'
+#' This operation is irreversible: once materialized, batch data is
+#' considered immutable and ready for downstream promotion.
+#'
+#' @param job An object of class \code{xacc_batch_job} in
+#'   \code{"initialized"} state.
+#' @param config An object of class \code{xacc_config}, as returned by
+#'   \code{load_options()}.
+#'
+#' @return An updated \code{xacc_batch_job} object with status set to
+#'   \code{"materialized"}.
+#'
+#' @details
+#' If any validation or extraction step fails, materialization is aborted
+#' and no batch data is written to disk.
 #'
 #' @export
 materialize_batch_job <- function(job, config) {
@@ -270,8 +294,8 @@ materialize_batch_job <- function(job, config) {
   # Apply privacy rules to each extracted table
   for (nm in names(extracted_data)) {
     extracted_data[[nm]] <- apply_privacy_rules(
-      extracted_data[[nm]], 
-      job$stream_config, 
+      extracted_data[[nm]],
+      job$stream_config,
       config$runtime$pepper
     )
   }
