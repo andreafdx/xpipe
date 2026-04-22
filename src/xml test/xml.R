@@ -7,6 +7,7 @@
   # I need them even if they look stupid.
 
 
+# Tracciato A -------------------------------------------------------------
 
 parse_tracciato_a <- function(doc) {
 
@@ -79,5 +80,240 @@ parse_tracciato_a <- function(doc) {
   as.data.frame(
     do.call(rbind, rows),
     stringsAsFactors = FALSE
+  )
+}
+
+
+
+# Tracciato B -------------------------------------------------------------
+#
+# Tracciato B – Minimal, non-XPath, Batch-correct parser
+# Produces 4 tables:
+#   - ricovero
+#   - diagnosi
+#   - procedure
+#   - accessi_dh
+#
+# IMPORTANT:
+# - No hashing
+# - No privacy rules
+# - No lineage
+# - No clinical enrichment
+
+
+
+## Helper B ---------------------------------------------------------------
+
+parse_b_ricovero <- function(rec) {
+
+  rec_children <- xml_children(rec)
+  row <- list()
+
+  # trasmissione (1-1, flatten)
+  trasm <- rec_children[xml_name(rec_children) == "trasmissione"]
+  if (length(trasm) == 1) {
+    t_children <- xml_children(trasm[[1]])
+    is_scalar <- xml_length(t_children) == 0
+    if (any(is_scalar)) {
+      row[paste0("trasmissione_", xml_name(t_children[is_scalar]))] <-
+        as.list(xml_text(t_children[is_scalar]))
+    }
+  }
+
+  # informazioniRicovero
+  info <- rec_children[xml_name(rec_children) == "informazioniRicovero"][[1]]
+
+  # attributi
+  row[names(xml_attrs(info))] <- as.list(xml_attrs(info))
+
+  # campi scalari diretti
+  info_children <- xml_children(info)
+  is_scalar <- xml_length(info_children) == 0
+  if (any(is_scalar)) {
+    row[xml_name(info_children[is_scalar])] <-
+      as.list(xml_text(info_children[is_scalar]))
+  }
+
+  # dimissione (1-1, flatten con prefisso)
+  dim_node <- info_children[xml_name(info_children) == "dimissione"]
+  if (length(dim_node) == 1) {
+    d_children <- xml_children(dim_node[[1]])
+    is_scalar <- xml_length(d_children) == 0
+    if (any(is_scalar)) {
+      row[paste0("dim_", xml_name(d_children[is_scalar]))] <-
+        as.list(xml_text(d_children[is_scalar]))
+    }
+  }
+
+  row
+}
+
+
+parse_b_diagnosi <- function(rec) {
+
+  rec_children <- xml_children(rec)
+  info <- rec_children[xml_name(rec_children) == "informazioniRicovero"][[1]]
+
+  codice <- xml_attr(info, "codiceIstitutoDiCura")
+  prog   <- xml_attr(info, "progressivoSDO")
+
+  out <- list()
+
+  # Diagnosi principale
+  dp <- xml_children(info)[xml_name(xml_children(info)) == "diagnosiPrincipale"]
+  if (length(dp) == 1) {
+    dp_children <- xml_children(dp[[1]])
+    is_scalar <- xml_length(dp_children) == 0
+    if (any(is_scalar)) {
+      row <- list(
+        codiceIstitutoDiCura = codice,
+        progressivoSDO       = prog,
+        tipoDiagnosi         = "principale",
+        numDiagnosi          = 0L
+      )
+      row[xml_name(dp_children[is_scalar])] <-
+        as.list(xml_text(dp_children[is_scalar]))
+      out[[length(out) + 1]] <- row
+    }
+  }
+
+  # Diagnosi secondarie
+  ds_nodes <- xml_children(info)[xml_name(xml_children(info)) == "diagnosiSecondarie"]
+  if (length(ds_nodes) > 0) {
+    for (ds in ds_nodes) {
+      num <- suppressWarnings(as.integer(xml_attr(ds, "numDiagnosiSecondaria")))
+      ds_children <- xml_children(ds)
+      is_scalar <- xml_length(ds_children) == 0
+      if (any(is_scalar)) {
+        row <- list(
+          codiceIstitutoDiCura = codice,
+          progressivoSDO       = prog,
+          tipoDiagnosi         = "secondaria",
+          numDiagnosi          = num
+        )
+        row[xml_name(ds_children[is_scalar])] <-
+          as.list(xml_text(ds_children[is_scalar]))
+        out[[length(out) + 1]] <- row
+      }
+    }
+  }
+
+  out
+}
+
+
+parse_b_procedure <- function(rec) {
+
+  rec_children <- xml_children(rec)
+  info <- rec_children[xml_name(rec_children) == "informazioniRicovero"][[1]]
+
+  codice <- xml_attr(info, "codiceIstitutoDiCura")
+  prog   <- xml_attr(info, "progressivoSDO")
+
+  out <- list()
+
+  # funzione interna per estrarre una procedura
+  extract_proc <- function(node, tipo, num) {
+    children <- xml_children(node)
+    is_scalar <- xml_length(children) == 0
+
+    row <- list(
+      codiceIstitutoDiCura = codice,
+      progressivoSDO       = prog,
+      tipoIntervento       = tipo,
+      numIntervento        = num
+    )
+
+    # campi scalar (inclusi operatori)
+    if (any(is_scalar)) {
+      row[xml_name(children[is_scalar])] <-
+        as.list(xml_text(children[is_scalar]))
+    }
+
+    row
+  }
+
+  # Intervento principale
+  ip <- xml_children(info)[xml_name(xml_children(info)) == "interventoPrincipale"]
+  if (length(ip) == 1) {
+    out[[length(out) + 1]] <- extract_proc(ip[[1]], "principale", 0L)
+  }
+
+  # Interventi secondari
+  isec <- xml_children(info)[xml_name(xml_children(info)) == "interventiSecondari"]
+  if (length(isec) > 0) {
+    for (sec in isec) {
+      num <- suppressWarnings(as.integer(xml_attr(sec, "numInterventoSecondario")))
+      out[[length(out) + 1]] <- extract_proc(sec, "secondario", num)
+    }
+  }
+
+  out
+}
+
+
+parse_b_accessi_dh <- function(rec) {
+
+  rec_children <- xml_children(rec)
+  info <- rec_children[xml_name(rec_children) == "informazioniRicovero"][[1]]
+
+  codice <- xml_attr(info, "codiceIstitutoDiCura")
+  prog   <- xml_attr(info, "progressivoSDO")
+
+  dh_nodes <- xml_children(info)[xml_name(xml_children(info)) == "AccessiInDH"]
+  if (length(dh_nodes) == 0) return(list())
+
+  dates <- xml_children(dh_nodes[[1]])
+  out <- list()
+
+  for (i in seq_along(dates)) {
+    out[[i]] <- list(
+      codiceIstitutoDiCura = codice,
+      progressivoSDO       = prog,
+      numAccesso           = i,
+      dataAccesso          = xml_text(dates[[i]])
+    )
+  }
+
+  out
+}
+
+
+# Main B ------------------------------------------------------------------
+
+
+parse_tracciato_b <- function(doc) {
+
+  records <- xml_find_all(doc, ".//bInformazioniRicovero")
+
+  rows_ricovero   <- list()
+  rows_diagnosi   <- list()
+  rows_procedure  <- list()
+  rows_accessi_dh <- list()
+
+  for (rec in records) {
+    rows_ricovero   <- c(rows_ricovero,   list(parse_b_ricovero(rec)))
+    rows_diagnosi   <- c(rows_diagnosi,   parse_b_diagnosi(rec))
+    rows_procedure  <- c(rows_procedure,  parse_b_procedure(rec))
+    rows_accessi_dh <- c(rows_accessi_dh, parse_b_accessi_dh(rec))
+  }
+
+  # helper di allineamento schema
+  bind_rows_safe <- function(rows) {
+    if (length(rows) == 0) return(data.frame())
+    all_names <- unique(unlist(lapply(rows, names)))
+    rows <- lapply(rows, function(r) {
+      missing <- setdiff(all_names, names(r))
+      if (length(missing)) r[missing] <- NA_character_
+      r[all_names]
+    })
+    as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
+  }
+
+  list(
+    ricovero   = bind_rows_safe(rows_ricovero),
+    diagnosi   = bind_rows_safe(rows_diagnosi),
+    procedure  = bind_rows_safe(rows_procedure),
+    accessi_dh = bind_rows_safe(rows_accessi_dh)
   )
 }
