@@ -91,12 +91,12 @@ box::use(
 
   batch_root <- config$local$paths$batch
 
-  if (!fs$dir_exists(batch_root)) {
+  if (!fs::dir_exists(batch_root)) {
     return(data.frame()) # No batches yet
   }
 
   # Find all batch metadata files
-  meta_files <- fs$dir_ls(batch_root, recurse = TRUE, type = "file", glob = "*_batch_metadata.json")
+  meta_files <- fs::dir_ls(batch_root, recurse = TRUE, type = "file", glob = "*_batch_metadata.json")
 
   if (length(meta_files) == 0) {
     return(data.frame())
@@ -139,30 +139,8 @@ box::use(
 #' Promotion merges immutable batch Parquet files into cumulative, time-partitioned
 #' Bronze Parquet tables with deterministic deduplication.
 #'
-#' ## Promotion semantics
-#' - Batch data is never modified.
-#' - Bronze data is merged using identity keys defined in `methods.json`.
-#' - Time partitioning is derived from the stream configuration
-#'   (currently year-based).
-#' - Existing Bronze rows are replaced if their identity matches incoming batch rows.
-#'
-#' ## Idempotency & safety
-#' - Already promoted batches are skipped using `bronze/layer.json`.
-#' - The function is safe to re-run.
-#' - Bronze state is updated only after successful promotion.
-#'
-#' ## Failure behavior
-#' - Missing configuration or malformed batches cause the affected batch
-#'   to be skipped without aborting the full promotion run.
-#' - Any critical error aborts promotion without mutating Bronze state.
-#'
-#' @param config An object of class \code{xacc_config}, as returned by
-#'   \code{load_options()}.
-#' @param stream_id Optional character scalar limiting promotion to a
-#'   specific stream. If \code{NULL}, all streams are promoted.
-#'
-#' @return Invisibly returns \code{TRUE} on successful completion.
-#'
+#' @param config An object of class \code{xacc_config}.
+#' @param stream_id Optional filter for a specific stream.
 #' @export
 promote_to_bronze <- function(config, stream_id = NULL) {
   pending <- .identify_pending_batches(config)
@@ -180,14 +158,12 @@ promote_to_bronze <- function(config, stream_id = NULL) {
     }
   }
 
-  cli$cli_h1("Bronze Promotion")
+  cli$cli_h1("Bronze Promotion (The Librarian)")
 
   # Connect to in-memory DuckDB
   con <- DBI$dbConnect(duckdb$duckdb())
   on.exit(DBI$dbDisconnect(con, shutdown = TRUE))
 
-  # Group by stream
-  # Each stream has its own logic (directory, schema expectations)
   streams <- unique(pending$stream_id)
 
   for (s_id in streams) {
@@ -214,85 +190,88 @@ promote_to_bronze <- function(config, stream_id = NULL) {
       cli$cli_h3("Batch: {.val {b_meta$batch_id}}")
 
       # --- HYBRID RULE LOOKUP ---
-      # 1. Get method rules for this specific batch
       method_cfg <- config$methods[[b_meta$method_id]]
       primary_tbl <- method_cfg$primary_table
       part_col    <- method_cfg$partition_column
       ident_keys  <- method_cfg$identity_keys
 
-      # 2. Determine years using the PRIMARY table (year is used to partition bronze)
+      # 2.1 Find affected years using the PRIMARY table
       primary_path <- fs::path(config$local$paths$batch, s_id, b_meta$batch_id, paste0(primary_tbl, ".parquet"))
-
+      
       if (!fs::file_exists(primary_path)) {
         cli$cli_alert_danger("Primary table {.val {primary_tbl}} missing in batch. Skipping batch.")
         next
       }
 
-      # Use stream_cfg$partition_granularity here if we wanted to support Month
-      # For now we stick to year()
       years_query <- sprintf(
         "SELECT DISTINCT year(%s) as year FROM read_parquet('%s')",
         part_col, primary_path
       )
       affected_years <- DBI$dbGetQuery(con, years_query)$year
 
-      # 3. Apply these years to all tables in the batch
-      for (tbl_nm in table_names) {
-        batch_tbl_path <- fs::path(config$local$paths$batch, s_id, b_meta$batch_id, paste0(tbl_nm, ".parquet"))
-        if (!fs::file_exists(batch_tbl_path)) next
+      # 2.2 Atomic Merge for each year
+      for (yr in affected_years) {
+        cli$cli_h3("Year: {.val {yr}}")
 
-        for (yr in affected_years) {
-          cli$cli_alert_info("Table {.val {tbl_nm}} -> Year {.val {yr}}")
-
+        for (tbl_nm in table_names) {
+          batch_tbl_path <- fs::path(config$local$paths$batch, s_id, b_meta$batch_id, paste0(tbl_nm, ".parquet"))
+          
           bronze_yr_dir <- fs::path(config$local$paths$bronze, s_id, paste0("year=", yr))
           fs::dir_create(bronze_yr_dir, recurse = TRUE)
           bronze_file <- fs::path(bronze_yr_dir, paste0(tbl_nm, ".parquet"))
-
-          # IMPORTANT (Windows-safe):
-          # Write to a temporary file first, then replace the final file
           tmp_bronze_file <- fs::path(bronze_yr_dir, paste0(tbl_nm, "_tmp.parquet"))
 
           if (fs::file_exists(bronze_file)) {
-            combine_sql <- sprintf("
-              COPY (
-                SELECT * FROM read_parquet('%s') b
-                WHERE NOT EXISTS (
-                  SELECT 1 FROM read_parquet('%s') p
-                  WHERE %s
+            cli$cli_alert_info("Atomic Merge: {.val {tbl_nm}}")
+            
+            if (fs::file_exists(batch_tbl_path)) {
+                # PURGE + REFILL in one operation
+                sql <- sprintf("
+                  COPY (
+                    SELECT * FROM read_parquet('%s') b
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM read_parquet('%s') p 
+                      WHERE %s
+                    )
+                    UNION ALL BY NAME
+                    SELECT * FROM read_parquet('%s')
+                  ) TO '%s' (FORMAT PARQUET);
+                ",
+                bronze_file,
+                primary_path,
+                paste(paste0("b.", ident_keys, " = p.", ident_keys), collapse = " AND "),
+                batch_tbl_path,
+                tmp_bronze_file
                 )
-                UNION ALL BY NAME
-                SELECT * FROM read_parquet('%s')
-              ) TO '%s' (FORMAT PARQUET);
-              ",
-             bronze_file,
-             batch_tbl_path,
-             paste(paste0("b.", ident_keys, " = p.", ident_keys), collapse = " AND "),
-             batch_tbl_path,
-             tmp_bronze_file
-            )
-
-          } else {
-            combine_sql <- sprintf("
-             COPY (
-              SELECT * FROM read_parquet('%s'))
-              TO '%s' (FORMAT PARQUET
-              );",
-             batch_tbl_path,
-             tmp_bronze_file
-            )
+            } else {
+                # PURGE ONLY (Patient exists in Primary but not in this secondary table)
+                sql <- sprintf("
+                  COPY (
+                    SELECT * FROM read_parquet('%s') b
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM read_parquet('%s') p 
+                      WHERE %s
+                    )
+                  ) TO '%s' (FORMAT PARQUET);
+                ",
+                bronze_file,
+                primary_path,
+                paste(paste0("b.", ident_keys, " = p.", ident_keys), collapse = " AND "),
+                tmp_bronze_file
+                )
+            }
+            
+            DBI$dbExecute(con, sql)
+            
+            # Windows-safe move
+            if (fs::file_exists(bronze_file)) fs::file_delete(bronze_file)
+            fs::file_move(tmp_bronze_file, bronze_file)
+            
+          } else if (fs::file_exists(batch_tbl_path)) {
+            # Fresh create
+            cli$cli_alert_info("Creating: {.val {tbl_nm}}")
+            DBI$dbExecute(con, sprintf("COPY (SELECT * FROM read_parquet('%s')) TO '%s' (FORMAT PARQUET);", batch_tbl_path, bronze_file))
           }
-
-          # The DuckDB write happens on temp
-          DBI$dbExecute(con, combine_sql)
-
-
-          # Write temp over old file if it exists
-          # fs::file_move() does NOT support overwrite, so we handle it explicitly
-          if (fs::file_exists(bronze_file)) {
-            fs::file_delete(bronze_file)
-          }
-          fs::file_move(tmp_bronze_file, bronze_file)
-
         }
       }
     }

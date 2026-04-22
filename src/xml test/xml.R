@@ -145,6 +145,15 @@ parse_b_ricovero <- function(rec) {
     }
   }
 
+  # accessiInDH (1-1, as a list column)
+  dh_nodes <- info_children[xml_name(info_children) == "AccessiInDH"]
+  if (length(dh_nodes) == 1) {
+    dates <- xml_children(dh_nodes[[1]])
+    row$accessi_dh <- list(xml_text(dates))
+  } else {
+    row$accessi_dh <- list(character(0))
+  }
+
   row
 }
 
@@ -252,33 +261,6 @@ parse_b_procedure <- function(rec) {
 }
 
 
-parse_b_accessi_dh <- function(rec) {
-
-  rec_children <- xml_children(rec)
-  info <- rec_children[xml_name(rec_children) == "informazioniRicovero"][[1]]
-
-  codice <- xml_attr(info, "codiceIstitutoDiCura")
-  prog   <- xml_attr(info, "progressivoSDO")
-
-  dh_nodes <- xml_children(info)[xml_name(xml_children(info)) == "AccessiInDH"]
-  if (length(dh_nodes) == 0) return(list())
-
-  dates <- xml_children(dh_nodes[[1]])
-  out <- list()
-
-  for (i in seq_along(dates)) {
-    out[[i]] <- list(
-      codiceIstitutoDiCura = codice,
-      progressivoSDO       = prog,
-      numAccesso           = i,
-      dataAccesso          = xml_text(dates[[i]])
-    )
-  }
-
-  out
-}
-
-
 # Main B ------------------------------------------------------------------
 
 
@@ -289,13 +271,11 @@ parse_tracciato_b <- function(doc) {
   rows_ricovero   <- list()
   rows_diagnosi   <- list()
   rows_procedure  <- list()
-  rows_accessi_dh <- list()
 
   for (rec in records) {
     rows_ricovero   <- c(rows_ricovero,   list(parse_b_ricovero(rec)))
     rows_diagnosi   <- c(rows_diagnosi,   parse_b_diagnosi(rec))
     rows_procedure  <- c(rows_procedure,  parse_b_procedure(rec))
-    rows_accessi_dh <- c(rows_accessi_dh, parse_b_accessi_dh(rec))
   }
 
   # helper di allineamento schema
@@ -304,7 +284,10 @@ parse_tracciato_b <- function(doc) {
     all_names <- unique(unlist(lapply(rows, names)))
     rows <- lapply(rows, function(r) {
       missing <- setdiff(all_names, names(r))
-      if (length(missing)) r[missing] <- NA_character_
+      if (length(missing)) {
+        r[missing] <- NA_character_
+        if ("accessi_dh" %in% missing) r$accessi_dh <- list(character(0))
+      }
       r[all_names]
     })
     as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
@@ -313,7 +296,6 @@ parse_tracciato_b <- function(doc) {
   list(
     ricovero   = bind_rows_safe(rows_ricovero),
     diagnosi   = bind_rows_safe(rows_diagnosi),
-    procedure  = bind_rows_safe(rows_procedure),
-    accessi_dh = bind_rows_safe(rows_accessi_dh)
+    procedure  = bind_rows_safe(rows_procedure)
   )
 }
