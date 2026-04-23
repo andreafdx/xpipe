@@ -525,6 +525,23 @@ load_options <- function(path = NULL, project_root = NULL) {
   # Methods contract
   config$methods <- .load_methods_contract(config$local)
 
+  # Validate schema domains consistency
+  stream_domains  <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
+  method_domains  <- unique(vapply(config$methods, `[[`, "", "schema_domain"))
+
+  unknown_domains <- setdiff(method_domains, stream_domains)
+
+  if (length(unknown_domains) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid configuration",
+        "x" = "Methods reference unknown schema_domain(s): {.val {unknown_domains}}",
+        "i" = "Defined stream domains: {.val {stream_domains}}"
+      ),
+      class = c("config", "schema_domain")
+    )
+  }
+
   cli::cli_alert_success("Configuration system loaded and validated.")
 
   structure(config, class = "xacc_config")
@@ -583,7 +600,8 @@ load_options <- function(path = NULL, project_root = NULL) {
         paste0(
           "{.strong ", nm, "} ",
           "[", v$label, "] ",
-          "(anchor: ", v$anchor, " | ",
+          "(domain: ", v$schema_domain, " | ",
+          "anchor: ", v$anchor, " | ",
           "partition: ", v$partition_granularity, ")"
         )
       }
@@ -599,7 +617,7 @@ load_options <- function(path = NULL, project_root = NULL) {
       function(v, nm) {
         paste0(
           "{.strong ", nm, "} ",
-          "➔ stream binding: ", v$stream, " ",
+          "➔ domain: ", v$schema_domain, " ",
           "[", v$type, "]"
         )
       }

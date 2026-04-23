@@ -4,7 +4,7 @@
   "additionalProperties": {
     "type": "object",
     "required": [
-      "stream",
+      "schema_domain",
       "type",
       "input_type",
       "primary_table",
@@ -12,7 +12,7 @@
       "partition_column"
     ],
     "properties": {
-      "stream": { "type": "string" },
+      "schema_domain": {"type": "string","minLength": 1},
       "type": { "type": "string", "enum": ["access_db", "xml", "csv"] },
       "input_type": { "type": "string", "enum": ["file", "directory"] },
       "components": {

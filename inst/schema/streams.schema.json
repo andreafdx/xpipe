@@ -23,10 +23,14 @@
   "definitions": {
     "stream": {
       "type": "object",
-      "required": ["label", "partition_granularity", "anchor", "valid_from"],
+      "required": ["label", "schema_domain", "partition_granularity", "anchor", "valid_from"],
       "properties": {
         "label": { "type": "string" },
         "description": { "type": "string" },
+        "schema_domain": {
+          "type": "string",
+          "minLength": 1
+        },
         "partition_granularity": {
           "type": "string",
           "enum": ["year", "month"]
