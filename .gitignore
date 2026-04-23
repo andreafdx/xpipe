@@ -8,11 +8,14 @@
 inbox/
 data/
 output/
+tests/
 .superpowers/
-bronze.txt
+
+data/*
 !data/**/*.json
 !data/*.json
+
 node_modules/
 package.json
 package-lock.json
-tests/
+bronze.txt
