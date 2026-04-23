@@ -3,7 +3,6 @@
 library(cli)
 
 source("src/fnc/access.R")
-source("src/fnc/meta_file.R")
 source("src/fnc/crypto.R")
 source("src/fnc/config.R")
 source("src/setup.R")

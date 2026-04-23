@@ -14,15 +14,15 @@ box::use(
 
 #' Assert configuration validity for batch creation
 #'
-#' Ensures that a valid `xacc_config` object is provided and that
+#' Ensures that a valid `xpipe_config` object is provided and that
 #' all required branches (local paths, streams, methods) are present.
 #'
-#' @param config An object of class `xacc_config`.
+#' @param config An object of class `xpipe_config`.
 #' @return Invisibly returns TRUE if valid, otherwise aborts.
 #' @keywords internal
 #' @noRd
 .assert_config_for_batch <- function(config) {
-  if (missing(config) || !inherits(config, "xacc_config")) {
+  if (missing(config) || !inherits(config, "xpipe_config")) {
     cli$cli_abort(
       c(
         "Invalid configuration",
@@ -32,7 +32,7 @@ box::use(
     )
   }
 
-  required_paths <- c("inbox", "raw", "batch")
+  required_paths <- c("inbox", "batch")
   missing_paths <- setdiff(required_paths, names(config$local$paths))
 
   if (length(missing_paths) > 0) {
@@ -62,7 +62,7 @@ box::use(
 
 #' Retrieve method configuration
 #'
-#' @param config xacc_config object.
+#' @param config xpipe_config object.
 #' @param method_id Character scalar.
 #' @return A list with the method configuration.
 #' @keywords internal
@@ -95,7 +95,7 @@ box::use(
 
 #' Retrieve stream configuration
 #'
-#' @param config xacc_config object.
+#' @param config xpipe_config object.
 #' @param stream_id Character scalar.
 #' @return A list with the stream configuration.
 #' @keywords internal
@@ -120,7 +120,7 @@ box::use(
 
 #' Resolve input path from inbox
 #'
-#' @param config xacc_config object.
+#' @param config xpipe_config object.
 #' @param path Character scalar.
 #' @return Normalized absolute path.
 #' @keywords internal
@@ -163,7 +163,7 @@ box::use(
     cli$cli_abort(
       c(
         "Invalid input type",
-        "x" = "Method {.val {method_config$method_id}} requires a file, but a directory was provided.",
+        "x" = "Selected method requires a file, but a directory was provided.",
         "i" = "Path: {.file {filepath}}"
       ),
       class = c("batch_job", "input_type")
@@ -240,7 +240,7 @@ box::use(
 #' @return Character scalar batch identifier.
 #'
 #' @noRd
-.normalize_or_generate_batch_id <- function(stream_id, batch_id = NULL) {
+.normalize_or_generate_batch_id <- function(stream_id, method_id, batch_id = NULL) {
   if (!is.null(batch_id)) {
     if (!is.character(batch_id) || length(batch_id) != 1 || !nzchar(batch_id)) {
       cli$cli_abort(
@@ -254,10 +254,10 @@ box::use(
     return(batch_id)
   }
 
-  ts <- format(Sys.time(), "%Y%m%d_%H%M%OS3")
-  ts <- gsub("\\.", "", ts)
+  ts <- format(Sys.time(), "%Y%m%dT%H%M%OS3")
+  #ts <- gsub("\\.", "", ts)
 
-  paste0(stream_id, "_", ts)
+  paste0(ts, "_" ,stream_id, "_", method_id)
 }
 
 
@@ -267,23 +267,23 @@ box::use(
 #' Constructs the normalized filesystem path for a batch within
 #' the Batch layer, based on stream and batch identifiers.
 #'
-#' @param config xacc_config object.
+#' @param config xpipe_config object.
 #' @param stream_id Character scalar identifying the stream.
 #' @param batch_id Character scalar batch identifier.
 #'
 #' @return Normalized filesystem path to the batch directory.
 #'
 #' @noRd
-.build_batch_target_dir <- function(config, stream_id, batch_id) {
+.build_batch_target_dir <- function(config, batch_id) {
   fs::path_norm(
-    fs::path(config$local$paths$batch, stream_id, batch_id)
+    fs::path(config$local$paths$batch, batch_id)
   )
 }
 
 
 #' Construct Batch Job Object
 #'
-#' Assembles a structured \code{xacc_batch_job} object representing
+#' Assembles a structured \code{xpipe_batch_job} object representing
 #' a validated batch import intent in initialized state.
 #'
 #' @param filename Character scalar. Original input name.
@@ -297,7 +297,7 @@ box::use(
 #' @param batch_id Character scalar batch identifier.
 #' @param components Optional list of discovered components.
 #'
-#' @return An object of class \code{xacc_batch_job}.
+#' @return An object of class \code{xpipe_batch_job}.
 #'
 #' @noRd
 .build_batch_job <- function(
@@ -322,7 +322,7 @@ box::use(
       status = "initialized",
       components = components
     ),
-    class = "xacc_batch_job"
+    class = "xpipe_batch_job"
   )
 }
 
@@ -342,12 +342,12 @@ box::use(
 #'   in the inbox path defined in the local configuration.
 #' @param method Character scalar identifying the ingestion method to use,
 #'   as defined in \code{methods.json}.
-#' @param config An object of class \code{xacc_config}, as returned by
+#' @param config An object of class \code{xpipe_config}, as returned by
 #'   \code{load_options()}.
 #' @param batch_id Optional character scalar. Explicit batch identifier.
 #'   If \code{NULL}, a unique batch identifier is generated automatically.
 #'
-#' @return An object of class \code{xacc_batch_job} in
+#' @return An object of class \code{xpipe_batch_job} in
 #'   \code{"initialized"} state.
 #'
 #' @details
@@ -362,18 +362,30 @@ box::use(
 #' @export
 new_batch_job <- function(
     filename,
+    stream,
     method,
     config,
     batch_id = NULL
-) {
+){
   .assert_config_for_batch(config)
 
   method_config <- .get_method_config(config, method)
-  stream_id     <- method_config$stream
-  stream_config <- .get_stream_config(config, stream_id)
+  stream_config <- .get_stream_config(config, stream)
+  stream_id     <- stream
 
-  # Inject stream_id into stream_config for downstream use
-  stream_config$stream_id <- stream_id
+  if (method_config$schema_domain != stream_config$schema_domain) {
+    cli::cli_abort(
+      c(
+        "Invalid batch job",
+        "x" = "Method and stream belong to different schema domains",
+        "i" = "Method domain: {.val {method_config$schema_domain}}",
+        "i" = "Stream domain: {.val {stream_config$schema_domain}}"
+      ),
+      class = c("batch_job", "schema_domain")
+    )
+  }
+
+
 
   filepath  <- .resolve_inbox_path(config, filename)
 
@@ -387,8 +399,8 @@ new_batch_job <- function(
     NULL
   }
 
-  batch_id  <- .normalize_or_generate_batch_id(stream_id, batch_id)
-  batch_dir <- .build_batch_target_dir(config, stream_id, batch_id)
+  batch_id  <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
+  batch_dir <- .build_batch_target_dir(config, batch_id)
 
   .build_batch_job(
     filename = filename,
@@ -406,14 +418,14 @@ new_batch_job <- function(
 
 # S3 print method
 
-#' Print xacc batch job
+#' Print xpipe batch job
 #'
 #' @export
-print.xacc_batch_job <- function(x, ...) {
+print.xpipe_batch_job <- function(x, ...) {
   cli::cli_div(
     theme = list(rule = list(color = "cyan", "line-type" = "double"))
   )
-  cli::cli_rule("XACC Batch Job")
+  cli::cli_rule("XNE Batch Job")
 
   cli::cli_h2("Status")
   cli::cli_alert_success(x$status)
@@ -421,9 +433,9 @@ print.xacc_batch_job <- function(x, ...) {
   cli::cli_h2("Input")
   cli::cli_bullets(c(
     "path        : {.file {x$filepath}}",
+    "input type  : {.val {x$method_config$input_type}}",
     "method      : {.val {x$method_id}} [{.val {x$method_config$type}}]",
-    "stream      : {.val {x$stream_id}}",
-    "anchor      : {.val {x$stream_config$anchor}}"
+    "stream      : {.val {x$stream_id}} [{.val {x$method_config$schema_domain}}]"
   ))
 
   if (!is.null(x$components)) {
@@ -435,10 +447,9 @@ print.xacc_batch_job <- function(x, ...) {
 
   cli::cli_h2("Storage (Batch)")
   cli::cli_bullets(c(
-    "root        : {.file {x$batch_root}}",
-    "stream      : {.val {x$stream_id}}",
-    "batch_id    : {.val {x$batch_id}}",
-    "target dir  : {.file {x$batch_dir}}"
+    "path      : {.file {x$batch_dir}}",
+    "batch_id    : {.val {x$batch_id}}"
+
   ))
 
   cli::cli_rule()

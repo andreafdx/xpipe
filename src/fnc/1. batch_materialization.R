@@ -3,7 +3,7 @@ box::use(
   cli,
   jsonlite,
   arrow,
-  ./crypto[apply_privacy_rules]
+  #./crypto[apply_privacy_rules]
 )
 
 # Batch materialization pipeline ------------------------------------------
@@ -34,28 +34,28 @@ box::use(
 #' - detect target directory collisions (batch layer)
 #' - re-validate input file existence
 #'
-#' @param job An object of class \code{xacc_batch_job}.
-#' @param config An object of class \code{xacc_config}.
+#' @param job An object of class \code{xpipe_batch_job}.
+#' @param config An object of class \code{xpipe_config}.
 #' @return Invisibly TRUE if materializable, otherwise aborts.
 #' @keywords internal
 #' @noRd
 .assert_batch_materializable <- function(job, config) {
 
-  if (!inherits(job, "xacc_batch_job")) {
+  if (!inherits(job, "xpipe_batch_job")) {
     cli::cli_abort(
       c(
         "Invalid batch job",
-        "x" = "{.arg job} must be an object of class {.cls xacc_batch_job}"
+        "x" = "{.arg job} must be an object of class {.cls xpipe_batch_job}"
       ),
       class = c("batch_job", "materialization")
     )
   }
 
-  if (!inherits(config, "xacc_config")) {
+  if (!inherits(config, "xpipe_config")) {
     cli::cli_abort(
       c(
         "Invalid configuration",
-        "x" = "{.arg config} must be an object of class {.cls xacc_config}"
+        "x" = "{.arg config} must be an object of class {.cls xpipe_config}"
       ),
       class = c("batch_job", "materialization", "config")
     )
@@ -129,9 +129,9 @@ box::use(
 
   instrument <- switch(
     method_type,
-    "access_db" = extract_access_db,
+    "access_mdb" = extract_access_db,
     "xml"       = extract_xml,
-    "csv"       = extract_csv,
+    #"csv"       = extract_csv,
     NULL
   )
 
@@ -207,7 +207,7 @@ box::use(
 #'
 #' @keywords internal
 #' @noRd
-.persist_to_batch <- function(job, extracted_data) {
+.persist_to_batch <- function(job, extracted_data, config) {
 
   fs::dir_create(job$batch_dir, recurse = TRUE)
 
@@ -233,12 +233,34 @@ box::use(
 
   # Meta file as JSON for cross-platform compatibility
   meta <- list(
-    batch_id   = job$batch_id,
-    stream_id  = job$stream_id,
-    method_id  = job$method_id,
-    anchor     = job$stream_config$anchor,
-    created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+    batch_id = job$batch_id,
+
+    stream = list(
+      id            = job$stream_id,
+      schema_domain = job$method_config$schema_domain,
+      anchor        = job$stream_config$anchor
+    ),
+
+    method = list(
+      id   = job$method_id,
+      type = job$method_config$type
+    ),
+
+    input = list(
+      path       = job$filename,
+      input_type = job$method_config$input_type
+    ),
+
+    execution = list(
+      created_at  = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
+      tool       = config$runtime$tool$name,
+      tool_version = config$runtime$tool$version
+    )
   )
+  if (!is.null(job$method_config$components)) {
+    meta$components <- job$method_config$components
+  }
+
 
   jsonlite::write_json(
     meta,
@@ -269,12 +291,12 @@ box::use(
 #' This operation is irreversible: once materialized, batch data is
 #' considered immutable and ready for downstream promotion.
 #'
-#' @param job An object of class \code{xacc_batch_job} in
+#' @param job An object of class \code{xpipe_batch_job} in
 #'   \code{"initialized"} state.
-#' @param config An object of class \code{xacc_config}, as returned by
+#' @param config An object of class \code{xpipe_config}, as returned by
 #'   \code{load_options()}.
 #'
-#' @return An updated \code{xacc_batch_job} object with status set to
+#' @return An updated \code{xpipe_batch_job} object with status set to
 #'   \code{"materialized"}.
 #'
 #' @details
@@ -299,8 +321,13 @@ materialize_batch_job <- function(job, config) {
       config$runtime$pepper
     )
   }
-  .persist_to_batch(job, extracted_data)
+  .persist_to_batch(job, extracted_data, config)
 
   job$status <- "materialized"
   job
 }
+
+
+
+
+

@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Batch Event Metadata",
+  "type": "object",
+
+  "required": ["batch_id", "stream", "method", "input", "execution"],
+
+  "properties": {
+    "batch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+
+    "stream": {
+      "type": "object",
+      "required": ["id", "schema_domain", "anchor"],
+      "properties": {
+        "id": { "type": "string" },
+        "schema_domain": { "type": "string" },
+        "anchor": { "enum": ["start", "end"] }
+      },
+      "additionalProperties": false
+    },
+
+    "method": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "input": {
+      "type": "object",
+      "required": ["path", "input_type"],
+      "properties": {
+        "path": { "type": "string" },
+        "input_type": { "enum": ["file", "directory"] }
+      },
+      "additionalProperties": false
+    },
+
+    "components": {
+      "type": "object",
+      "description": "Logical input components declared by the ingestion method",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+
+    "execution": {
+      "type": "object",
+      "required": ["created_at", "tool"],
+      "properties": {
+        "created_at": { "type": "string", "format": "date-time" },
+        "tool": { "type": "string" },
+        "tool_version": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "additionalProperties": false
+}

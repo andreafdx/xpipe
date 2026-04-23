@@ -13,7 +13,7 @@
     ],
     "properties": {
       "schema_domain": {"type": "string","minLength": 1},
-      "type": { "type": "string", "enum": ["access_db", "xml", "csv"] },
+      "type": { "type": "string", "enum": ["access_mdb", "xml", "csv"] },
       "input_type": { "type": "string", "enum": ["file", "directory"] },
       "components": {
         "oneOf": [

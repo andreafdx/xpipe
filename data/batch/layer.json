@@ -1,1 +1,7 @@
-{ "expected_hash": "de9034e0f94c7e5b141a1302edee2b009dc9283adb225bf79be606caf0669ee9" }
+{
+  "layer": "batch",
+  "role": "immutable_event_log",
+  "expected_hash": "de9034e0f94c7e5b141a1302edee2b009dc9283adb225bf79be606caf0669ee9",
+  "created_at": "2026-04-23",
+  "description": "Flat, append-only batch layer. Each subdirectory is an immutable batch event."
+}

@@ -18,11 +18,12 @@ source("src/fnc/2. bronze_promotion.R")
 tryCatch({
   cli::cli_h1("Access Data Test: 2025_full.mdb")
 
-  .cfg <- load_options()
+  .cfg <- load_xpipe_config()
 
   my_job <- new_batch_job(
     filename = "2025_full.mdb",
-    method   = "sdo_access",
+    method   = "quani_mdb",
+    stream   = "sdo",
     config   = .cfg
   )
   print(my_job)

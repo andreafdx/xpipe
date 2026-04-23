@@ -4,7 +4,7 @@
 
 
 box::use(
-  ./crypto[hash_phi],
+  #./crypto[hash_phi],
   jsonlite,
   jsonvalidate,
   fs,
@@ -32,7 +32,7 @@ box::use(
     }
   }
 
-  pkg_path <- system.file(..., package = "xacc")
+  pkg_path <- system.file(..., package = "xpipe")
   if (pkg_path != "") {
     return(pkg_path)
   }
@@ -137,6 +137,15 @@ box::use(
 #' @noRd
 .load_runtime_context <- function() {
   runtime <- list(
+    tool <- list(
+      name    = "xpipe",
+      version =
+        if (requireNamespace("xpipe", quietly = TRUE)) {
+          as.character(utils::packageVersion("xpipe"))
+        } else {
+          "dev"
+        }
+    ),
     pepper = Sys.getenv("XNE_PEPPER_KEY"),
     loaded_at = Sys.time()
   )
@@ -285,6 +294,13 @@ box::use(
     )
   }
 
+  .validate_json_schema(
+    json_path   = layer_json,
+    schema_name = "batch_layer.schema.json",
+    title       = "Invalid Batch layer metadata",
+    class       = c("config_options", "batch_layer", "schema")
+  )
+
   layer_json
 }
 
@@ -304,7 +320,7 @@ box::use(
     test_string = "byut5f778DfOPth567"
 ) {
   # Bypass hash check if environment variable is set
-  if (Sys.getenv("XACC_SKIP_HASH_CHECK") == "TRUE") {
+  if (Sys.getenv("XPIPE_SKIP_HASH_CHECK") == "TRUE") {
     cli::cli_alert_warning("Bypassing Batch layer integrity hash check.")
     return(invisible(TRUE))
   }
@@ -347,7 +363,6 @@ box::use(
 .load_batch_layer <- function(local_config, runtime_config) {
   layer_json <- .validate_batch_layer(local_config)
 
-  # Note: Add layer.schema.json if stricter validation is required later
   layer_options <- .read_json_safe(
     path = layer_json,
     error_title = "Invalid Batch layer metadata",
@@ -494,7 +509,7 @@ box::use(
 
 #' Load and Validate Configuration
 #'
-#' Loads the full XACC control-plane configuration, including:
+#' Loads the full xpipe control-plane configuration, including:
 #' - runtime context
 #' - local infrastructure configuration
 #' - batch layer metadata
@@ -503,9 +518,9 @@ box::use(
 #'
 #' @param path Path to local.json.
 #' @param project_root Project root.
-#' @return xacc_config object.
+#' @return xpipe_config object.
 #' @export
-load_options <- function(path = NULL, project_root = NULL) {
+load_xpipe_config <- function(path = NULL, project_root = NULL) {
   config <- list()
 
   # Runtime context
@@ -544,7 +559,7 @@ load_options <- function(path = NULL, project_root = NULL) {
 
   cli::cli_alert_success("Configuration system loaded and validated.")
 
-  structure(config, class = "xacc_config")
+  structure(config, class = "xpipe_config")
 }
 
 
@@ -555,14 +570,14 @@ load_options <- function(path = NULL, project_root = NULL) {
 #' Provides a structured console summary of the active control-plane
 #' configuration.
 #'
-#' @param x An S3 object of class \code{xacc_config}.
+#' @param x An S3 object of class \code{xpipe_config}.
 #' @param ... Additional arguments (ignored).
 #' @noRd
 .render_config <- function(x, ...) {
   cli::cli_div(
     theme = list(rule = list(color = "cyan", "line-type" = "double"))
   )
-  cli::cli_rule("XACC Configuration Map")
+  cli::cli_rule("xpipe Configuration Map")
 
   # 1. RUNTIME CONTEXT
   cli::cli_h2("Runtime Context")
@@ -635,11 +650,11 @@ load_options <- function(path = NULL, project_root = NULL) {
   invisible(x)
 }
 
-#' Print xacc_config
+#' Print xpipe_config
 #'
-#' @param x xacc_config object.
+#' @param x xpipe_config object.
 #' @param ... Ignored.
 #' @noRd
-print.xacc_config <- function(x, ...) {
+print.xpipe_config <- function(x, ...) {
   .render_config(x, ...)
 }
