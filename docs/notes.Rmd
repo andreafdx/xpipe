@@ -1,0 +1,16 @@
+---
+title: "notes"
+output: html_document
+---
+
+streams.json
+
+// Optional addition to the model include:
+// 
+//  "description": ""
+//  "process_state_at_ingest": "closed" | "open"
+//  "allows_revision": true | false
+//  "stream_kind": "fact" | "event"
+//  "valid_from": "2000-01-01",
+//  "valid_to": null,
+//  "owner": "SDO Governance Group"

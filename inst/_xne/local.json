@@ -1,6 +1,6 @@
 {
   "paths": {
-    "logic": "data",
+    "shared":"data/shared",
     "inbox": "inbox",
     "raw": "data/raw",
     "batch": "data/batch",

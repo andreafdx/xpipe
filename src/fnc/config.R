@@ -1,16 +1,18 @@
-# ======================================================================= #
-# FILE: src/fnc/config.R
-#
-# System configuration and options loading
-#
-# ======================================================================= #
+
+# Configuration and options -----------------------------------------------
+
+
 
 box::use(
   ./crypto[hash_phi],
+  jsonlite,
+  jsonvalidate,
+  fs,
+  cli,
   purrr[imap_chr]
 )
 
-# Helper functions --------------------------------------------------------
+## Helper functions --------------------------------------------------------
 
 #' Find Internal Asset
 #'
@@ -93,7 +95,7 @@ box::use(
 #' @noRd
 .read_json_safe <- function(path, error_title, error_class) {
   if (!fs::file_exists(path)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(error_title, "x" = "JSON file not found: {.file {path}}"),
       class = error_class
     )
@@ -102,11 +104,16 @@ box::use(
   tryCatch(
     jsonlite::fromJSON(path, simplifyVector = TRUE),
     error = function(e) {
-      cli$cli_abort(
+      # Escape braces so cli/glue cannot interpret them
+      msg <- conditionMessage(e)
+      msg <- gsub("\\{", "{{", msg)
+      msg <- gsub("\\}", "}}", msg)
+
+      cli::cli_abort(
         c(
           error_title,
           "x" = "Invalid JSON syntax",
-          "!" = e$message
+          "i" = msg
         ),
         class = error_class
       )
@@ -114,13 +121,21 @@ box::use(
   )
 }
 
-# Runtime layer ----------------------------------------------------------
 
-#' Load Runtime Layer
+## Runtime context --------------------------------------------------------
+
+#' Load Runtime Context
 #'
-#' @return Runtime configuration.
+#' Initializes the ephemeral runtime context for the current process.
+#'
+#' The runtime context contains environment-bound and non-persistent
+#' information such as cryptographic keys and load timestamps.
+#'
+#' This is NOT a data layer and does not represent persisted state.
+#'
+#' @return Runtime context configuration.
 #' @noRd
-.load_runtime_layer <- function() {
+.load_runtime_context <- function() {
   runtime <- list(
     pepper = Sys.getenv("XNE_PEPPER_KEY"),
     loaded_at = Sys.time()
@@ -136,15 +151,22 @@ box::use(
   runtime
 }
 
-# Local layer ------------------------------------------------------------
+## Local configuration ----------------------------------------------------
 
-#' Load Local Layer
+#' Load Local Configuration
+#'
+#' Loads and normalizes environment-specific infrastructure configuration.
+#'
+#' The local configuration defines filesystem paths, logging locations,
+#' and other deployment-specific settings required to run the system.
+#'
+#' This is NOT a data layer and does not encode domain or semantic rules.
 #'
 #' @param path Path to local.json.
-#' @param project_root Root for relative paths.
+#' @param project_root Root for resolving relative paths.
 #' @return Normalized local configuration.
 #' @noRd
-.load_local_layer <- function(path = NULL, project_root = NULL) {
+.load_local_config <- function(path = NULL, project_root = NULL) {
   if (is.null(path)) {
     path <- .find_asset("_xne", "local.json")
   }
@@ -167,9 +189,14 @@ box::use(
 
 #' Normalize Configuration Paths
 #'
-#' @param local_config Raw local config.
+#' Resolves and validates all filesystem paths defined in local.json.
+#'
+#' Ensures that paths are absolute, normalized, and exist on disk.
+#' This function operates purely at the infrastructure level.
+#'
+#' @param local_config Raw local configuration.
 #' @param project_root Base path.
-#' @return Normalized config.
+#' @return Normalized local configuration.
 #' @noRd
 .normalize_paths <- function(local_config, project_root = NULL) {
   if (is.null(project_root)) {
@@ -206,9 +233,17 @@ box::use(
   local_config
 }
 
-# Batch layer (Remote) ---------------------------------------------------
 
-#' Validate Batch Layer Path and Presence of layer.json
+## Batch layer (Remote) ---------------------------------------------------
+
+#' Validate Batch Layer Presence and Metadata
+#'
+#' Validates the Batch data layer location and the presence of its
+#' persistent metadata file (`layer.json`).
+#'
+#' The Batch layer is a medallion DATA layer. The associated `layer.json`
+#' represents layer STATE (integrity and provenance), not configuration
+#' or domain semantics.
 #'
 #' @param local_config Local configuration.
 #' @return Path to layer.json.
@@ -229,8 +264,12 @@ box::use(
 
   if (!fs::dir_exists(batch_path)) {
     cli$cli_abort(
-      c("Invalid configuration path", "x" = "Batch directory does not exist"),
-      class = c("local_options", "paths")
+      c(
+        "Invalid Batch layer",
+        "x" = "Batch layer directory does not exist",
+        "i" = "Path: {.file {batch_path}}"
+      ),
+      class = c("batch_layer", "paths")
     )
   }
 
@@ -238,22 +277,26 @@ box::use(
   if (!fs::file_exists(layer_json)) {
     cli$cli_abort(
       c(
-        "Invalid layer metadata",
+        "Invalid Batch layer metadata",
         "x" = "Required file {.file layer.json} not found",
         "i" = "Expected: layer.json in {.file {batch_path}}"
       ),
-      class = c("local_options", "paths")
+      class = c("batch_layer", "metadata")
     )
   }
 
   layer_json
 }
 
-#' Validate Batch Integrity Hash
+#' Validate Batch Layer Integrity Hash
+#'
+#' Verifies the integrity of the Batch layer metadata using a shared
+#' cryptographic secret. This protects against accidental or unauthorized
+#' modification of layer state.
 #'
 #' @param layer_options Parsed layer.json.
 #' @param pepper Runtime key.
-#' @param test_string Test string.
+#' @param test_string Internal test string.
 #' @noRd
 .validate_batch_hash <- function(
     layer_options,
@@ -262,7 +305,7 @@ box::use(
 ) {
   # Bypass hash check if environment variable is set
   if (Sys.getenv("XACC_SKIP_HASH_CHECK") == "TRUE") {
-    cli::cli_alert_warning("Bypassing batch integrity hash check.")
+    cli::cli_alert_warning("Bypassing Batch layer integrity hash check.")
     return(invisible(TRUE))
   }
 
@@ -270,35 +313,45 @@ box::use(
 
   if (is.null(expected_hash) || expected_hash == "") {
     cli$cli_abort(
-      c("Invalid layer.json", "x" = "Missing expected_hash"),
-      class = c("json_options", "crypto")
+      c(
+        "Invalid Batch layer metadata",
+        "x" = "Missing expected_hash in layer.json"
+      ),
+      class = c("batch_layer", "crypto")
     )
   }
 
   if (hash_phi(test_string, pepper) != expected_hash) {
     cli$cli_abort(
-      c("Invalid layer.json", "x" = "Hash mismatch. System will not start."),
-      class = c("json_options", "crypto")
+      c(
+        "Invalid Batch layer metadata",
+        "x" = "Hash mismatch. System will not start."
+      ),
+      class = c("batch_layer", "crypto")
     )
   }
 
   invisible(TRUE)
 }
 
-#' Load and Validate Batch Layer
+#' Load Batch Layer Metadata
+#'
+#' Loads and validates the persistent metadata describing the Batch
+#' medallion layer. This metadata represents STATE of the data layer,
+#' not configuration or domain logic.
 #'
 #' @param local_config Local configuration.
-#' @param runtime_config Runtime configuration.
-#' @return Validated layer options.
+#' @param runtime_config Runtime context.
+#' @return Parsed and validated Batch layer metadata.
 #' @noRd
 .load_batch_layer <- function(local_config, runtime_config) {
   layer_json <- .validate_batch_layer(local_config)
 
-  # Note: Add layer.schema.json if rigorous validation is needed later
+  # Note: Add layer.schema.json if stricter validation is required later
   layer_options <- .read_json_safe(
     path = layer_json,
-    error_title = "Invalid layer.json",
-    error_class = c("json_options", "batch")
+    error_title = "Invalid Batch layer metadata",
+    error_class = c("json_options", "batch_layer")
   )
 
   .validate_batch_hash(layer_options, runtime_config$pepper)
@@ -306,39 +359,121 @@ box::use(
   layer_options
 }
 
-# Streams layer (Remote) --------------------------------------------------
 
-#' Load Streams Layer
+## Streams contract (Remote) ----------------------------------------------
+
+#' Load Streams Contract
+#'
+#' Loads and validates the Streams contract, which defines domain-level
+#' semantic invariants (streams) used across Batch, Bronze, and Silver.
+#'
+#' The Streams contract is GOVERNANCE METADATA, not configuration and not
+#' a medallion data layer.
 #'
 #' @param local_config Local configuration.
-#' @return Validated streams configuration.
+#' @return A list with two elements:
+#'   - meta: streams contract metadata
+#'   - streams: named list of stream definitions
 #' @noRd
-.load_streams_layer <- function(local_config) {
-  path <- fs::path(local_config$paths$logic, "streams.json")
+.load_streams_contract <- function(local_config) {
+  path <- fs::path(local_config$paths$shared, "streams.json")
 
   .validate_json_schema(
-    json_path = path,
+    json_path  = path,
     schema_name = "streams.schema.json",
     title = "Invalid streams.json",
     class = c("config_options", "schema")
   )
 
-  .read_json_safe(
+  raw <- .read_json_safe(
     path,
-    error_title = "Invalid streams configuration",
+    error_title = "Invalid streams contract",
     error_class = "streams_options"
+  )
+
+  # Extract and validate contract metadata
+  meta <- raw$`_meta`
+
+  if (is.null(meta) || is.null(meta$type) || meta$type != "streams_contract") {
+    cli::cli_abort(
+      c(
+        "Invalid streams contract",
+        "x" = "Missing or invalid {.field _meta.type}",
+        "i" = "Expected: 'streams_contract'"
+      ),
+      class = c("streams_contract", "metadata")
+    )
+  }
+
+  # Extract actual streams
+  streams <- raw[names(raw) != "_meta"]
+
+  if (length(streams) == 0) {
+    cli::cli_abort(
+      c(
+        "Invalid streams contract",
+        "x" = "No stream definitions found"
+      ),
+      class = c("streams_contract", "streams")
+    )
+  }
+
+  #  Minimal semantic validation
+  for (nm in names(streams)) {
+    s <- streams[[nm]]
+
+    missing_fields <- setdiff(
+      c("label", "anchor", "partition_granularity", "valid_from"),
+      names(s)
+    )
+
+    if (length(missing_fields) > 0) {
+      cli::cli_abort(
+        c(
+          "Invalid stream definition",
+          "x" = "Stream {.val {nm}} missing required fields: {.val {missing_fields}}"
+        ),
+        class = c("streams_contract", "streams")
+      )
+    }
+
+    if (!(s$anchor %in% c("start", "end"))) {
+      cli::cli_abort(
+        c(
+          "Invalid stream definition",
+          "x" = "Stream {.val {nm}} has invalid anchor: {.val {s$anchor}}",
+          "i" = "Allowed: 'start', 'end'"
+        ),
+        class = c("streams_contract", "streams")
+      )
+    }
+  }
+
+  list(
+    meta    = meta,
+    streams = streams
   )
 }
 
-# Methods layer (Remote) --------------------------------------------------
 
-#' Load Methods Layer
+## Methods contract (Remote) ------------------------------------------------
+
+#' Load Methods Contract
+#'
+#' Loads and validates the Methods contract, which defines ingestion
+#' mechanics and extraction rules used to materialize Batch data.
+#'
+#' A Method describes HOW data is ingested (format, components,
+#' identity, partitioning, privacy), not WHAT the data means.
+#'
+#' The Methods contract is a CONTROL-PLANE artifact and must not
+#' be confused with medallion data layers.
 #'
 #' @param local_config Local configuration.
 #' @return Validated methods configuration.
 #' @noRd
-.load_methods_layer <- function(local_config) {
-  path <- fs::path(local_config$paths$logic, "methods.json")
+.load_methods_contract <- function(local_config) {
+  path <- fs::path(local_config$paths$shared, "methods.json")
 
   .validate_json_schema(
     json_path = path,
@@ -349,14 +484,22 @@ box::use(
 
   .read_json_safe(
     path,
-    error_title = "Invalid methods configuration",
+    error_title = "Invalid methods contract",
     error_class = "methods_options"
   )
 }
 
-# Bootloader -------------------------------------------------------------
+
+## Public API ---------------------------------------------------------------
 
 #' Load and Validate Configuration
+#'
+#' Loads the full XACC control-plane configuration, including:
+#' - runtime context
+#' - local infrastructure configuration
+#' - batch layer metadata
+#' - streams contract (domain semantics)
+#' - methods contract (ingestion mechanics)
 #'
 #' @param path Path to local.json.
 #' @param project_root Project root.
@@ -364,11 +507,23 @@ box::use(
 #' @export
 load_options <- function(path = NULL, project_root = NULL) {
   config <- list()
-  config$runtime <- .load_runtime_layer()
-  config$local   <- .load_local_layer(path, project_root)
-  config$batch   <- .load_batch_layer(config$local, config$runtime)
-  config$streams <- .load_streams_layer(config$local)
-  config$methods <- .load_methods_layer(config$local)
+
+  # Runtime context
+  config$runtime <- .load_runtime_context()
+
+  # Local configuration
+  config$local <- .load_local_config(path, project_root)
+
+  # Batch layer metadata (data layer state)
+  config$batch <- .load_batch_layer(config$local, config$runtime)
+
+  # Streams contract
+  streams_contract <- .load_streams_contract(config$local)
+  config$streams_meta <- streams_contract$meta
+  config$streams      <- streams_contract$streams
+
+  # Methods contract
+  config$methods <- .load_methods_contract(config$local)
 
   cli::cli_alert_success("Configuration system loaded and validated.")
 
@@ -376,14 +531,12 @@ load_options <- function(path = NULL, project_root = NULL) {
 }
 
 
-
-
-# S3 Methods --------------------------------------------------------------
-
+## S3 Methods --------------------------------------------------------------
 
 #' Render Configuration Gracefully
 #'
-#' Provides a stylish, detailed console summary of the configuration object.
+#' Provides a structured console summary of the active control-plane
+#' configuration.
 #'
 #' @param x An S3 object of class \code{xacc_config}.
 #' @param ... Additional arguments (ignored).
@@ -394,53 +547,59 @@ load_options <- function(path = NULL, project_root = NULL) {
   )
   cli::cli_rule("XACC Configuration Map")
 
-  # 1. RUNTIME & SECURITY
-  cli::cli_h2("System Context")
+  # 1. RUNTIME CONTEXT
+  cli::cli_h2("Runtime Context")
   cli::cli_bullets(c(
     "Loaded at : {.val {format(x$runtime$loaded_at)}}",
-    "Security  : HMAC-SHA256 (Pepper masked: {.val {substr(x$runtime$pepper, 1, 4)}}...)"
+    "Security  : HMAC-SHA256 (Masked Pepper: {.val {substr(x$runtime$pepper, 1, 4)}}...)"
   ))
 
-  # 2. LOCAL PATHS
+  # 2. LOCAL INFRASTRUCTURE
   cli::cli_h2("Local Infrastructure")
   if (!is.null(x$local$paths)) {
     cli::cli_bullets(
       purrr::imap_chr(
         x$local$paths,
-        ~ paste0("{.strong ", format(.y, width = 8), "} : {.file ", .x, "}")
+        ~ paste0("{.strong ", format(.y, width = 10), "} : {.file ", .x, "}")
       )
     )
   }
 
-  # 3. REMOTE LOGIC (The Brain)
-  cli$cli_h2("Shared Logic (Remote)")
+  # 3. STREAMS CONTRACT (Semantic Truth)
+  cli::cli_h2("Streams Contract")
+  if (!is.null(x$streams_meta)) {
+    cli::cli_bullets(c(
+      "Contract type : {.val {x$streams_meta$type}}",
+      "Version       : {.val {x$streams_meta$version}}",
+      "Maintainer    : {.val {x$streams_meta$maintainer}}",
+      "Last updated  : {.val {x$streams_meta$last_updated}}"
+    ))
+  }
 
-  cli$cli_h3("Datastreams (The Truth)")
   if (!is.null(x$streams)) {
     stream_bullets <- purrr::imap_chr(
       x$streams,
       function(v, nm) {
         paste0(
           "{.strong ", nm, "} ",
-          "[", v$label, "] ", # Added Label
-          "(granularity: ", v$partition_granularity, " | ",
-          "anchor: ", v$anchor, ")"
+          "[", v$label, "] ",
+          "(anchor: ", v$anchor, " | ",
+          "partition: ", v$partition_granularity, ")"
         )
       }
     )
-    cli$cli_bullets(stream_bullets)
+    cli::cli_bullets(stream_bullets)
   }
 
-
-  cli$cli_h3(
-"Ingest Methods")
+  # 4. METHODS CONTRACT (Ingestion Mechanics)
+  cli::cli_h2("Methods Contract")
   if (!is.null(x$methods)) {
     method_bullets <- purrr::imap_chr(
       x$methods,
       function(v, nm) {
         paste0(
           "{.strong ", nm, "} ",
-          "➔ stream: ", v$stream, " ",
+          "➔ stream binding: ", v$stream, " ",
           "[", v$type, "]"
         )
       }
@@ -448,9 +607,9 @@ load_options <- function(path = NULL, project_root = NULL) {
     cli::cli_bullets(method_bullets)
   }
 
-  # 4. LAYER STATUS
-  cli::cli_h2("Layer Integrity")
-  cli::cli_alert_success("Batch Layer Security: Validated & Verified.")
+  # 5. BATCH LAYER STATUS
+  cli::cli_h2("Batch Layer State")
+  cli::cli_alert_success("Batch layer metadata validated and trusted.")
 
   cli::cli_rule()
   cli::cli_end()
