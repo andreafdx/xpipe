@@ -1,10 +1,16 @@
+
 box::use(
   fs,
   cli,
   purrr[imap_chr]
 )
 
-# Helper functions --------------------------------------------------------
+# Batch initialization scripts --------------------------------------------
+
+
+
+
+## Helper functions --------------------------------------------------------
 
 #' Assert configuration validity for batch creation
 #'
@@ -52,7 +58,7 @@ box::use(
   invisible(TRUE)
 }
 
-# Method and Stream validation --------------------------------------------
+## Method and Stream validation --------------------------------------------
 
 #' Retrieve method configuration
 #'
@@ -110,7 +116,7 @@ box::use(
   config$streams[[stream_id]]
 }
 
-## Inbox ------------------------------------------------------------------
+### Inbox ------------------------------------------------------------------
 
 #' Resolve input path from inbox
 #'
@@ -220,7 +226,7 @@ box::use(
   resolved
 }
 
-## Batch id & storage -----------------------------------------------------
+### Batch id & storage -----------------------------------------------------
 
 
 #' Normalize or Generate Batch Identifier
@@ -320,7 +326,7 @@ box::use(
   )
 }
 
-# Public API -------------------------------------------------------------
+## Public API -------------------------------------------------------------
 
 #' Create a New Batch Import Job
 #'
@@ -398,7 +404,7 @@ new_batch_job <- function(
   )
 }
 
-## S3 print ---------------------------------------------------------------
+# S3 print method
 
 #' Print xacc batch job
 #'

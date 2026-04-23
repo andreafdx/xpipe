@@ -8,8 +8,11 @@ box::use(
 )
 
 
+# Bronze promotion pipeline -----------------------------------------------
 
-# Helpers -----------------------------------------------------------------
+
+
+## Helpers -----------------------------------------------------------------
 
 
 #' Get Bronze State
@@ -130,7 +133,7 @@ box::use(
 }
 
 
-# Public API --------------------------------------------------------------
+## Public API --------------------------------------------------------------
 
 
 #' Promote Materialized Batches to the Bronze Layer
@@ -197,7 +200,7 @@ promote_to_bronze <- function(config, stream_id = NULL) {
 
       # 2.1 Find affected years using the PRIMARY table
       primary_path <- fs::path(config$local$paths$batch, s_id, b_meta$batch_id, paste0(primary_tbl, ".parquet"))
-      
+
       if (!fs::file_exists(primary_path)) {
         cli$cli_alert_danger("Primary table {.val {primary_tbl}} missing in batch. Skipping batch.")
         next
@@ -215,7 +218,7 @@ promote_to_bronze <- function(config, stream_id = NULL) {
 
         for (tbl_nm in table_names) {
           batch_tbl_path <- fs::path(config$local$paths$batch, s_id, b_meta$batch_id, paste0(tbl_nm, ".parquet"))
-          
+
           bronze_yr_dir <- fs::path(config$local$paths$bronze, s_id, paste0("year=", yr))
           fs::dir_create(bronze_yr_dir, recurse = TRUE)
           bronze_file <- fs::path(bronze_yr_dir, paste0(tbl_nm, ".parquet"))
@@ -223,14 +226,14 @@ promote_to_bronze <- function(config, stream_id = NULL) {
 
           if (fs::file_exists(bronze_file)) {
             cli$cli_alert_info("Atomic Merge: {.val {tbl_nm}}")
-            
+
             if (fs::file_exists(batch_tbl_path)) {
                 # PURGE + REFILL in one operation
                 sql <- sprintf("
                   COPY (
                     SELECT * FROM read_parquet('%s') b
                     WHERE NOT EXISTS (
-                      SELECT 1 FROM read_parquet('%s') p 
+                      SELECT 1 FROM read_parquet('%s') p
                       WHERE %s
                     )
                     UNION ALL BY NAME
@@ -249,7 +252,7 @@ promote_to_bronze <- function(config, stream_id = NULL) {
                   COPY (
                     SELECT * FROM read_parquet('%s') b
                     WHERE NOT EXISTS (
-                      SELECT 1 FROM read_parquet('%s') p 
+                      SELECT 1 FROM read_parquet('%s') p
                       WHERE %s
                     )
                   ) TO '%s' (FORMAT PARQUET);
@@ -260,13 +263,13 @@ promote_to_bronze <- function(config, stream_id = NULL) {
                 tmp_bronze_file
                 )
             }
-            
+
             DBI$dbExecute(con, sql)
-            
+
             # Windows-safe move
             if (fs::file_exists(bronze_file)) fs::file_delete(bronze_file)
             fs::file_move(tmp_bronze_file, bronze_file)
-            
+
           } else if (fs::file_exists(batch_tbl_path)) {
             # Fresh create
             cli$cli_alert_info("Creating: {.val {tbl_nm}}")
