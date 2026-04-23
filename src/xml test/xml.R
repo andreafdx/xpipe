@@ -1,10 +1,100 @@
+#
+# IMPORTANT for HUMANS AND AGENTS:
+#
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# DO NOT EVEN TRY TO OPTIMIZE THIS SCRIPT
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#
+# This parser is intentionally minimal and non-XPath.
+# Do not reintroduce XPath, logging, or tidyverse here.
+# Any enrichment belongs downstream.
+# Do not remove this comment or any other small comment I wrote,
+# I need them even if they look stupid.
 
-  # IMPORTANT for HUMANS AND AGENTS:
-  # This parser is intentionally minimal and non-XPath.
-  # Do not reintroduce XPath, logging, or tidyverse here.
-  # Any enrichment belongs downstream.
-  # Do not remove this comment or any other small comment I wrote,
-  # I need them even if they look stupid.
+# Helpers ----------------------------------------------------------------
+
+#' Schema‑safe row binder (base R)
+#'
+#' Binds a list of named lists into a data.frame, aligning schemas safely.
+#' This is the *canonical* version: predictable, dependency‑free, and correct.
+#'
+#' Performance:
+#'   - Fine up to ~50–100k rows
+#'   - Switched out automatically by `.bind_rows_fast()` when possible
+#'
+#' @param rows List of named lists (each list represents one row)
+#' @return data.frame with aligned columns
+#' @keywords internal
+#' @noRd
+.bind_rows_safe <- function(rows) {
+  if (length(rows) == 0) return(data.frame())
+
+  all_names <- unique(unlist(lapply(rows, names)))
+  rows <- lapply(rows, function(r) {
+    missing <- setdiff(all_names, names(r))
+    if (length(missing)) r[missing] <- NA_character_
+    r[all_names]
+  })
+
+  as.data.frame(do.call(rbind, rows))
+}
+
+#' Fast row binder with optional data.table acceleration
+#'
+#' Uses data.table::rbindlist() when available for large batches,
+#' otherwise falls back to `.bind_rows_safe()`.
+#'
+#' This function is deliberately isolated so performance strategy
+#' can be changed without touching parsing logic.
+#'
+#' @param rows List of named lists
+#' @return data.frame
+#' @keywords internal
+#' @noRd
+.bind_rows_fast <- function(rows) {
+  if (!length(rows)) return(data.frame())
+
+  if (requireNamespace("data.table", quietly = TRUE)) {
+    return(as.data.frame(data.table::rbindlist(rows, fill = TRUE)))
+  }
+
+  .bind_rows_safe(rows)
+}
+
+
+
+#' Build per‑record parsing context
+#'
+#' This is a *critical* performance and structure function.
+#'
+#' It extracts and caches all DOM information that is reused across
+#' the four table parsers. This avoids repeated xml_children/xml_name
+#' calls and eliminates the largest avoidable XML traversal overhead.
+#'
+#' @param rec xml2::xml_node representing one <bInformazioniRicovero>
+#' @return named list containing cached DOM nodes and attributes
+#' @keywords internal
+#' @noRd
+.get_record_context <- function(rec) {
+  rec_children <- xml_children(rec)
+  rec_names    <- xml_name(rec_children)
+
+  info <- rec_children[rec_names == "informazioniRicovero"][[1]]
+  info_children <- xml_children(info)
+  info_names    <- xml_name(info_children)
+
+  list(
+    info          = info,
+    info_children = info_children,
+    info_names    = info_names,
+    codice        = xml_attr(info, "codiceIstitutoDiCura"),
+    prog          = xml_attr(info, "progressivoSDO"),
+    trasm         = rec_children[rec_names == "trasmissione"]
+  )
+}
+
+
+
 
 
 # Tracciato A -------------------------------------------------------------
@@ -72,17 +162,7 @@
   }
 
   # Schema alignment
-  all_names <- unique(unlist(lapply(rows, names)))
-
-  for (i in seq_len(n)) {
-    missing <- setdiff(all_names, names(rows[[i]]))
-    if (length(missing)) {
-      rows[[i]][missing] <- NA_character_
-    }
-    rows[[i]] <- rows[[i]][all_names]
-  }
-
-  as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
+  .bind_rows_fast(rows)
 }
 
 
@@ -115,88 +195,6 @@
 #
 # Do NOT attempt SAX/streaming in this pipeline.
 
-
-## Helpers ----------------------------------------------------------------
-
-#' Schema‑safe row binder (base R)
-#'
-#' Binds a list of named lists into a data.frame, aligning schemas safely.
-#' This is the *canonical* version: predictable, dependency‑free, and correct.
-#'
-#' Performance:
-#'   - Fine up to ~50–100k rows
-#'   - Switched out automatically by `.bind_rows_fast()` when possible
-#'
-#' @param rows List of named lists (each list represents one row)
-#' @return data.frame with aligned columns
-#' @keywords internal
-#' @noRd
-.bind_rows_safe <- function(rows) {
-  if (length(rows) == 0) return(data.frame())
-
-  all_names <- unique(unlist(lapply(rows, names)))
-  rows <- lapply(rows, function(r) {
-    missing <- setdiff(all_names, names(r))
-    if (length(missing)) r[missing] <- NA_character_
-    r[all_names]
-  })
-
-  as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
-}
-
-#' Fast row binder with optional data.table acceleration
-#'
-#' Uses data.table::rbindlist() when available for large batches,
-#' otherwise falls back to `.bind_rows_safe()`.
-#'
-#' This function is deliberately isolated so performance strategy
-#' can be changed without touching parsing logic.
-#'
-#' @param rows List of named lists
-#' @return data.frame
-#' @keywords internal
-#' @noRd
-.bind_rows_fast <- function(rows) {
-  if (!length(rows)) return(data.frame())
-
-  if (requireNamespace("data.table", quietly = TRUE)) {
-    return(data.table::rbindlist(rows, fill = TRUE))
-  }
-
-  .bind_rows_safe(rows)
-}
-
-
-
-#' Build per‑record parsing context
-#'
-#' This is a *critical* performance and structure function.
-#'
-#' It extracts and caches all DOM information that is reused across
-#' the four table parsers. This avoids repeated xml_children/xml_name
-#' calls and eliminates the largest avoidable XML traversal overhead.
-#'
-#' @param rec xml2::xml_node representing one <bInformazioniRicovero>
-#' @return named list containing cached DOM nodes and attributes
-#' @keywords internal
-#' @noRd
-.get_record_context <- function(rec) {
-  rec_children <- xml_children(rec)
-  rec_names    <- xml_name(rec_children)
-
-  info <- rec_children[rec_names == "informazioniRicovero"][[1]]
-  info_children <- xml_children(info)
-  info_names    <- xml_name(info_children)
-
-  list(
-    info          = info,
-    info_children = info_children,
-    info_names    = info_names,
-    codice        = xml_attr(info, "codiceIstitutoDiCura"),
-    prog          = xml_attr(info, "progressivoSDO"),
-    trasm         = rec_children[rec_names == "trasmissione"]
-  )
-}
 
 
 ## Ricovero (1 row) -------------------------------------------------------
@@ -296,12 +294,13 @@
       ch <- xml_children(node)
       is_scalar <- xml_length(ch) == 0
       if (any(is_scalar)) {
+        val <- xml_attr(node, "numDiagnosiSecondaria")
+        num <- if (!is.na(val)) as.integer(val) else NA_integer_
         row <- list(
           codiceIstitutoDiCura = codice,
           progressivoSDO       = prog,
           tipoDiagnosi         = "secondaria",
-          numDiagnosi =
-            suppressWarnings(as.integer(xml_attr(node, "numDiagnosiSecondaria")))
+          numDiagnosi          = num
         )
         row[xml_name(ch[is_scalar])] <- as.list(xml_text(ch[is_scalar]))
         out[[length(out) + 1]] <- row
@@ -455,25 +454,26 @@
 
   for (rec in records) {
 
-    ctx <- .get_record_context(rec)
+    tryCatch({
+      ctx <- .get_record_context(rec)
 
-    kr <- kr + 1
-    rows_ricovero[[kr]] <- .parse_b_ricovero(ctx)
+      ricovero_row <- .parse_b_ricovero(ctx)
+      diagnosi_rows <- .parse_b_diagnosi(ctx)
+      procedure_rows <- .parse_b_procedure(ctx)
+      accessi_rows <- .parse_b_accessi_dh(ctx)
 
-    for (row in .parse_b_diagnosi(ctx)) {
-      kd <- kd + 1
-      rows_diagnosi[[kd]] <- row
-    }
+      # Only increment and write if everything above succeeded
+      kr <- kr + 1
+      rows_ricovero[[kr]] <- ricovero_row
 
-    for (row in .parse_b_procedure(ctx)) {
-      kp <- kp + 1
-      rows_procedure[[kp]] <- row
-    }
+      for (row in diagnosi_rows)  { kd  <- kd  + 1; rows_diagnosi[[kd]]   <- row }
+      for (row in procedure_rows) { kp  <- kp  + 1; rows_procedure[[kp]]  <- row }
+      for (row in accessi_rows)   { kdh <- kdh + 1; rows_accessi_dh[[kdh]] <- row }
 
-    for (row in .parse_b_accessi_dh(ctx)) {
-      kdh <- kdh + 1
-      rows_accessi_dh[[kdh]] <- row
-    }
+    }, error = function(e) {
+      cli::cli_warn("Skipping malformed record: {conditionMessage(e)}")
+    })
+
   }
 
   list(
