@@ -1,0 +1,47 @@
+{
+  "quani_mdb": {
+    "schema_domain": "sdo",
+    "type": "access_mdb",
+    "input_type": "file",
+    "components": [
+      "TblScheda",
+      "TblSchedaDiagnosi",
+      "TblSchedaProcedure",
+      "TblSchedaTrasferimenti"
+    ],
+    "primary_table": "TblScheda",
+    "identity_keys": ["i_IDScheda"],
+    "partition_column": "d_DataDimissione",
+    "pseudonymize": ["c_CodicePaziente", "c_CodiceMadre"],
+    "skip": ["v_Nome", "v_Cognome"]
+  },
+
+  "xml_campania_2026": {
+    "schema_domain": "sdo",
+    "type": "xml",
+    "input_type": "directory",
+    "primary_table": "ricovero",
+    "components": {
+      "anagrafica": "*_A.xml",
+      "ricovero": "*_B.xml",
+      "diagnosi": "*_B.xml",
+      "procedure": "*_B.xml",
+      "accessi_dh": "*_B.xml"
+    },
+    "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"],
+    "partition_column": "dim_dataDimissioneMorte",
+    "pseudonymize": ["identificativoPaziente", "codiceFiscale"],
+    "skip": ["cognome", "nome"]
+  },
+
+  "ps_csv": {
+    "schema_domain": "ps",
+    "type": "csv",
+    "input_type": "file",
+    "primary_table": "data",
+    "identity_keys": ["id_accesso"],
+    "partition_column": "data_ingresso",
+    "pseudonymize": ["cf"],
+    "skip": ["nome", "cognome"]
+  }
+}

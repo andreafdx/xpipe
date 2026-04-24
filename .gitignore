@@ -10,7 +10,8 @@ output/
 tests/
 .superpowers/
 
-data/*
+*.parquet
+
 !data/**/*.json
 !data/*.json
 

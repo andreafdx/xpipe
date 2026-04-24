@@ -1,0 +1,37 @@
+{
+  "_meta": {
+    "type": "streams_contract",
+    "version": "1.0.0",
+    "created_at": "2026-04-10",
+    "last_updated": "2026-04-23",
+    "maintainer": "XNE Data Governance",
+    "change_policy": "backward-compatible"
+  },
+  "sdo": {
+    "label": "SDO",
+    "description": "",
+    "schema_domain": "sdo",
+    "partition_granularity": "year",
+    "anchor": "end",
+    "valid_from": "2000-01-01",
+    "valid_to": null
+  },
+  "sdo_alt": {
+    "label": "SDO Archive",
+    "description": "",
+    "schema_domain": "sdo",
+    "partition_granularity": "year",
+    "anchor": "end",
+    "valid_from": "2000-01-01",
+    "valid_to": null
+  },
+  "ps": {
+    "label": "Pronto Soccorso",
+    "schema_domain": "ps",
+    "description": "",
+    "partition_granularity": "year",
+    "anchor": "start",
+    "valid_from": "2000-01-01",
+    "valid_to": null
+  }
+}
