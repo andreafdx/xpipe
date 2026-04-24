@@ -11,11 +11,9 @@ tests/
 .superpowers/
 
 *.parquet
-
 !data/**/*.json
 !data/*.json
 
 node_modules/
 package.json
 package-lock.json
-bronze.txt

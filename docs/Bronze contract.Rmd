@@ -91,10 +91,14 @@ Each Bronze table **must** include the following columns:
 | `__batch_id`         | Unique batch identifier             |
 | `__stream_id`        | Stream that produced the record     |
 | `__method_id`        | Method that produced the record     |
-| `__anchor`           | Semantic anchor (`start` / `end`)   |
+| `__anchor_time`      | Actual domain time stamp of the row |
+| `__anchor_year`      | Derived from `__anchor_time` (for partitioning) |
 | `__anchor_column`    | Column used to derive anchor time   |
 | `__batch_created_at` | When the batch was materialized     |
 | `__ingested_at`      | When the row was promoted to Bronze |
+
+
+__batch_idUnique batch identifier__stream_idStream provenance__method_idMethod provenance__anchor_timeActual domain timestamp assigned to the row__anchor_yearDerived from __anchor_time (for partitioning)__batch_created_atWhen the batch was produced__ingested_atWhen the row was promoted to Bronze
 
 ### Additional Notes
 
