@@ -1,0 +1,208 @@
+---
+title: "Bronze contract"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Bronze Layer Contract
+
+## Purpose
+
+The Bronze layer is an **append‑only, immutable ledger** of all
+materialized batch data. Its role is to **preserve historical facts with
+full lineage and temporal context**, without attempting to resolve
+identity, deduplication, or “current state”.
+
+Bronze prioritizes: - Safety (no destructive operations) -
+Auditability - Replayability - Clear physical organization on disk
+
+Bronze does **not** decide which record version is current. That
+responsibility is explicitly deferred to the Silver layer.
+
+------------------------------------------------------------------------
+
+## Core Invariants (Non‑Negotiable)
+
+1.  **Append‑only**
+    -   No DELETE
+    -   No UPDATE
+    -   No overwrite of existing rows
+    -   Promotion only appends data
+2.  **Immutable batches**
+    -   A batch, once promoted, is never modified
+    -   Re‑processing a batch must be rejected or treated as a noop
+3.  **Domain‑time first**
+    -   Physical partitioning reflects **business (anchor) time**
+    -   Processing time is metadata only
+4.  **Self‑describing rows**
+    -   Every row carries enough metadata to explain:
+        -   where it came from
+        -   when it was ingested
+        -   how its time should be interpreted
+
+------------------------------------------------------------------------
+
+## Physical Layout
+
+```         
+bronze/
+stream_method/
+year=YYYY/
+{.parquet}
+```
+
+### Notes
+
+-   `<stream>_<method>` is the top‑level Bronze namespace
+    -   This avoids accidental schema collision
+    -   It preserves method‑level incompatibility by design
+-   `year=<YYYY>` is derived from the **domain anchor**
+-   Files are append‑targets, never rewritten
+
+------------------------------------------------------------------------
+
+## Partitioning Rules
+
+### Partition Key
+
+-   Partitioning is based on **anchor‑derived year**
+-   The anchor year is computed from the method’s `partition_column`
+
+### Explicit Rule
+
+> Bronze partitions MUST reflect domain time, NOT batch or processing
+> time.
+
+Examples: - A 2026 batch containing 2024 SDOs → `year=2024` - Late
+arrivals append to historical partitions
+
+------------------------------------------------------------------------
+
+## Metadata Model
+
+### Mandatory Columns (All Bronze Tables)
+
+Each Bronze table **must** include the following columns:
+
+| Column               | Meaning                             |
+|----------------------|-------------------------------------|
+| `__batch_id`         | Unique batch identifier             |
+| `__stream_id`        | Stream that produced the record     |
+| `__method_id`        | Method that produced the record     |
+| `__anchor`           | Semantic anchor (`start` / `end`)   |
+| `__anchor_column`    | Column used to derive anchor time   |
+| `__batch_created_at` | When the batch was materialized     |
+| `__ingested_at`      | When the row was promoted to Bronze |
+
+### Additional Notes
+
+-   Domain columns remain untouched
+-   Bronze metadata columns are **namespaced (`__`)** to avoid collision
+-   No identity resolution columns are enforced at this layer
+
+------------------------------------------------------------------------
+
+## Stream vs Method Responsibilities
+
+### Stream Metadata
+
+-   Defines **semantic time meaning**
+-   Declares the anchor (`start` vs `end`)
+-   Applies uniformly across methods in the stream
+
+### Method Metadata
+
+-   Defines **technical extraction**
+-   Specifies:
+    -   `partition_column`
+    -   `identity_keys` (for downstream layers)
+    -   produced tables
+
+Anchor and partition column are intentionally **not the same
+concept**: - Anchor = meaning - Partition column = implementation
+
+------------------------------------------------------------------------
+
+## Promotion Semantics
+
+Bronze promotion follows this algorithm:
+
+1.  Read batch parquet files
+2.  Enrich rows with Bronze metadata columns
+3.  Derive anchor time from the partition column
+4.  Compute anchor year (`YYYY`)
+5.  Append rows to:
+
+```         
+bronze/stream_method/year=YYYY/{.parquet}
+```
+
+### Prohibited Operations
+
+-   Deduplication
+-   Identity enforcement
+-   “Latest” resolution
+-   Table‑wide rewrites
+-   Cross‑batch deletes
+
+------------------------------------------------------------------------
+
+## State Tracking
+
+Bronze maintains a minimal state file (`layer.json`) tracking:
+
+-   `promoted_batches`
+-   `last_promotion_at`
+
+The state records **what was promoted**, not **what changed**.
+
+------------------------------------------------------------------------
+
+## What Bronze Explicitly Does NOT Do
+
+-   Determine the “current” version of a record
+-   Enforce uniqueness
+-   Resolve conflicts between batches
+-   Apply business rules
+
+These are **Silver layer responsibilities** by design.
+
+------------------------------------------------------------------------
+
+## Guarantees for Downstream Layers
+
+Bronze guarantees: - Complete history - Deterministic replay - Stable
+lineage - Time‑consistent partitioning
+
+Silver is free to: - Deduplicate - Resolve identity - Apply anchor
+semantics - Define “current state”
+
+------------------------------------------------------------------------
+
+## TODO — Next Steps
+
+### Immediate (Bronze)
+
+-   [ ] Refactor `promote_to_bronze()` to remove all DELETE / PURGE
+    logic
+-   [ ] Implement pure append‑only promotion
+-   [ ] Enrich rows with mandatory Bronze metadata columns
+-   [ ] Derive partition year from anchor column only
+-   [ ] Validate late‑arriving data behavior (append to historical year)
+
+### Short‑Term Validation
+
+-   [ ] Promote multiple batches affecting the same year
+-   [ ] Promote late data into past partitions
+-   [ ] Inspect on disk for correctness and clarity
+-   [ ] Verify promotion idempotency
+
+### Later (Out of Scope for Bronze)
+
+-   [ ] Define Silver resolution logic
+-   [ ] Specify identity conflict rules
+-   [ ] Formalize stream start/end semantics in Silver metadata
+
+------------------------------------------------------------------------

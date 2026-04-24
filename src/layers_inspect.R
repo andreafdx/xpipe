@@ -1,9 +1,30 @@
 
 
+
 # Layer inspection --------------------------------------------------------
 
 
 ## Helpers ----------------------------------------------------------------
+
+#' Format execution timestamps for display
+#'
+#' Converts ISO‑8601 or SQL‑style timestamps to a compact,
+#' human‑readable \code{YYYY‑MM‑DD HH:MM} format.
+#'
+#' @param x Character vector of datetime strings.
+#'
+#' @return Character vector of formatted datetimes.
+#'
+#' @keywords internal
+#' @noRd
+.format_datetime <- function(x) {
+  format(as.POSIXct(x, tryFormats = c(
+    "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"
+  )), "%Y-%m-%d %H:%M")
+}
+
+
+## Private API -------------------------------------------------------------
 
 #' Inspect the Batch layer
 #'
@@ -23,13 +44,10 @@
 #' }
 #'
 #' @keywords internal
-#' @noRd
 inspect_batch_layer <- function(config) {
   if (!inherits(config, "xpipe_config")) {
-    cli::cli_abort(
-      "{.arg config} must be a valid xpipe_config",
-      class = c("batch_layer", "config")
-    )
+    cli::cli_abort("{.arg config} must be a valid xpipe_config",
+                   class = c("batch_layer", "config"))
   }
 
   batch_root <- config$local$paths$batch
@@ -41,11 +59,7 @@ inspect_batch_layer <- function(config) {
     )
   }
 
-  batch_dirs <- fs::dir_ls(
-    batch_root,
-    type = "directory",
-    recurse = FALSE
-  )
+  batch_dirs <- fs::dir_ls(batch_root, type = "directory", recurse = FALSE)
 
   # Defensive: remove empty directory names
   batch_dirs <- batch_dirs[nzchar(basename(batch_dirs))]
@@ -63,65 +77,29 @@ inspect_batch_layer <- function(config) {
       next
     }
 
-    batches[[i]] <- jsonlite::fromJSON(
-      metadata_files[i],
-      simplifyVector = TRUE
-    )
+    batches[[i]] <- jsonlite::fromJSON(metadata_files[i], simplifyVector = TRUE)
   }
 
-  structure(
-    list(
-      root    = batch_root,
-      count   = length(ids),
-      batches = batches
-    ),
-    class = "xpipe_batch_layer"
-  )
+  structure(list(
+    root    = batch_root,
+    count   = length(ids),
+    batches = batches
+  ),
+  class = "xpipe_batch_layer")
 }
 
 
-#' Format execution timestamps for display
-#'
-#' Converts ISO‑8601 or SQL‑style timestamps to a compact,
-#' human‑readable \code{YYYY‑MM‑DD HH:MM} format.
-#'
-#' @param x Character vector of datetime strings.
-#'
-#' @return Character vector of formatted datetimes.
-#'
-#' @keywords internal
-#' @noRd
-.format_datetime <- function(x) {
-  format(
-    as.POSIXct(
-      x,
-      tryFormats = c(
-        "%Y-%m-%dT%H:%M:%S%z",
-        "%Y-%m-%d %H:%M:%S"
-      )
-    ),
-    "%Y-%m-%d %H:%M"
-  )
-}
-
-
-## S3 Print Method ----------------------------------------------------------
+## S3 Print Methods ----------------------------------------------------------
 
 #' @export
 print.xpipe_batch_layer <- function(x, ...) {
-
-  cli::cli_div(
-    theme = list(
-      rule = list(color = "cyan", "line-type" = "double")
-    )
-  )
+  cli::cli_div(theme = list(rule = list(
+    color = "cyan", "line-type" = "double"
+  )))
 
   cli::cli_rule("Batch Layer", right = "xpipe")
 
-  cli::cli_bullets(c(
-    "Path        : {.file {x$root}}",
-    "Batch count : {.val {x$count}}"
-  ))
+  cli::cli_bullets(c("Path        : {.file {x$root}}", "Batch count : {.val {x$count}}"))
 
   if (x$count == 0) {
     cli::cli_alert_info("No batches found.")
@@ -130,17 +108,11 @@ print.xpipe_batch_layer <- function(x, ...) {
 
   # Filter valid batches
   metas <- x$batches
-  metas <- metas[!vapply(
-    metas,
-    function(m) isTRUE(m$.status == "incomplete"),
-    logical(1)
-  )]
+  metas <- metas[!vapply(metas, function(m)
+    isTRUE(m$.status == "incomplete"), logical(1))]
 
-  created <- vapply(
-    metas,
-    function(m) as.POSIXct(m$execution$created_at, tz = "UTC"),
-    as.POSIXct(NA)
-  )
+  created <- vapply(metas, function(m)
+    as.POSIXct(m$execution$created_at, tz = "UTC"), as.POSIXct(NA))
 
   latest_id <- names(which.max(created))
   latest    <- metas[[latest_id]]
@@ -154,13 +126,11 @@ print.xpipe_batch_layer <- function(x, ...) {
     paste0(
       "Stream       : ",
       latest$stream$id,
-      " [", latest$stream$schema_domain, "]"
+      " [",
+      latest$stream$schema_domain,
+      "]"
     ),
-    paste0(
-      "Method       : ",
-      latest$method$id,
-      " [", latest$method$type, "]"
-    ),
+    paste0("Method       : ", latest$method$id, " [", latest$method$type, "]"),
     paste0("Input        : ", latest$input$path),
     paste0("Created at   : ", latest$execution$created_at),
     paste0(
@@ -175,10 +145,7 @@ print.xpipe_batch_layer <- function(x, ...) {
   if (!is.null(latest$components)) {
     cli::cli_text("Components")
 
-    items <- purrr::imap_chr(
-      latest$components,
-      ~ paste0(.x)
-    )
+    items <- purrr::imap_chr(latest$components, ~ paste0(.x))
 
     cli::cli_ul(items)
   }
@@ -190,28 +157,20 @@ print.xpipe_batch_layer <- function(x, ...) {
   if (length(others) > 0) {
     cli::cli_h2("Other batches")
 
-    by_stream <- split(
-      others,
-      vapply(others, function(m) m$stream$id, character(1))
-    )
+    by_stream <- split(others, vapply(others, function(m)
+      m$stream$id, character(1)))
 
     for (stream_id in names(by_stream)) {
       cli::cli_h3("{stream_id} stream")
 
-      items <- vapply(
-        names(by_stream[[stream_id]]),
-        function(batch_id) {
-          m <- by_stream[[stream_id]][[batch_id]]
-          paste(
-            batch_id,
-            "|",
-            m$method$id,
-            "|",
-            .format_datetime(m$execution$created_at)
-          )
-        },
-        character(1)
-      )
+      items <- vapply(names(by_stream[[stream_id]]), function(batch_id) {
+        m <- by_stream[[stream_id]][[batch_id]]
+        paste(batch_id,
+              "|",
+              m$method$id,
+              "|",
+              .format_datetime(m$execution$created_at))
+      }, character(1))
 
       cli::cli_ul(items)
     }
