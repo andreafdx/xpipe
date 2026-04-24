@@ -128,7 +128,7 @@ print.xpipe_batch_layer <- function(x, ...) {
     return(invisible(x))
   }
 
-  # Filter valid batches -----------------------------------------------
+  # Filter valid batches
   metas <- x$batches
   metas <- metas[!vapply(
     metas,
@@ -146,7 +146,7 @@ print.xpipe_batch_layer <- function(x, ...) {
   latest    <- metas[[latest_id]]
 
 
-  # Latest batch --------------------------------------------------------
+  # Latest batch
   cli::cli_h2("Latest Batch")
   cli::cli_text("{.strong {latest_id}}")
 
@@ -171,7 +171,7 @@ print.xpipe_batch_layer <- function(x, ...) {
     )
   ))
 
-  # Components ----------------------------------------------------------
+  # Components
   if (!is.null(latest$components)) {
     cli::cli_text("Components")
 
@@ -184,7 +184,7 @@ print.xpipe_batch_layer <- function(x, ...) {
   }
 
 
-  # Other batches -------------------------------------------------------
+  # Other batches
   others <- metas[names(metas) != latest_id]
 
   if (length(others) > 0) {

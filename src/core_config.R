@@ -563,7 +563,7 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
 }
 
 
-## S3 Methods --------------------------------------------------------------
+## S3 Print Methods --------------------------------------------------------------
 
 #' Render Configuration Gracefully
 #'

@@ -16,7 +16,7 @@ box::use(
 #' @param text Character vector.
 #' @param pepper Character scalar.
 #' @return Character vector of hashes.
-#' @export
+#' @keywords internal
 hash_phi <- function(text, pepper) {
   if (missing(pepper) || is.null(pepper) || pepper == "") {
     cli_abort("Missing key for hashing.")
