@@ -1,5 +1,29 @@
-##---------------
 
+
+# Layer inspection --------------------------------------------------------
+
+
+## Helpers ----------------------------------------------------------------
+
+#' Inspect the Batch layer
+#'
+#' Scans the local Batch layer directory and returns a structured
+#' representation of all discovered batches and their metadata.
+#'
+#' Incomplete batches (missing `_batch_metadata.json`) are recorded
+#' but marked as such and excluded from detailed inspection.
+#'
+#' @param config An \code{xpipe_config} object.
+#'
+#' @return An object of class \code{"xpipe_batch_layer"} containing:
+#' \itemize{
+#'   \item \code{root} – batch layer root path
+#'   \item \code{count} – number of batch directories found
+#'   \item \code{batches} – named list of batch metadata
+#' }
+#'
+#' @keywords internal
+#' @noRd
 inspect_batch_layer <- function(config) {
   if (!inherits(config, "xpipe_config")) {
     cli::cli_abort(
@@ -23,7 +47,7 @@ inspect_batch_layer <- function(config) {
     recurse = FALSE
   )
 
-  # Remove directories with empty names (defensive)
+  # Defensive: remove empty directory names
   batch_dirs <- batch_dirs[nzchar(basename(batch_dirs))]
 
   ids <- basename(batch_dirs)
@@ -47,78 +71,154 @@ inspect_batch_layer <- function(config) {
 
   structure(
     list(
-      root = batch_root,
-      count = length(ids),
+      root    = batch_root,
+      count   = length(ids),
       batches = batches
     ),
     class = "xpipe_batch_layer"
   )
 }
 
+
+#' Format execution timestamps for display
+#'
+#' Converts ISO‑8601 or SQL‑style timestamps to a compact,
+#' human‑readable \code{YYYY‑MM‑DD HH:MM} format.
+#'
+#' @param x Character vector of datetime strings.
+#'
+#' @return Character vector of formatted datetimes.
+#'
+#' @keywords internal
+#' @noRd
+.format_datetime <- function(x) {
+  format(
+    as.POSIXct(
+      x,
+      tryFormats = c(
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S"
+      )
+    ),
+    "%Y-%m-%d %H:%M"
+  )
+}
+
+
+## S3 Print Method ----------------------------------------------------------
+
+#' @export
 print.xpipe_batch_layer <- function(x, ...) {
+
   cli::cli_div(
-    theme = list(rule = list(color = "cyan", "line-type" = "double"))
+    theme = list(
+      rule = list(color = "cyan", "line-type" = "double")
+    )
   )
 
-  cli::cli_rule("xpipe Batch Layer")
+  cli::cli_rule("Batch Layer", right = "xpipe")
 
   cli::cli_bullets(c(
-    paste0("Path        : ", x$root),
-    paste0("Batch count : ", x$count)
+    "Path        : {.file {x$root}}",
+    "Batch count : {.val {x$count}}"
   ))
 
   if (x$count == 0) {
     cli::cli_alert_info("No batches found.")
-    cli::cli_end()
     return(invisible(x))
   }
 
-  cli::cli_h2("Batches")
+  # Filter valid batches -----------------------------------------------
+  metas <- x$batches
+  metas <- metas[!vapply(
+    metas,
+    function(m) isTRUE(m$.status == "incomplete"),
+    logical(1)
+  )]
 
-  for (id in names(x$batches)) {
-    meta <- x$batches[[id]]
+  created <- vapply(
+    metas,
+    function(m) as.POSIXct(m$execution$created_at, tz = "UTC"),
+    as.POSIXct(NA)
+  )
 
-    if (isTRUE(meta$.status == "incomplete")) {
-      cli::cli_alert_warning(
-        paste0("Batch ", id, " is incomplete (missing _batch_metadata.json)")
+  latest_id <- names(which.max(created))
+  latest    <- metas[[latest_id]]
+
+
+  # Latest batch --------------------------------------------------------
+  cli::cli_h2("Latest Batch")
+  cli::cli_text("{.strong {latest_id}}")
+
+  cli::cli_bullets(c(
+    paste0(
+      "Stream       : ",
+      latest$stream$id,
+      " [", latest$stream$schema_domain, "]"
+    ),
+    paste0(
+      "Method       : ",
+      latest$method$id,
+      " [", latest$method$type, "]"
+    ),
+    paste0("Input        : ", latest$input$path),
+    paste0("Created at   : ", latest$execution$created_at),
+    paste0(
+      "Producer     : ",
+      latest$execution$tool,
+      " ",
+      latest$execution$tool_version
+    )
+  ))
+
+  # Components ----------------------------------------------------------
+  if (!is.null(latest$components)) {
+    cli::cli_text("Components")
+
+    items <- purrr::imap_chr(
+      latest$components,
+      ~ paste0(.x)
+    )
+
+    cli::cli_ul(items)
+  }
+
+
+  # Other batches -------------------------------------------------------
+  others <- metas[names(metas) != latest_id]
+
+  if (length(others) > 0) {
+    cli::cli_h2("Other batches")
+
+    by_stream <- split(
+      others,
+      vapply(others, function(m) m$stream$id, character(1))
+    )
+
+    for (stream_id in names(by_stream)) {
+      cli::cli_h3("{stream_id} stream")
+
+      items <- vapply(
+        names(by_stream[[stream_id]]),
+        function(batch_id) {
+          m <- by_stream[[stream_id]][[batch_id]]
+          paste(
+            batch_id,
+            "|",
+            m$method$id,
+            "|",
+            .format_datetime(m$execution$created_at)
+          )
+        },
+        character(1)
       )
-      next
-    }
 
-    # Extract values explicitly (NO glue access to meta)
-    stream_id   <- meta$stream$id
-    domain      <- meta$stream$schema_domain
-    method_id   <- meta$method$id
-    method_type <- meta$method$type
-    anchor      <- meta$stream$anchor
-    input_path  <- meta$input$path
-    created_at  <- meta$execution$created_at
-    producer    <- paste(meta$execution$tool, meta$execution$tool_version)
-
-    cli::cli_h3(id)
-
-    cli::cli_bullets(c(
-      paste0("Stream       : ", stream_id),
-      paste0("Domain       : ", domain),
-      paste0("Method       : ", method_id, " [", method_type, "]"),
-      paste0("Anchor       : ", anchor),
-      paste0("Input        : ", input_path),
-      paste0("Created at   : ", created_at),
-      paste0("Producer     : ", producer)
-    ))
-
-    if (!is.null(meta$components)) {
-      cli::cli_text("  Components:")
-      cli::cli_bullets(
-        purrr::imap_chr(
-          meta$components,
-          ~ paste0("    ", .y, " → ", .x)
-        )
-      )
+      cli::cli_ul(items)
     }
   }
 
   cli::cli_rule()
   cli::cli_end()
+
   invisible(x)
 }

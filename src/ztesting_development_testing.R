@@ -9,15 +9,14 @@ Sys.setenv(XNE_PEPPER_KEY = "dev_testing_pepper_123")
 Sys.setenv(XACC_SKIP_HASH_CHECK = "TRUE")
 
 # Assumes you run this script with the working directory set to the project root ("R projects/xacc")
-source("src/fnc/config.R")
-source("src/fnc/crypto.R")
-source("src/fnc/0. batch_initialization.R")
-source("src/fnc/1. batch_materialization.R")
-source("src/fnc/2. bronze_promotion.R")
-source("src/fnc/access.R")
+source("src/zzz.r")
+source("src/0. batch_initialization.R")
+source("src/1. batch_materialization.R")
+source("src/2. bronze_promotion.R")
+source("src/tools_access.R")
 
 # 2. Load Configuration
-.cfg <- load_options()
+.cfg <- load_xpipe_config()
 
 
 # Mock XML Extractor for testing
@@ -57,7 +56,8 @@ cli::cli_h1("Phase 3: Multi-File XML Test")
 cli::cli_h2("Act 1: Initialize Multi-File Job")
 xml_job <- new_batch_job(
   filename = sdo_folder_name,
-  method = "sdo_campania_xml",
+  stream = "sdo",
+  method = "xml_campania_2026",
   config = .cfg
 )
 print(xml_job)

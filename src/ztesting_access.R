@@ -5,12 +5,12 @@
 # ======================================================================= #
 
 # 1. Load Core Functions
-source("src/fnc/config.R")
-source("src/fnc/crypto.R")
-source("src/fnc/access.R")
-source("src/fnc/0. batch_initialization.R")
-source("src/fnc/1. batch_materialization.R")
-source("src/fnc/2. bronze_promotion.R")
+source("src/core_config.r")
+source("src/core_crypto.r")
+source("src/tools_access.R")
+source("src/0. batch_initialization.R")
+source("src/1. batch_materialization.R")
+source("src/2. bronze_promotion.R")
 
 # 2. (Removed redundant extractor - now uses official access.R)
 

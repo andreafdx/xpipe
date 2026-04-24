@@ -137,7 +137,7 @@ box::use(
 #' @noRd
 .load_runtime_context <- function() {
   runtime <- list(
-    tool <- list(
+    tool = list(
       name    = "xpipe",
       version =
         if (requireNamespace("xpipe", quietly = TRUE)) {
@@ -575,9 +575,11 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
 #' @noRd
 .render_config <- function(x, ...) {
   cli::cli_div(
-    theme = list(rule = list(color = "cyan", "line-type" = "double"))
+    theme = list(
+      rule = list(color = "cyan", "line-type" = "double")
+    )
   )
-  cli::cli_rule("xpipe Configuration Map")
+  cli::cli_rule("Configuration", right = "xpipe")
 
   # 1. RUNTIME CONTEXT
   cli::cli_h2("Runtime Context")
