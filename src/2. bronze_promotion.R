@@ -111,7 +111,10 @@ box::use(
   })
 
   # Bind into a data.frame for easier sorting/filtering
-  batches_df <- do.call(rbind, lapply(batches, as.data.frame, stringsAsFactors = FALSE))
+  # Using map_dfr for safe column alignment across potentially different metadata schemas
+  batches_df <- purrr::map_dfr(batches, as.data.frame, stringsAsFactors = FALSE)
+
+  if (nrow(batches_df) == 0) return(data.frame())
 
   # Ensure we only include batches that have at least one parquet file
   batches_df$has_data <- sapply(meta_files, function(p) {

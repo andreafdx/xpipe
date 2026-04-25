@@ -1,0 +1,305 @@
+---
+title: "job refactor"
+output: html_document
+---
+
+
+# Batch Job Downgrade Refactor — Execution Plan
+
+## Scope
+
+**This refactor ONLY concerns the Batch layer.**  
+**Bronze code MUST NOT be modified in this phase.**
+
+Goal:
+
+*   Remove `xpipe_batch_job` as an S3 concept
+*   Preserve all behavior, validations, and outputs
+*   Replace “job” with a plain preparation context
+*   Expose a single public ingestion entry point
+
+***
+
+## Phase 0 — Safety Preconditions
+
+1.  Ensure current branch is **batch‑refactor**
+2.  No uncommitted changes
+3.  Bronze code untouched during this phase
+
+***
+
+## Phase 1 — Rename and Demote the Job Constructor
+
+### Action 1.1 — Rename function
+
+**RENAME**
+
+```r
+new_batch_job(...)
+```
+
+**TO**
+
+```r
+prepare_batch_ingestion(...)
+```
+
+***
+
+### Action 1.2 — Remove job identity semantics
+
+Inside the renamed function:
+
+#### DELETE
+
+*   Any reference to:
+    *   `status`
+    *   lifecycle semantics
+    *   job state
+
+#### KEEP
+
+*   ALL validations
+*   ALL config checks
+*   Schema-domain compatibility check
+*   Input resolution
+*   Component discovery
+*   Batch ID generation
+*   Batch directory computation
+
+***
+
+### Action 1.3 — Replace S3 object with plain list
+
+#### DELETE entirely
+
+```r
+.build_batch_job()
+```
+
+#### REPLACE return value of `prepare_batch_ingestion()` with a **plain named list**
+
+✅ **Exact required structure**:
+
+```r
+list(
+  batch_id      = batch_id,
+  filename      = filename,
+  filepath      = filepath,
+  method_id     = method,
+  method_config = method_config,
+  stream_id     = stream_id,
+  stream_config = stream_config,
+  batch_dir     = batch_dir,
+  components    = components
+)
+```
+
+❌ No `class`  
+❌ No `status`  
+❌ No mutation after return
+
+***
+
+## Phase 2 — Remove Job S3 Infrastructure
+
+### Action 2.1 — DELETE S3 print method
+
+**DELETE ENTIRELY**
+
+```r
+print.xpipe_batch_job <- function(x, ...) { ... }
+```
+
+No replacement.
+
+Explanation:
+
+*   Batch artifact inspection already exists
+*   Interactive job inspection is misleading and unused
+
+***
+
+### Action 2.2 — DELETE any S3 registration references
+
+Remove:
+
+*   class assignments
+*   coercions
+*   `inherits(job, "xpipe_batch_job")` checks
+
+***
+
+## Phase 3 — Refactor Materialization Pipeline to Use Context
+
+This affects the **second script**.
+
+***
+
+### Action 3.1 — Rename Materialization API
+
+**RENAME**
+
+```r
+materialize_batch_job(job, config)
+```
+
+**TO**
+
+```r
+materialize_batch(ctx, config)
+```
+
+`ctx` is a **plain list** from `prepare_batch_ingestion()`.
+
+***
+
+### Action 3.2 — Update guardrail function
+
+**RENAME**
+
+```r
+.assert_batch_materializable(job, config)
+```
+
+**TO**
+
+```r
+.assert_batch_materializable(ctx, config)
+```
+
+#### MODIFY checks:
+
+✅ KEEP:
+
+*   Directory collision checks
+*   Input file existence
+*   Input read sanity
+
+❌ REMOVE:
+
+```r
+inherits(job, "xpipe_batch_job")
+job$status checks
+```
+
+✅ Replace with **structural checks only**.
+
+***
+
+### Action 3.3 — Update extraction helpers
+
+For ALL of the following:
+
+*   `.resolve_extraction_instrument`
+*   `.run_extraction`
+*   `.persist_to_batch`
+
+#### DO
+
+*   Rename parameter `job` → `ctx`
+*   Rewrite all `$job$…` accesses to `$ctx$…`
+
+#### DO NOT
+
+*   Change logic
+*   Change data flow
+*   Change output format
+
+***
+
+### Action 3.4 — Remove lifecycle mutation
+
+**DELETE** all lines like:
+
+```r
+job$status <- "materializing"
+job$status <- "materialized"
+```
+
+Materialization success is defined exclusively by:
+
+*   files written to disk
+*   metadata JSON presence
+
+***
+
+## Phase 4 — Introduce the Single Public Batch API
+
+### Action 4.1 — Add new public function
+
+**ADD**
+
+```r
+ingest_batch <- function(
+  filename,
+  stream,
+  method,
+  config,
+  batch_id = NULL
+) {
+  ctx <- prepare_batch_ingestion(
+    filename = filename,
+    stream   = stream,
+    method   = method,
+    config   = config,
+    batch_id = batch_id
+  )
+
+  materialize_batch(ctx, config)
+
+  invisible(ctx$batch_id)
+}
+```
+
+### Rules:
+
+*   This is the **ONLY exported batch ingestion API**
+*   Everything else is internal
+*   Callers must not see preparation/materialization split
+
+***
+
+## Phase 5 — Validation Checklist (Required)
+
+After refactor, verify:
+
+*   ✅ Batch directories identical to pre‑refactor
+*   ✅ Same `batch_id` generation
+*   ✅ Same Parquet outputs
+*   ✅ Same `_batch_metadata.json` schema
+*   ✅ Same validation failures for invalid inputs
+*   ✅ No remaining references to `xpipe_batch_job`
+
+***
+
+## Phase 6 — Commit Expectations
+
+### Commit message (recommended)
+
+    refactor(batch): downgrade batch job to ingestion preparation context
+
+    - Remove xpipe_batch_job S3 abstraction
+    - Introduce prepare_batch_ingestion + materialize_batch split
+    - Add single public ingest_batch() API
+    - Preserve all validation and batch artifacts
+
+***
+
+## Design Invariant After This Phase
+
+> Batch ingestion is an **artifact factory**, not an execution lifecycle.
+> The batch itself is the record of execution.
+> No job identity or history exists at the batch layer.
+
+***
+
+## STOP POINT
+
+🚫 Do **not** touch Bronze code yet  
+🚫 Do **not** introduce persistent jobs  
+🚫 Do **not** add new metadata
+
+**End of Phase 1.**
+
+

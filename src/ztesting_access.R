@@ -20,18 +20,16 @@ tryCatch({
 
   .cfg <- load_xpipe_config()
 
-  my_job <- new_batch_job(
+  cli::cli_h2("Step 1 & 2: Ingesting Batch")
+  batch_id <- ingest_batch(
     filename = "2025_full.mdb",
     method   = "quani_mdb",
     stream   = "sdo",
     config   = .cfg
   )
-  print(my_job)
+  cli::cli_alert_success("Batch materialized: {.val {batch_id}}")
 
-  cli::cli_h2("Step 1: Materializing Batch")
-  my_job <- materialize_batch_job(my_job, .cfg)
-
-  cli::cli_h2("Step 2: Promoting to Bronze")
+  cli::cli_h2("Step 3: Promoting to Bronze")
   promote_to_bronze(.cfg, stream_id = "sdo")
 
   cli::cli_h2("Step 3: Verification")

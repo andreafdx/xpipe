@@ -13,8 +13,7 @@ Sys.setenv(XPIPE_SKIP_HASH_CHECK = "TRUE")
 
 # Assumes working directory is project root ("R projects/xacc")
 source("src/zzz.R")
-source("src/0. batch_initialization.R")
-source("src/1. batch_materialization.R")
+source("src/0. batch_materialization.R")
 # source("src/2. bronze_promotion.R") # Not needed for this test
 source("src/tools_access.R")
 
@@ -56,18 +55,15 @@ cli::cli_h1("Batch Ingestion Pipeline Test")
 
 # A. Initialize Multi-File Job
 cli::cli_h2("Step 1: Ingestion Preparation")
-ctx <- prepare_batch_ingestion(
+ctx <- ingest_batch(
   filename = sdo_folder_name,
   stream = "sdo",
   method = "xml_campania_2026",
-  config = .cfg
+  config = .cfg,
+  dry_run = FALSE
 )
 
-cli::cli_alert_success("Context prepared for batch: {.val {ctx$batch_id}}")
 
-# B. Materialize Multi-File Batch
-cli::cli_h2("Step 2: Materialization")
-materialize_batch(ctx, .cfg)
 
 # C. Verify Output
 cli::cli_h2("Step 3: Verification")
