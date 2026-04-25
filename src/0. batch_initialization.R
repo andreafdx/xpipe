@@ -281,65 +281,21 @@ box::use(
 }
 
 
-#' Construct Batch Job Object
-#'
-#' Assembles a structured \code{xpipe_batch_job} object representing
-#' a validated batch import intent in initialized state.
-#'
-#' @param filename Character scalar. Original input name.
-#' @param filepath Character scalar. Resolved absolute input path.
-#' @param method_id Character scalar ingestion method identifier.
-#' @param method_config Method configuration list.
-#' @param stream_id Character scalar identifying the stream.
-#' @param stream_config Stream configuration list.
-#' @param batch_root Character scalar batch root path.
-#' @param batch_dir Character scalar target batch directory.
-#' @param batch_id Character scalar batch identifier.
-#' @param components Optional list of discovered components.
-#'
-#' @return An object of class \code{xpipe_batch_job}.
-#'
-#' @noRd
-.build_batch_job <- function(
-    filename, filepath,
-    method_id, method_config,
-    stream_id, stream_config,
-    batch_root, batch_dir,
-    batch_id,
-    components = NULL
-) {
-  structure(
-    list(
-      batch_id = batch_id,
-      filename = filename,
-      filepath = filepath,
-      method_id = method_id,
-      method_config = method_config,
-      stream_id = stream_id,
-      stream_config = stream_config,
-      batch_root = batch_root,
-      batch_dir = batch_dir,
-      status = "initialized",
-      components = components
-    ),
-    class = "xpipe_batch_job"
-  )
-}
-
 ## Public API -------------------------------------------------------------
 
-#' Create a New Batch Import Job
+#' Prepare Batch Ingestion Context
 #'
-#' Constructs a validated batch import job intent based on an input file
+#' Constructs a validated batch ingestion context based on an input file
 #' or directory located in the inbox and a configured ingestion method.
 #'
 #' This function performs configuration validation, input resolution,
 #' and method/stream compatibility checks, but does not read, transform,
-#' or write any data. The returned object represents a fully specified
-#' batch job ready for materialization.
+#' or write any data. The returned list represents a fully specified
+#' ingestion intent ready for materialization.
 #'
 #' @param filename Character scalar. Name of a file or directory located
 #'   in the inbox path defined in the local configuration.
+#' @param stream Character scalar identifying the target stream.
 #' @param method Character scalar identifying the ingestion method to use,
 #'   as defined in \code{methods.json}.
 #' @param config An object of class \code{xpipe_config}, as returned by
@@ -347,20 +303,19 @@ box::use(
 #' @param batch_id Optional character scalar. Explicit batch identifier.
 #'   If \code{NULL}, a unique batch identifier is generated automatically.
 #'
-#' @return An object of class \code{xpipe_batch_job} in
-#'   \code{"initialized"} state.
+#' @return A named list containing the ingestion context.
 #'
 #' @details
-#' The batch job object encapsulates all metadata required for batch
+#' The context list encapsulates all metadata required for batch
 #' materialization, including resolved input paths, method and stream
-#' configuration, target batch directory, and any discovered components.
+#' configuration, and target batch directory.
 #'
 #' No filesystem side effects are performed beyond path validation.
 #' Data extraction and persistence occur only during
-#' \code{materialize_batch_job()}.
+#' \code{materialize_batch()}.
 #'
 #' @export
-new_batch_job <- function(
+prepare_batch_ingestion <- function(
     filename,
     stream,
     method,
@@ -374,7 +329,7 @@ new_batch_job <- function(
   stream_id     <- stream
 
   if (method_config$schema_domain != stream_config$schema_domain) {
-    cli::cli_abort(
+    cli$cli_abort(
       c(
         "Invalid batch job",
         "x" = "Method and stream belong to different schema domains",
@@ -384,8 +339,6 @@ new_batch_job <- function(
       class = c("batch_job", "schema_domain")
     )
   }
-
-
 
   filepath  <- .resolve_inbox_path(config, filename)
 
@@ -402,58 +355,15 @@ new_batch_job <- function(
   batch_id  <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
   batch_dir <- .build_batch_target_dir(config, batch_id)
 
-  .build_batch_job(
-    filename = filename,
-    filepath = filepath,
-    method_id = method,
+  list(
+    batch_id      = batch_id,
+    filename      = filename,
+    filepath      = filepath,
+    method_id     = method,
     method_config = method_config,
-    stream_id = stream_id,
+    stream_id     = stream_id,
     stream_config = stream_config,
-    batch_root = config$local$paths$batch,
-    batch_dir = batch_dir,
-    batch_id = batch_id,
-    components = components
+    batch_dir     = batch_dir,
+    components    = components
   )
-}
-
-# S3 print method
-
-#' Print xpipe batch job
-#'
-#' @export
-print.xpipe_batch_job <- function(x, ...) {
-  cli::cli_div(
-    theme = list(rule = list(color = "cyan", "line-type" = "double"))
-  )
-  cli::cli_rule("XNE Batch Job")
-
-  cli::cli_h2("Status")
-  cli::cli_alert_success(x$status)
-
-  cli::cli_h2("Input")
-  cli::cli_bullets(c(
-    "path        : {.file {x$filepath}}",
-    "input type  : {.val {x$method_config$input_type}}",
-    "method      : {.val {x$method_id}} [{.val {x$method_config$type}}]",
-    "stream      : {.val {x$stream_id}} [{.val {x$method_config$schema_domain}}]"
-  ))
-
-  if (!is.null(x$components)) {
-    cli::cli_h3("Components discovered")
-    cli::cli_bullets(
-      purrr::imap_chr(x$components, ~ paste0("{.strong ", .y, "} : {.file ", basename(.x), "}"))
-    )
-  }
-
-  cli::cli_h2("Storage (Batch)")
-  cli::cli_bullets(c(
-    "path      : {.file {x$batch_dir}}",
-    "batch_id    : {.val {x$batch_id}}"
-
-  ))
-
-  cli::cli_rule()
-  cli::cli_end()
-
-  invisible(x)
 }

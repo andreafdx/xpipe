@@ -23,29 +23,24 @@ box::use(
 
 ## Phase A ----------------------------------------------------------------
 
-#' Assert that a batch job can be materialized
+#' Assert that batch materialization is safe
 #'
-#' Performs Phase A (Pre-materialization Guardrails) checks.
-#' Validates that a batch job is in a safe and coherent state
-#' before any irreversible side effects are performed.
+#' Performs Phase A (Materialization Guardrails) checks.
+#' Validates that the ingestion context is coherent and that
+#' filesystem preconditions are met before any side effects occur.
 #'
-#' Responsibilities:
-#' - validate batch status
-#' - detect target directory collisions (batch layer)
-#' - re-validate input file existence
-#'
-#' @param job An object of class \code{xpipe_batch_job}.
-#' @param config An object of class \code{xpipe_config}.
+#' @param ctx Ingestion context list.
+#' @param config xpipe_config object.
 #' @return Invisibly TRUE if materializable, otherwise aborts.
 #' @keywords internal
 #' @noRd
-.assert_batch_materializable <- function(job, config) {
+.assert_batch_materializable <- function(ctx, config) {
 
-  if (!inherits(job, "xpipe_batch_job")) {
+  if (!is.list(ctx)) {
     cli::cli_abort(
       c(
-        "Invalid batch job",
-        "x" = "{.arg job} must be an object of class {.cls xpipe_batch_job}"
+        "Invalid ingestion context",
+        "x" = "{.arg ctx} must be a list"
       ),
       class = c("batch_job", "materialization")
     )
@@ -61,51 +56,39 @@ box::use(
     )
   }
 
-  # A1. State precondition
-  if (!identical(job$status, "initialized")) {
+  # A1. Target collision check (batch layer)
+  if (fs::dir_exists(ctx$batch_dir)) {
     cli::cli_abort(
       c(
-        "Batch job cannot be materialized",
-        "x" = "Invalid batch status: {.val {job$status}}",
-        "i" = "Expected status: {.val initialized}"
-      ),
-      class = c("batch_job", "state")
-    )
-  }
-
-  # A2. Target collision check (batch layer)
-  if (fs::dir_exists(job$batch_dir)) {
-    cli::cli_abort(
-      c(
-        "Batch job cannot be materialized",
+        "Ingestion cannot proceed",
         "x" = "Target batch directory already exists",
-        "i" = "Path: {.file {job$batch_dir}}",
-        "i" = "Batch id: {.val {job$batch_id}}"
+        "i" = "Path: {.file {ctx$batch_dir}}",
+        "i" = "Batch id: {.val {ctx$batch_id}}"
       ),
       class = c("batch_job", "collision")
     )
   }
 
-  # A3. Input file re-validation
-  if (!fs::file_exists(job$filepath)) {
+  # A2. Input path re-validation
+  if (!fs::file_exists(ctx$filepath)) {
     cli::cli_abort(
       c(
-        "Batch job cannot be materialized",
-        "x" = "Input file does not exist at materialization time",
-        "i" = "Expected path: {.file {job$filepath}}"
+        "Ingestion cannot proceed",
+        "x" = "Input path does not exist at materialization time",
+        "i" = "Expected path: {.file {ctx$filepath}}"
       ),
       class = c("batch_job", "input")
     )
   }
 
   # Lightweight sanity check
-  info <- fs::file_info(job$filepath)
-  if (is.na(info$size) || info$size == 0) {
+  info <- fs::file_info(ctx$filepath)
+  if (is.na(info$size) || (fs::is_file(ctx$filepath) && info$size == 0)) {
     cli::cli_abort(
       c(
-        "Batch job cannot be materialized",
-        "x" = "Input file is empty or unreadable",
-        "i" = "Path: {.file {job$filepath}}"
+        "Ingestion cannot proceed",
+        "x" = "Input is empty or unreadable",
+        "i" = "Path: {.file {ctx$filepath}}"
       ),
       class = c("batch_job", "input")
     )
@@ -116,22 +99,18 @@ box::use(
 
 ## Phase B --------------------------------------------------------------
 
-#' Resolve extraction instrument for a batch job
-#'
-#' Selects the extractor responsible for producing
-#' the canonical batch representation.
+#' Resolve extraction instrument
 #'
 #' @keywords internal
 #' @noRd
-.resolve_extraction_instrument <- function(job, config) {
+.resolve_extraction_instrument <- function(ctx, config) {
 
-  method_type <- job$method_config$type
+  method_type <- ctx$method_config$type
 
   instrument <- switch(
     method_type,
     "access_mdb" = extract_access_db,
     "xml"       = extract_xml,
-    #"csv"       = extract_csv,
     NULL
   )
 
@@ -154,19 +133,19 @@ box::use(
 #'
 #' @keywords internal
 #' @noRd
-.run_extraction <- function(job, instrument) {
+.run_extraction <- function(ctx, instrument) {
 
-  if (!is.null(job$components)) {
+  if (!is.null(ctx$components)) {
     # Multi-component extraction (Directory based)
-    cli$cli_alert_info("Running multi-component extraction ({length(job$components)} files)")
+    cli$cli_alert_info("Running multi-component extraction ({length(ctx$components)} files)")
 
     extracted <- list()
-    for (nm in names(job$components)) {
-      path <- job$components[[nm]]
+    for (nm in names(ctx$components)) {
+      path <- ctx$components[[nm]]
       cli$cli_inform("Component {.val {nm}} : {.file {basename(path)}}")
 
       # Call instrument for each component
-      res <- instrument(job, path)
+      res <- instrument(ctx, path)
 
       # If instrument returns a list (unlikely for single component but possible), merge
       if (is.data.frame(res)) {
@@ -179,7 +158,7 @@ box::use(
     }
   } else {
     # Single-file extraction
-    extracted <- instrument(job, job$filepath)
+    extracted <- instrument(ctx, ctx$filepath)
   }
 
   if (is.data.frame(extracted)) {
@@ -203,13 +182,11 @@ box::use(
 
 #' Persist extracted data to the Batch layer
 #'
-#' Writes the canonical, immutable batch representation.
-#'
 #' @keywords internal
 #' @noRd
-.persist_to_batch <- function(job, extracted_data, config) {
+.persist_to_batch <- function(ctx, extracted_data, config) {
 
-  fs::dir_create(job$batch_dir, recurse = TRUE)
+  fs::dir_create(ctx$batch_dir, recurse = TRUE)
 
   for (nm in names(extracted_data)) {
     tbl <- extracted_data[[nm]]
@@ -227,28 +204,28 @@ box::use(
 
     arrow::write_parquet(
       tbl,
-      fs::path(job$batch_dir, paste0(nm, ".parquet"))
+      fs::path(ctx$batch_dir, paste0(nm, ".parquet"))
     )
   }
 
   # Meta file as JSON for cross-platform compatibility
   meta <- list(
-    batch_id = job$batch_id,
+    batch_id = ctx$batch_id,
 
     stream = list(
-      id            = job$stream_id,
-      schema_domain = job$method_config$schema_domain,
-      anchor        = job$stream_config$anchor
+      id            = ctx$stream_id,
+      schema_domain = ctx$method_config$schema_domain,
+      anchor        = ctx$stream_config$anchor
     ),
 
     method = list(
-      id   = job$method_id,
-      type = job$method_config$type
+      id   = ctx$method_id,
+      type = ctx$method_config$type
     ),
 
     input = list(
-      path       = job$filename,
-      input_type = job$method_config$input_type
+      path       = ctx$filename,
+      input_type = ctx$method_config$input_type
     ),
 
     execution = list(
@@ -257,14 +234,14 @@ box::use(
       tool_version = config$runtime$tool$version
     )
   )
-  if (!is.null(job$method_config$components)) {
-    meta$components <- job$method_config$components
+  if (!is.null(ctx$method_config$components)) {
+    meta$components <- ctx$method_config$components
   }
 
 
   jsonlite::write_json(
     meta,
-    fs::path(job$batch_dir, "_batch_metadata.json"),
+    fs::path(ctx$batch_dir, "_batch_metadata.json"),
     pretty = TRUE,
     auto_unbox = TRUE
   )
@@ -272,59 +249,68 @@ box::use(
   invisible(TRUE)
 }
 
-## Public API -------------------------------------------------------------
+# Public API -------------------------------------------------------------
 
-#' Materialize a Batch Job
+#' Materialize Batch Ingestion Context
 #'
-#' Executes the full batch materialization lifecycle, transforming a
-#' validated batch job intent into an immutable, on-disk batch
-#' representation.
+#' Transforms a validated ingestion context into an immutable, on-disk
+#' batch representation.
 #'
-#' The materialization process performs the following steps:
-#' \itemize{
-#'   \item Pre-materialization guardrails and state validation
-#'   \item Data extraction using the method-specific instrument
-#'   \item Application of stream privacy rules
-#'   \item Persistence of canonical batch data to the Batch layer
-#' }
-#'
-#' This operation is irreversible: once materialized, batch data is
-#' considered immutable and ready for downstream promotion.
-#'
-#' @param job An object of class \code{xpipe_batch_job} in
-#'   \code{"initialized"} state.
-#' @param config An object of class \code{xpipe_config}, as returned by
-#'   \code{load_options()}.
-#'
-#' @return An updated \code{xpipe_batch_job} object with status set to
-#'   \code{"materialized"}.
-#'
-#' @details
-#' If any validation or extraction step fails, materialization is aborted
-#' and no batch data is written to disk.
-#'
+#' @param ctx Ingestion context list.
+#' @param config xpipe_config object.
+#' @return Invisibly TRUE on success.
 #' @export
-materialize_batch_job <- function(job, config) {
+materialize_batch <- function(ctx, config) {
 
-  .assert_batch_materializable(job, config)
+  .assert_batch_materializable(ctx, config)
 
-  job$status <- "materializing"
-
-  instrument     <- .resolve_extraction_instrument(job, config)
-  extracted_data <- .run_extraction(job, instrument)
+  instrument     <- .resolve_extraction_instrument(ctx, config)
+  extracted_data <- .run_extraction(ctx, instrument)
 
   # Apply privacy rules to each extracted table
   for (nm in names(extracted_data)) {
     extracted_data[[nm]] <- apply_privacy_rules(
       extracted_data[[nm]],
-      job$stream_config,
+      ctx$stream_config,
       config$runtime$pepper
     )
   }
-  .persist_to_batch(job, extracted_data, config)
+  .persist_to_batch(ctx, extracted_data, config)
 
-  job$status <- "materialized"
-  job
+  invisible(TRUE)
+}
+
+#' Ingest a Data Batch
+#'
+#' High-level entry point for batch ingestion. Performs both preparation
+#' and materialization of a data batch.
+#'
+#' @param filename Character scalar. Input name.
+#' @param stream Character scalar identifying the target stream.
+#' @param method Character scalar identifying the ingestion method.
+#' @param config xpipe_config object.
+#' @param batch_id Optional explicit batch identifier.
+#'
+#' @return Character scalar batch identifier.
+#' @export
+ingest_batch <- function(
+    filename,
+    stream,
+    method,
+    config,
+    batch_id = NULL
+) {
+  ctx <- prepare_batch_ingestion(
+    filename = filename,
+    stream   = stream,
+    method   = method,
+    config   = config,
+    batch_id = batch_id
+  )
+
+  materialize_batch(ctx, config)
+
+  invisible(ctx$batch_id)
 }
 
 
