@@ -1,5 +1,5 @@
 {
-  "batch_id": "20260427T214958.229_sdo_quani_mdb",
+  "batch_id": "20260428T011924.834_sdo_quani_mdb",
   "stream": {
     "id": "sdo",
     "schema_domain": "sdo",
@@ -14,7 +14,7 @@
     "input_type": "file"
   },
   "execution": {
-    "created_at": "2026-04-27T21:50:30+0200",
+    "created_at": "2026-04-28T01:19:54+0200",
     "tool": "xpipe",
     "tool_version": "dev"
   },

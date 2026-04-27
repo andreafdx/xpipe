@@ -673,26 +673,40 @@ box::use(
 #' @noRd
 .resolve_extraction_instrument <- function(ctx, config) {
 
-  method_type <- ctx$method_config$type
-
-  instrument <- switch(
-    method_type,
-    "access_mdb" = extract_access_db,
-    "xml"       = extract_xml,
-    NULL
+  # Registry: method type -> extractor function name (string)
+  # Add new extractors here; the function must be loaded before ingest_batch() is called.
+  .instrument_registry <- c(
+    "access_mdb" = "extract_access_db",
+    "xml"        = "extract_xml"
   )
 
-  if (is.null(instrument)) {
+  method_type <- ctx$method_config$type
+
+  fn_name <- .instrument_registry[method_type]
+
+  if (is.na(fn_name)) {
     cli::cli_abort(
       c(
-        "No extraction instrument available",
-        "x" = "No extractor registered for method type {.val {method_type}}"
+        "No extraction instrument registered",
+        "x" = "No extractor registered for method type {.val {method_type}}",
+        "i" = "Registered types: {.val {names(.instrument_registry)}}"
       ),
       class = c("batch", "instrument")
     )
   }
 
-  instrument
+  if (!exists(fn_name, mode = "function")) {
+    cli::cli_abort(
+      c(
+        "Extraction instrument not loaded",
+        "x" = "Function {.code {fn_name}} is not available in the current environment",
+        "i" = "Source the appropriate tool script before calling {.code ingest_batch()}"
+      ),
+      class = c("batch", "instrument")
+    )
+  }
+
+  get(fn_name, mode = "function")
 }
 
 ## Phase C --------------------------------------------------------------
@@ -839,7 +853,7 @@ box::use(
   for (nm in names(extracted_data)) {
     extracted_data[[nm]] <- apply_privacy_rules(
       extracted_data[[nm]],
-      ctx$methods_config,
+      ctx$method_config,
       config$runtime$pepper
     )
   }

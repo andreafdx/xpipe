@@ -13,7 +13,7 @@
 #'   \item Appends rows only (no deletes, updates, or rewrites)
 #'   \item Derives domain time from a single anchor table per batch
 #'   \item Enriches all rows with mandatory Bronze metadata
-#'   \item Partitions data by anchor-derived year
+#'   \item Partitions data by anchor-derived time (year or month)
 #' }
 #'
 #' Bronze promotion preserves full history and lineage and does not
@@ -36,7 +36,7 @@
 #' @section Storage layout:
 #' Bronze is written as immutable Parquet shards per promoted batch:
 #' \itemize{
-#'   \item \code{bronze/<stream>_<method>/year=YYYY/<table>__<batch_id>.parquet}
+#'   \item \code{bronze/<stream>__<method>/year=YYYY/<table>__<batch_id>.parquet}
 #' }
 #' Promotion refuses to overwrite an existing shard file.
 #'
@@ -51,7 +51,7 @@
 #' they are never modified or removed.
 #'
 #' @param config xacc_config object.
-#' @param stream_id Optional stream filter. If provided, only batches
+#' @param stream Optional stream filter. If provided, only batches
 #'   for the specified stream are considered.
 #' @param dry_run Logical. If TRUE, performs validation and preview
 #'   only. No files are written and no state is updated.
@@ -63,30 +63,30 @@
 #' @export
 promote_to_bronze <- function(
     config,
-    stream_id = NULL,
+    stream = NULL,
     dry_run = FALSE,
     confirm = interactive()
 ) {
-  pending <- .identify_pending_batches(config)
+  # ---- read state once; shared by pending identification and promotion log
+  state <- .get_bronze_state(config)
+  state$promotion_log <- state$promotion_log %||% list()
+
+  pending <- .identify_pending_batches(config, state = state)
 
   if (nrow(pending) == 0) {
     cli::cli_alert_info("No pending batches to promote.")
     return(invisible(TRUE))
   }
 
-  if (!is.null(stream_id)) {
-    pending <- pending[pending$stream_id == stream_id, ]
+  if (!is.null(stream)) {
+    pending <- pending[pending$stream_id == stream, ]
     if (nrow(pending) == 0) {
-      cli::cli_alert_info("No pending batches for stream {.val {stream_id}}.")
+      cli::cli_alert_info("No pending batches for stream {.val {stream}}.")
       return(invisible(TRUE))
     }
   }
 
-  # ---- read state (promotion_log only)
-  state <- .get_bronze_state(config)
-  state$promotion_log <- state$promotion_log %||% list()
-
-  .validate_anchor_definitions(config)
+  .validate_anchor_definitions(config, method_ids = unique(pending$method_id))
 
   previews <- purrr::map(
     seq_len(nrow(pending)),
@@ -105,6 +105,9 @@ promote_to_bronze <- function(
   .confirm_bronze_promotion(confirm)
 
   # ---- execute + append promotion events
+  # Errors propagate immediately. Failed batches are never recorded, so they
+  # remain pending and will be retried on the next run. The promotion log is
+  # a success-only ledger — no partial or failed entries.
   for (preview in previews) {
     .apply_bronze_promotion(preview, config)
 
@@ -118,7 +121,7 @@ promote_to_bronze <- function(
   }
 
   cli::cli_alert_success(
-    "Bronze promotion complete. {length(previews)} batch(es) appended."
+    "Bronze promotion complete. {length(previews)} batch(es) appended successfully."
   )
   invisible(TRUE)
 }
@@ -167,7 +170,7 @@ promote_to_bronze <- function(
     )
   }
 
-  state <- jsonlite::fromJSON(path, simplifyVector = TRUE)
+  state <- jsonlite::fromJSON(path, simplifyVector = FALSE)
 
   if (!is.list(state) || !identical(state$format, "promotion_log") || is.null(state$promotion_log)) {
     cli::cli_abort(
@@ -237,8 +240,8 @@ promote_to_bronze <- function(
 #'
 #' @keywords internal
 #' @noRd
-.identify_pending_batches <- function(config) {
-  state <- .get_bronze_state(config)
+.identify_pending_batches <- function(config, state = NULL) {
+  if (is.null(state)) state <- .get_bronze_state(config)
   promoted <- .promoted_batch_ids(state)
 
   meta_files <- fs::dir_ls(
@@ -278,17 +281,24 @@ promote_to_bronze <- function(
 #'
 #' @keywords internal
 #' @noRd
-.validate_anchor_definitions <- function(config) {
-  for (nm in names(config$methods)) {
+.validate_anchor_definitions <- function(config, method_ids = NULL) {
+  # If method_ids provided, validate only those; otherwise validate all
+  methods_to_check <- if (!is.null(method_ids)) {
+    intersect(method_ids, names(config$methods))
+  } else {
+    names(config$methods)
+  }
+
+  for (nm in methods_to_check) {
     m <- config$methods[[nm]]
 
-    anchor <- m$primary_table
+    anchor <- m$anchor_table
 
     if (is.null(anchor) || length(anchor) != 1 || !nzchar(anchor)) {
       cli::cli_abort(
         c(
           "Invalid method anchor definition",
-          "x" = "Method {.val {nm}} must define exactly one anchor table (anchor_table or primary_table)"
+          "x" = "Method {.val {nm}} must define one anchor table"
         ),
         class = c("bronze", "anchor")
       )
@@ -345,7 +355,7 @@ promote_to_bronze <- function(
     )
   }
 
-  anchor_table  <- method_cfg$anchor_table %||% method_cfg$primary_table
+  anchor_table  <- method_cfg$anchor_table
   anchor_column <- method_cfg$partition_column
   anchor_source <- paste0(anchor_table, ".", anchor_column)
 
@@ -395,19 +405,42 @@ promote_to_bronze <- function(
     format(as.Date(anchor_df[[anchor_column]]), "%Y")
   )
 
+  # Precompute key_lookup here — avoids re-reading anchor parquet in apply phase
+  ak         <- .make_key(anchor_df, anchor_keys)
+  key_lookup <- setNames(anchor_df[[anchor_column]], ak)
+
+  # Validate uniqueness here (preview phase): if keys are duplicated the years
+  # computation below is unreliable and apply would explode. Fail early with no
+  # side effects.
+  if (anyDuplicated(ak)) {
+    cli::cli_abort(
+      c(
+        "Anchor keys are not unique",
+        "x" = "Anchor table {.val {anchor_table}} contains duplicate identity keys",
+        "i" = "Cannot deterministically inherit anchor_time",
+        "i" = "Batch: {.val {batch$batch_id}}"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
   tables <- fs::path_ext_remove(
     fs::path_file(fs::dir_ls(batch_dir, glob = "*.parquet"))
   )
 
   list(
-    batch_id      = batch$batch_id,
-    stream_id     = batch$stream_id,
-    method_id     = batch$method_id,
-    anchor_source = anchor_source,
-    anchor_keys   = anchor_keys,
-    years         = sort(unique(anchor_year)),
-    tables        = tables,
-    created_at    = batch$created_at
+    batch_id              = batch$batch_id,
+    stream_id             = batch$stream_id,
+    method_id             = batch$method_id,
+    anchor_source         = anchor_source,
+    anchor_table          = anchor_table,
+    anchor_column         = anchor_column,
+    anchor_keys           = anchor_keys,
+    key_lookup            = key_lookup,
+    years                 = sort(unique(anchor_year)),
+    tables                = tables,
+    created_at            = batch$created_at,
+    partition_granularity = config$streams[[batch$stream_id]]$partition_granularity %||% "year"
   )
 }
 
@@ -423,47 +456,29 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .apply_bronze_promotion <- function(preview, config) {
-  batch_dir     <- fs::path(config$local$paths$batch, preview$batch_id)
-  anchor_table  <- sub("\\..*", "", preview$anchor_source)
-  anchor_column <- sub(".*\\.", "", preview$anchor_source)
-  anchor_keys   <- preview$anchor_keys
+  batch_dir    <- fs::path(config$local$paths$batch, preview$batch_id)
+  anchor_table <- preview$anchor_table
+  anchor_keys  <- preview$anchor_keys
+  key_lookup   <- preview$key_lookup
+  granularity  <- preview$partition_granularity %||% "year"
 
-  anchor_path <- fs::path(batch_dir, paste0(anchor_table, ".parquet"))
-  anchor_df   <- arrow::read_parquet(anchor_path)
-
-  # Deterministic inheritance requires unique anchor keys
-  ak <- .make_key(anchor_df, anchor_keys)
-  if (anyDuplicated(ak)) {
+  # Defensive only — primary uniqueness check runs in preview phase.
+  if (anyDuplicated(names(key_lookup))) {
     cli::cli_abort(
       c(
         "Anchor table keys are not unique",
         "x" = "Cannot inherit anchor_time deterministically from anchor table {.val {anchor_table}}",
         "i" = "Method: {.val {preview$method_id}}",
-        "i" = "Batch: {.val {preview$batch_id}}",
-        "i" = "Table location: {.file {anchor_path}}"
+        "i" = "Batch: {.val {preview$batch_id}}"
       ),
       class = c("bronze", "anchor")
     )
   }
-
-  if (!anchor_column %in% names(anchor_df)) {
-    cli::cli_abort(
-      c(
-        "Missing anchor column in anchor table",
-        "x" = "Column {.val {anchor_column}} not found in anchor table {.val {anchor_table}}",
-        "i" = "Table location: {.file {anchor_path}}"
-      ),
-      class = c("bronze", "anchor")
-    )
-  }
-
-  # key -> anchor_time lookup
-  key_lookup <- setNames(anchor_df[[anchor_column]], ak)
 
   for (pq in fs::dir_ls(batch_dir, glob = "*.parquet")) {
 
     table_name <- fs::path_ext_remove(fs::path_file(pq))
-    df <- arrow::read_parquet(pq)
+    df         <- arrow::read_parquet(pq)
 
     # Validate keys for secondary tables
     missing_in_df <- setdiff(anchor_keys, names(df))
@@ -478,9 +493,8 @@ promote_to_bronze <- function(
       )
     }
 
-    # Assign anchor_time
+    # Assign anchor_time via pre-built lookup
     df$`__anchor_time` <- key_lookup[.make_key(df, anchor_keys)]
-
 
     if (any(is.na(df$`__anchor_time`))) {
       cli::cli_abort(
@@ -493,7 +507,7 @@ promote_to_bronze <- function(
       )
     }
 
-    # Bronze metadata (strings are stable across parquet and tools)
+    # Bronze metadata
     df$`__batch_id`         <- preview$batch_id
     df$`__stream_id`        <- preview$stream_id
     df$`__method_id`        <- preview$method_id
@@ -502,16 +516,36 @@ promote_to_bronze <- function(
     df$`__ingested_at`      <- .now_iso()
     df$`__anchor_year`      <- as.integer(format(as.Date(df$`__anchor_time`), "%Y"))
 
-    for (yr in unique(df$`__anchor_year`)) {
+    # Build per-row partition path from stream granularity
+    if (granularity == "year") {
+      part_dir <- paste0("year=", df$`__anchor_year`)
+    } else if (granularity == "month") {
+      df$`__anchor_month` <- as.integer(format(as.Date(df$`__anchor_time`), "%m"))
+      part_dir <- paste0(
+        "year=", df$`__anchor_year`,
+        "/month=", sprintf("%02d", df$`__anchor_month`)
+      )
+    } else {
+      cli::cli_abort(
+        c(
+          "Unsupported partition granularity",
+          "x" = "Stream {.val {preview$stream_id}} declares unsupported granularity: {.val {granularity}}",
+          "i" = "Supported values: 'year', 'month'"
+        ),
+        class = c("bronze", "partition")
+      )
+    }
+
+    for (pdir in unique(part_dir)) {
 
       target_dir <- fs::path(
         config$local$paths$bronze,
-        paste0(preview$stream_id, "_", preview$method_id),
-        paste0("year=", yr)
+        paste0(preview$stream_id, "__", preview$method_id),
+        pdir
       )
       fs::dir_create(target_dir, recurse = TRUE)
 
-      rows_to_append <- df[df$`__anchor_year` == yr, ]
+      rows_to_append <- df[part_dir == pdir, ]
       if (nrow(rows_to_append) == 0) next
 
       # Immutable shard per (table, batch)
@@ -578,7 +612,7 @@ promote_to_bronze <- function(
 #'
 #' @param preview preview list produced by .prepare_bronze_promotion_preview()
 #' @param config xacc_config object
-#' @param status "success" or "failed"
+#' @param status Character scalar. Always "success" — logged only on completion.
 #' @return list (promotion event)
 #' @keywords internal
 #' @noRd

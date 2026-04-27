@@ -9,7 +9,7 @@
       "TblSchedaProcedure",
       "TblSchedaTrasferimenti"
     ],
-    "primary_table": "TblScheda",
+    "anchor_table": "TblScheda",
     "identity_keys": ["i_IDScheda"],
     "partition_column": "d_DataDimissione",
     "pseudonymize": ["c_CodicePaziente", "c_CodiceMadre"],
@@ -20,7 +20,7 @@
     "schema_domain": "sdo",
     "type": "xml",
     "input_type": "directory",
-    "primary_table": "ricovero",
+    "anchor_table": "ricovero",
     "components": {
       "anagrafica": "*_A.xml",
       "ricovero": "*_B.xml",
@@ -38,7 +38,7 @@
     "schema_domain": "ps",
     "type": "csv",
     "input_type": "file",
-    "primary_table": "data",
+    "anchor_table": "data",
     "identity_keys": ["id_accesso"],
     "partition_column": "data_ingresso",
     "pseudonymize": ["cf"],

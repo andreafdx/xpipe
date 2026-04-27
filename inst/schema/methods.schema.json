@@ -7,7 +7,7 @@
       "schema_domain",
       "type",
       "input_type",
-      "primary_table",
+      "anchor_table",
       "identity_keys",
       "partition_column"
     ],
@@ -29,7 +29,7 @@
       },
       "table": { "type": "string" },
       "mapping": { "type": "object", "additionalProperties": { "type": "string" } },
-      "primary_table": { "type": "string" },
+      "anchor_table": { "type": "string" },
       "identity_keys": { "type": "array", "items": { "type": "string" } },
       "partition_column": { "type": "string" },
       "pseudonymize": { "type": "array", "items": { "type": "string" } },
