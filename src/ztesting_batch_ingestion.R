@@ -12,7 +12,7 @@ Sys.setenv(XNE_PEPPER_KEY = "dev_testing_pepper_123")
 Sys.setenv(XPIPE_SKIP_HASH_CHECK = "TRUE")
 
 # Assumes working directory is project root ("R projects/xacc")
-source("src/zzz.R")
+source("src/zload all.R")
 source("src/0. batch_materialization.R")
 # source("src/2. bronze_promotion.R") # Not needed for this test
 source("src/tools_access.R")
@@ -26,7 +26,7 @@ extract_xml <- function(ctx, path) {
   data.frame(
     id = 1:2,
     source_file = basename(path),
-    d_DataDimissione = as.Date("2025-05-20"),
+    dim_dataDimissioneMorte = as.Date("2025-05-20"),
     c_NumeroScheda = c("2001", "2002"),
     c_CodPresidio = "HOSP_TEST",
     c_AzUSSL = "901",
@@ -53,30 +53,46 @@ for (suffix in c("A", "B", "C", "D")) {
 
 cli::cli_h1("Batch Ingestion Pipeline Test")
 
-# A. Initialize Multi-File Job
-cli::cli_h2("Step 1: Ingestion Preparation")
-ctx <- ingest_batch(
+# Step 1: Ingest batch
+cli::cli_h2("Step 1: Ingestion")
+
+batch_id <- ingest_batch(
   filename = sdo_folder_name,
-  stream = "sdo",
-  method = "xml_campania_2026",
-  config = .cfg,
-  dry_run = TRUE
+  stream   = "sdo",
+  method   = "xml_campania_2026",
+  config   = .cfg,
+  dry_run  = FALSE
 )
 
-
-
-# C. Verify Output
+# Step 2: Verification
 cli::cli_h2("Step 3: Verification")
-batch_files <- fs::dir_ls(ctx$batch_dir, glob = "*.parquet")
-cli::cli_alert_info("Files discovered in batch folder: {.val {basename(batch_files)}}")
 
-if (length(batch_files) >= 4) {
-  cli::cli_alert_success("VERIFIED: Components successfully bundled into the batch.")
-} else {
-  cli::cli_alert_danger("FAILED: Missing expected parquet files in batch.")
+batch_dir <- fs::path(.cfg$local$paths$batch, batch_id)
+
+if (!fs::dir_exists(batch_dir)) {
+  cli::cli_abort(
+    "FAILED: Batch directory not found at {.file {batch_dir}}"
+  )
 }
 
-meta_file <- fs::path(ctx$batch_dir, "_batch_metadata.json")
+batch_files <- fs::dir_ls(batch_dir, glob = "*.parquet")
+
+cli::cli_alert_info(
+  "Files discovered in batch folder: {.val {basename(batch_files)}}"
+)
+
+if (length(batch_files) >= 4) {
+  cli::cli_alert_success(
+    "VERIFIED: Components successfully bundled into the batch."
+  )
+} else {
+  cli::cli_alert_danger(
+    "FAILED: Missing expected parquet files in batch."
+  )
+}
+
+meta_file <- fs::path(batch_dir, "_batch_metadata.json")
+
 if (fs::file_exists(meta_file)) {
   cli::cli_alert_success("VERIFIED: _batch_metadata.json exists.")
 } else {

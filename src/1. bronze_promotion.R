@@ -202,11 +202,17 @@ promote_to_bronze <- function(
     return(data.frame())
   }
 
-  batches <- purrr::map_dfr(
-    meta_files,
-    ~ jsonlite::fromJSON(.x, simplifyVector = TRUE),
-    .id = "meta_file"
-  )
+  batches <- purrr::map_dfr(meta_files, function(p) {
+    meta <- jsonlite::fromJSON(p, simplifyVector = FALSE)
+
+    data.frame(
+      batch_id   = meta$batch_id,
+      stream_id  = meta$stream$id,
+      method_id  = meta$method$id,
+      created_at = meta$execution$created_at,
+      stringsAsFactors = FALSE
+    )
+  })
 
   batches <- batches[!batches$batch_id %in% promoted, ]
 
@@ -270,7 +276,6 @@ promote_to_bronze <- function(
 
   batch_dir <- fs::path(
     config$local$paths$batch,
-    preview$stream_id,
     preview$batch_id
   )
 
@@ -312,11 +317,18 @@ promote_to_bronze <- function(
 
       target_file <- fs::path(target_dir, paste0(table_name, ".parquet"))
 
-      arrow::write_parquet(
-        df[df$`__anchor_year` == yr, ],
-        target_file,
-        append = fs::file_exists(target_file)
-      )
+
+      rows_to_append <- df[df$`__anchor_year` == yr, ]
+
+      if (fs::file_exists(target_file)) {
+        existing <- arrow::read_parquet(target_file)
+        out <- rbind(existing, rows_to_append)
+      } else {
+        out <- rows_to_append
+      }
+
+      arrow::write_parquet(out, target_file)
+
     }
   }
 
@@ -349,33 +361,40 @@ promote_to_bronze <- function(
   anchor_column <- method_cfg$partition_column
   anchor_source <- paste0(anchor_table, ".", anchor_column)
 
+
   batch_dir <- fs::path(
     config$local$paths$batch,
-    batch$stream_id,
     batch$batch_id
   )
 
+
   anchor_path <- fs::path(batch_dir, paste0(anchor_table, ".parquet"))
   if (!fs::file_exists(anchor_path)) {
+
     cli::cli_abort(
       c(
         "Anchor table missing",
-        "x" = "Expected {.file {anchor_path}}"
+        "x" = "Required anchor table {.val {anchor_table}} was not found",
+        "i" = "Expected location: {.file {batch_dir}}"
       ),
       class = c("bronze", "anchor")
     )
+
   }
 
   anchor_df <- arrow::read_parquet(anchor_path)
 
   if (!anchor_column %in% names(anchor_df)) {
+
     cli::cli_abort(
       c(
         "Missing anchor column",
-        "x" = "{.val {anchor_column}} not found in {.val {anchor_table}}"
+        "x" = "Column {.val {anchor_column}} not found in anchor table {.val {anchor_table}}",
+        "i" = "Table location: {.file {anchor_path}}"
       ),
       class = c("bronze", "anchor")
     )
+
   }
 
   anchor_year <- as.integer(

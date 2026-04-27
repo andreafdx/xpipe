@@ -19,9 +19,9 @@ Sys.setenv(XNE_PEPPER_KEY = "dev_testing_pepper_123")
 Sys.setenv(XPIPE_SKIP_HASH_CHECK = "TRUE")
 
 # Assumes working directory is project root
-source("src/zzz.R")
-source("src/0.batch_materialization.R")
-source("src/2.bronze_promotion.R")
+source("src/zload all.R")
+source("src/0. batch_materialization.R")
+source("src/1. bronze_promotion.R")
 source("src/tools_access.R")
 
 # 2. Load Configuration ---------------------------------------------------
@@ -52,7 +52,7 @@ cli::cli_h2("Step 2: Bronze Promotion Dry Run")
 
 promote_to_bronze(
   config  = .cfg,
-  dry_run = TRUE,
+  dry_run = FALSE,
   confirm = FALSE
 )
 

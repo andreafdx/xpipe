@@ -217,26 +217,42 @@ ingest_batch <- function(
     return(invisible(TRUE))
   }
 
+  # Try climenu first, fall back cleanly if unsupported
   if (requireNamespace("climenu", quietly = TRUE)) {
-    choice <- climenu::select(
-      c("Yes, continue", "No, abort"),
-      prompt = "Proceed with materialization?"
+
+    choice <- tryCatch(
+      climenu::select(
+        c("Yes, continue", "No, abort"),
+        prompt = "Proceed with materialization?"
+      ),
+      error = function(e) NULL
     )
 
-    if (choice != "Yes, continue") {
-      cli::cli_abort("Operation aborted by user.", class = "batch_abort")
+    if (!is.null(choice)) {
+      if (choice != "Yes, continue") {
+        cli::cli_abort(
+          "Batch ingestion aborted by user.",
+          class = "batch_abort"
+        )
+      }
+      return(invisible(TRUE))
     }
+  }
 
-  } else {
-    answer <- readline("Proceed with materialization? [y/N]: ")
+  # Fallback: readline (always works)
+  answer <- readline("Proceed with materialization? [y/N]: ")
 
-    if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
-      cli::cli_abort("Operation aborted by user.", class = "batch_abort")
-    }
+  if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
+    cli::cli_abort(
+      "Batch ingestion aborted by user.",
+      class = "batch_abort"
+    )
   }
 
   invisible(TRUE)
 }
+
+
 
 ## Method and Stream validation --------------------------------------------
 

@@ -1,6 +1,6 @@
 {
-  "promoted_batches": ["batch_v1", "batch_v2"],
-  "last_promotion_at": "2026-04-22T22:44:32+0200",
+  "promoted_batches": ["batch_v1", "batch_v2", "20260427T164036.135_sdo_xml_campania_2026"],
+  "last_promotion_at": "2026-04-27T16:43:03+0200",
   "last_promoted_batches": "batch_v2",
   "last_promoted_batch": "batch_v2"
 }
