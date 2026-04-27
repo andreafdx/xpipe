@@ -134,17 +134,6 @@ promote_to_bronze <- function(
 ## Pipeline ---------------------------------------------------------------
 
 
-#' Null-coalescing operator
-#'
-#' Returns the left-hand side if it is not NULL, otherwise returns the right-hand side.
-#'
-#' @keywords internal
-#' @noRd
-`%||%` <- function(lhs, rhs) {
-  if (is.null(lhs)) rhs else lhs
-}
-
-
 #' Read Bronze layer state
 #'
 #' Loads the Bronze layer state file (`layer.json`) which tracks
