@@ -93,7 +93,7 @@ Each Bronze table **must** include the following columns:
 | `__method_id`        | Method that produced the record     |
 | `__anchor_time`      | Actual domain time stamp of the row |
 | `__anchor_year`      | Derived from `__anchor_time` (for partitioning) |
-| `__anchor_column`    | Column used to derive anchor time   |
+| `__anchor_source`    | Table.column used to derive anchor time   |
 | `__batch_created_at` | When the batch was materialized     |
 | `__ingested_at`      | When the row was promoted to Bronze |
 

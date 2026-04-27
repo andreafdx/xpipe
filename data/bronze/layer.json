@@ -1,6 +1,47 @@
 {
-  "promoted_batches": ["batch_v1", "batch_v2", "20260427T164036.135_sdo_xml_campania_2026"],
-  "last_promotion_at": "2026-04-27T16:43:03+0200",
-  "last_promoted_batches": "batch_v2",
-  "last_promoted_batch": "batch_v2"
+  "format": "promotion_log",
+  "promotion_log": [
+    {
+      "batch_id": "20260427T214649.549_sdo_quani_mdb",
+      "stream_id": "sdo",
+      "method_id": "quani_mdb",
+      "status": "success",
+      "promoted_at": "2026-04-27T23:37:51+0200",
+      "anchor_source": "TblScheda.d_DataDimissione",
+      "anchor_years": 2025,
+      "tables": ["TblScheda", "TblSchedaDiagnosi", "TblSchedaProcedure", "TblSchedaTrasferimenti"],
+      "tool": "xpipe",
+      "tool_version": "dev",
+      "user": "andrea",
+      "host": "debian"
+    },
+    {
+      "batch_id": "20260427T214958.229_sdo_quani_mdb",
+      "stream_id": "sdo",
+      "method_id": "quani_mdb",
+      "status": "success",
+      "promoted_at": "2026-04-27T23:37:55+0200",
+      "anchor_source": "TblScheda.d_DataDimissione",
+      "anchor_years": 2025,
+      "tables": ["TblScheda", "TblSchedaDiagnosi", "TblSchedaProcedure", "TblSchedaTrasferimenti"],
+      "tool": "xpipe",
+      "tool_version": "dev",
+      "user": "andrea",
+      "host": "debian"
+    },
+    {
+      "batch_id": "20260427T225639.915_sdo_quani_mdb",
+      "stream_id": "sdo",
+      "method_id": "quani_mdb",
+      "status": "success",
+      "promoted_at": "2026-04-27T23:37:58+0200",
+      "anchor_source": "TblScheda.d_DataDimissione",
+      "anchor_years": 2025,
+      "tables": ["TblScheda", "TblSchedaDiagnosi", "TblSchedaProcedure", "TblSchedaTrasferimenti"],
+      "tool": "xpipe",
+      "tool_version": "dev",
+      "user": "andrea",
+      "host": "debian"
+    }
+  ]
 }

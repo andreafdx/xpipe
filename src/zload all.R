@@ -7,5 +7,4 @@ source("src/tools_xml.R")
 source("src/layers_inspect.R")
 
 source("src/0. batch_materialization.R")
-#source("src/2. bronze_promotion.R")
-cfg<-load_xpipe_config()
+source("src/1. bronze_promotion.R")

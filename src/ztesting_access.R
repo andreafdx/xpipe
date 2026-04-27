@@ -5,12 +5,7 @@
 # ======================================================================= #
 
 # 1. Load Core Functions
-source("src/core_config.r")
-source("src/core_crypto.r")
-source("src/tools_access.R")
-source("src/0. batch_initialization.R")
-source("src/1. batch_materialization.R")
-source("src/2. bronze_promotion.R")
+source("src/zload all.R")
 
 # 2. (Removed redundant extractor - now uses official access.R)
 
@@ -29,16 +24,9 @@ tryCatch({
   )
   cli::cli_alert_success("Batch materialized: {.val {batch_id}}")
 
-  cli::cli_h2("Step 3: Promoting to Bronze")
-  promote_to_bronze(.cfg, stream_id = "sdo")
-
-  cli::cli_h2("Step 3: Verification")
-  bronze_path <- fs::path(.cfg$local$paths$bronze, "sdo", "year=2025")
-  if (fs::dir_exists(bronze_path)) {
-    cli::cli_alert_success("Bronze Year 2025 is ready.")
-    cli::cli_inform("Files: {.val {basename(fs::dir_ls(bronze_path))}}")
-  }
-
+  promote_to_bronze (
+    config = .cfg
+)
 }, error = function(e) {
   cli::cli_alert_danger("TEST FAILED:")
   print(e)

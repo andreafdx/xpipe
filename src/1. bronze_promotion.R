@@ -1,4 +1,3 @@
-
 # Public API --------------------------------------------------------------
 
 
@@ -32,11 +31,24 @@
 #' }
 #'
 #' Use \code{dry_run = TRUE} to perform validation and preview only,
-#' without writing any data.
+#' without writing any data and without updating Bronze state.
+#'
+#' @section Storage layout:
+#' Bronze is written as immutable Parquet shards per promoted batch:
+#' \itemize{
+#'   \item \code{bronze/<stream>_<method>/year=YYYY/<table>__<batch_id>.parquet}
+#' }
+#' Promotion refuses to overwrite an existing shard file.
+#'
+#' @section Anchor inheritance:
+#' Anchor time is derived from the method anchor table only. Secondary tables
+#' inherit \code{__anchor_time} by joining to the anchor table using
+#' \code{identity_keys}. If required keys are missing or if rows cannot be matched,
+#' promotion aborts for that batch.
 #'
 #' @section Immutability:
-#' Bronze promotion is irreversible. Once rows are appended, they are
-#' never modified or removed.
+#' Bronze promotion is irreversible. Once rows are appended (written as shards),
+#' they are never modified or removed.
 #'
 #' @param config xacc_config object.
 #' @param stream_id Optional stream filter. If provided, only batches
@@ -70,10 +82,9 @@ promote_to_bronze <- function(
     }
   }
 
+  # ---- read state (promotion_log only)
   state <- .get_bronze_state(config)
-  if (is.null(state$promoted_batches)) {
-    state$promoted_batches <- character(0)
-  }
+  state$promotion_log <- state$promotion_log %||% list()
 
   .validate_anchor_definitions(config)
 
@@ -85,26 +96,32 @@ promote_to_bronze <- function(
   .print_bronze_preview(previews)
 
   if (isTRUE(dry_run)) {
-    cli::cli_alert_info("Dry run complete. No data was written.")
+    cli::cli_alert_info(
+      "Dry run complete. No data was written and no state was updated."
+    )
     return(invisible(TRUE))
   }
 
   .confirm_bronze_promotion(confirm)
 
+  # ---- execute + append promotion events
   for (preview in previews) {
     .apply_bronze_promotion(preview, config)
-    state$promoted_batches <- c(state$promoted_batches, preview$batch_id)
-    state$last_promotion_at <- .now_iso()
-  }
 
-  .save_bronze_state(config, state)
+    state$promotion_log <- c(
+      state$promotion_log,
+      list(.make_promotion_event(preview, config, status = "success"))
+    )
+
+    # persist per batch (survive partial failures)
+    .save_bronze_state(config, state)
+  }
 
   cli::cli_alert_success(
     "Bronze promotion complete. {length(previews)} batch(es) appended."
   )
   invisible(TRUE)
 }
-
 
 
 
@@ -135,6 +152,7 @@ promote_to_bronze <- function(
 #'
 #' @keywords internal
 #' @noRd
+
 .get_bronze_state <- function(config) {
   path <- fs::path(config$local$paths$bronze, "layer.json")
 
@@ -142,14 +160,39 @@ promote_to_bronze <- function(
     cli::cli_abort(
       c(
         "Bronze layer state not found",
-        "x" = "File {.file {path}} does not exist"
+        "x" = "File {.file {path}} does not exist",
+        "i" = "Create it by writing the seed JSON or run {.code .init_bronze_state(config)}"
       ),
       class = c("bronze", "state")
     )
   }
 
-  jsonlite::fromJSON(path, simplifyVector = TRUE)
+  state <- jsonlite::fromJSON(path, simplifyVector = TRUE)
+
+  if (!is.list(state) || !identical(state$format, "promotion_log") || is.null(state$promotion_log)) {
+    cli::cli_abort(
+      c(
+        "Invalid Bronze layer state",
+        "x" = "layer.json is not in the supported format",
+        "i" = "Overwrite bronze/layer.json with the new seed format"
+      ),
+      class = c("bronze", "state")
+    )
+  }
+
+  if (!is.list(state$promotion_log)) {
+    cli::cli_abort(
+      c(
+        "Invalid Bronze layer state",
+        "x" = "{.val promotion_log} must be a list"
+      ),
+      class = c("bronze", "state")
+    )
+  }
+
+  state
 }
+
 
 #' Save Bronze layer state
 #'
@@ -164,18 +207,24 @@ promote_to_bronze <- function(
 #'
 #' @keywords internal
 #' @noRd
+
 .save_bronze_state <- function(config, state) {
   path <- fs::path(config$local$paths$bronze, "layer.json")
 
-  jsonlite::write_json(
-    state,
-    path,
-    auto_unbox = TRUE,
-    pretty = TRUE
-  )
+  if (!is.list(state) || !identical(state$format, "promotion_log") || is.null(state$promotion_log)) {
+    cli::cli_abort(
+      c(
+        "Invalid Bronze state write",
+        "x" = "Refusing to write invalid state (expected format=promotion_log)"
+      ),
+      class = c("bronze", "state")
+    )
+  }
 
+  jsonlite::write_json(state, path, auto_unbox = TRUE, pretty = TRUE)
   invisible(TRUE)
 }
+
 
 
 #' Identify unpromoted batches
@@ -190,7 +239,7 @@ promote_to_bronze <- function(
 #' @noRd
 .identify_pending_batches <- function(config) {
   state <- .get_bronze_state(config)
-  promoted <- state$promoted_batches %||% character(0)
+  promoted <- .promoted_batch_ids(state)
 
   meta_files <- fs::dir_ls(
     config$local$paths$batch,
@@ -198,9 +247,7 @@ promote_to_bronze <- function(
     glob = "*_batch_metadata.json"
   )
 
-  if (length(meta_files) == 0) {
-    return(data.frame())
-  }
+  if (length(meta_files) == 0) return(data.frame())
 
   batches <- purrr::map_dfr(meta_files, function(p) {
     meta <- jsonlite::fromJSON(p, simplifyVector = FALSE)
@@ -215,17 +262,17 @@ promote_to_bronze <- function(
   })
 
   batches <- batches[!batches$batch_id %in% promoted, ]
-
   if (nrow(batches) == 0) return(data.frame())
 
   batches[order(batches$created_at), ]
 }
 
 
+
 #' Validate anchor definitions for Bronze promotion
 #'
-#' Ensures that every method defines exactly one anchor table and
-#' a valid partition (anchor) column.
+#' Ensures that every method defines exactly one anchor table, a valid partition
+#' column, and identity keys required to inherit anchor time to secondary tables.
 #'
 #' @param config xacc_config object.
 #'
@@ -235,13 +282,13 @@ promote_to_bronze <- function(
   for (nm in names(config$methods)) {
     m <- config$methods[[nm]]
 
-    anchor <- m$anchor_table %||% m$primary_table
+    anchor <- m$primary_table
 
     if (is.null(anchor) || length(anchor) != 1 || !nzchar(anchor)) {
       cli::cli_abort(
         c(
           "Invalid method anchor definition",
-          "x" = "Method {.val {nm}} must define exactly one anchor table"
+          "x" = "Method {.val {nm}} must define exactly one anchor table (anchor_table or primary_table)"
         ),
         class = c("bronze", "anchor")
       )
@@ -256,92 +303,20 @@ promote_to_bronze <- function(
         class = c("bronze", "anchor")
       )
     }
-  }
 
-  invisible(TRUE)
-}
-
-
-#' Apply append-only Bronze promotion
-#'
-#' Appends enriched batch rows to the Bronze layer according to
-#' anchor-derived partitioning rules.
-#'
-#' @param preview Prepared Bronze promotion preview.
-#' @param config xacc_config object.
-#'
-#' @keywords internal
-#' @noRd
-.apply_bronze_promotion <- function(preview, config) {
-
-  batch_dir <- fs::path(
-    config$local$paths$batch,
-    preview$batch_id
-  )
-
-  parquet_files <- fs::dir_ls(batch_dir, glob = "*.parquet")
-
-  for (pq in parquet_files) {
-
-    table_name <- fs::path_ext_remove(fs::path_file(pq))
-    df <- arrow::read_parquet(pq)
-
-    df$`__batch_id`         <- preview$batch_id
-    df$`__stream_id`        <- preview$stream_id
-    df$`__method_id`        <- preview$method_id
-    df$`__anchor_source`    <- preview$anchor_source
-    df$`__batch_created_at` <- preview$created_at
-    df$`__ingested_at`      <- Sys.time()
-
-    ## anchor_time / year inherited from preview
-    anchor_table <- sub("\\..*", "", preview$anchor_source)
-    anchor_column <- sub(".*\\.", "", preview$anchor_source)
-
-    anchor_df <- arrow::read_parquet(
-      fs::path(batch_dir, paste0(anchor_table, ".parquet"))
-    )
-
-    df$`__anchor_time` <- anchor_df[[anchor_column]]
-    df$`__anchor_year` <- as.integer(
-      format(as.Date(df$`__anchor_time`), "%Y")
-    )
-
-    for (yr in unique(df$`__anchor_year`)) {
-
-      target_dir <- fs::path(
-        config$local$paths$bronze,
-        paste0(preview$stream_id, "_", preview$method_id),
-        paste0("year=", yr)
+    if (is.null(m$identity_keys) || length(m$identity_keys) == 0) {
+      cli::cli_abort(
+        c(
+          "Invalid identity key definition",
+          "x" = "Method {.val {nm}} must define identity_keys for anchor inheritance"
+        ),
+        class = c("bronze", "anchor")
       )
-      fs::dir_create(target_dir, recurse = TRUE)
-
-      target_file <- fs::path(target_dir, paste0(table_name, ".parquet"))
-
-
-      rows_to_append <- df[df$`__anchor_year` == yr, ]
-
-      if (fs::file_exists(target_file)) {
-        existing <- arrow::read_parquet(target_file)
-        out <- rbind(existing, rows_to_append)
-      } else {
-        out <- rows_to_append
-      }
-
-      arrow::write_parquet(out, target_file)
-
     }
   }
 
   invisible(TRUE)
 }
-
-.now_iso <- function() {
-  format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
-}
-
-
-## CLI --------------------------------------------------------------------
-
 
 #' Prepare Bronze promotion preview
 #'
@@ -357,20 +332,30 @@ promote_to_bronze <- function(
 .prepare_bronze_promotion_preview <- function(batch, config) {
 
   method_cfg <- config$methods[[batch$method_id]]
+
+  anchor_keys <- method_cfg$identity_keys
+  if (is.null(anchor_keys) || length(anchor_keys) == 0) {
+    cli::cli_abort(
+      c(
+        "Missing method identity keys",
+        "x" = "Method {.val {batch$method_id}} must define identity_keys to inherit anchor_time",
+        "i" = "These keys must exist in the anchor table and all secondary tables"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
   anchor_table  <- method_cfg$anchor_table %||% method_cfg$primary_table
   anchor_column <- method_cfg$partition_column
   anchor_source <- paste0(anchor_table, ".", anchor_column)
-
 
   batch_dir <- fs::path(
     config$local$paths$batch,
     batch$batch_id
   )
 
-
   anchor_path <- fs::path(batch_dir, paste0(anchor_table, ".parquet"))
   if (!fs::file_exists(anchor_path)) {
-
     cli::cli_abort(
       c(
         "Anchor table missing",
@@ -379,13 +364,23 @@ promote_to_bronze <- function(
       ),
       class = c("bronze", "anchor")
     )
-
   }
 
   anchor_df <- arrow::read_parquet(anchor_path)
 
-  if (!anchor_column %in% names(anchor_df)) {
+  missing_keys <- setdiff(anchor_keys, names(anchor_df))
+  if (length(missing_keys) > 0) {
+    cli::cli_abort(
+      c(
+        "Anchor keys missing in anchor table",
+        "x" = "Anchor table {.val {anchor_table}} is missing required keys: {.val {missing_keys}}",
+        "i" = "Table location: {.file {anchor_path}}"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
 
+  if (!anchor_column %in% names(anchor_df)) {
     cli::cli_abort(
       c(
         "Missing anchor column",
@@ -394,7 +389,6 @@ promote_to_bronze <- function(
       ),
       class = c("bronze", "anchor")
     )
-
   }
 
   anchor_year <- as.integer(
@@ -410,12 +404,217 @@ promote_to_bronze <- function(
     stream_id     = batch$stream_id,
     method_id     = batch$method_id,
     anchor_source = anchor_source,
+    anchor_keys   = anchor_keys,
     years         = sort(unique(anchor_year)),
     tables        = tables,
     created_at    = batch$created_at
   )
 }
 
+
+#' Apply append-only Bronze promotion
+#'
+#' Writes immutable Parquet shards for each promoted batch, partitioned by anchor year.
+#' No existing Bronze Parquet files are read or rewritten.
+#'
+#' @param preview Prepared Bronze promotion preview.
+#' @param config xacc_config object.
+#'
+#' @keywords internal
+#' @noRd
+.apply_bronze_promotion <- function(preview, config) {
+  batch_dir     <- fs::path(config$local$paths$batch, preview$batch_id)
+  anchor_table  <- sub("\\..*", "", preview$anchor_source)
+  anchor_column <- sub(".*\\.", "", preview$anchor_source)
+  anchor_keys   <- preview$anchor_keys
+
+  anchor_path <- fs::path(batch_dir, paste0(anchor_table, ".parquet"))
+  anchor_df   <- arrow::read_parquet(anchor_path)
+
+  # Deterministic inheritance requires unique anchor keys
+  ak <- .make_key(anchor_df, anchor_keys)
+  if (anyDuplicated(ak)) {
+    cli::cli_abort(
+      c(
+        "Anchor table keys are not unique",
+        "x" = "Cannot inherit anchor_time deterministically from anchor table {.val {anchor_table}}",
+        "i" = "Method: {.val {preview$method_id}}",
+        "i" = "Batch: {.val {preview$batch_id}}",
+        "i" = "Table location: {.file {anchor_path}}"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
+  if (!anchor_column %in% names(anchor_df)) {
+    cli::cli_abort(
+      c(
+        "Missing anchor column in anchor table",
+        "x" = "Column {.val {anchor_column}} not found in anchor table {.val {anchor_table}}",
+        "i" = "Table location: {.file {anchor_path}}"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
+  # key -> anchor_time lookup
+  key_lookup <- setNames(anchor_df[[anchor_column]], ak)
+
+  for (pq in fs::dir_ls(batch_dir, glob = "*.parquet")) {
+
+    table_name <- fs::path_ext_remove(fs::path_file(pq))
+    df <- arrow::read_parquet(pq)
+
+    # Validate keys for secondary tables
+    missing_in_df <- setdiff(anchor_keys, names(df))
+    if (length(missing_in_df) > 0 && table_name != anchor_table) {
+      cli::cli_abort(
+        c(
+          "Secondary table cannot inherit anchor_time",
+          "x" = "Table {.val {table_name}} missing keys required to join to anchor table: {.val {missing_in_df}}",
+          "i" = "Batch: {.val {preview$batch_id}}"
+        ),
+        class = c("bronze", "anchor")
+      )
+    }
+
+    # Assign anchor_time
+    df$`__anchor_time` <- key_lookup[.make_key(df, anchor_keys)]
+
+
+    if (any(is.na(df$`__anchor_time`))) {
+      cli::cli_abort(
+        c(
+          "Anchor inheritance failed",
+          "x" = "{sum(is.na(df$`__anchor_time`))} row(s) in {.val {table_name}} unmatched",
+          "i" = "Batch: {.val {preview$batch_id}}"
+        ),
+        class = c("bronze", "anchor")
+      )
+    }
+
+    # Bronze metadata (strings are stable across parquet and tools)
+    df$`__batch_id`         <- preview$batch_id
+    df$`__stream_id`        <- preview$stream_id
+    df$`__method_id`        <- preview$method_id
+    df$`__anchor_source`    <- preview$anchor_source
+    df$`__batch_created_at` <- preview$created_at
+    df$`__ingested_at`      <- .now_iso()
+    df$`__anchor_year`      <- as.integer(format(as.Date(df$`__anchor_time`), "%Y"))
+
+    for (yr in unique(df$`__anchor_year`)) {
+
+      target_dir <- fs::path(
+        config$local$paths$bronze,
+        paste0(preview$stream_id, "_", preview$method_id),
+        paste0("year=", yr)
+      )
+      fs::dir_create(target_dir, recurse = TRUE)
+
+      rows_to_append <- df[df$`__anchor_year` == yr, ]
+      if (nrow(rows_to_append) == 0) next
+
+      # Immutable shard per (table, batch)
+      target_file <- fs::path(target_dir, paste0(table_name, "__", preview$batch_id, ".parquet"))
+
+      if (fs::file_exists(target_file)) {
+        cli::cli_abort(
+          c(
+            "Bronze shard already exists",
+            "x" = "Refusing to overwrite existing shard (append-only invariant)",
+            "i" = "File: {.file {target_file}}"
+          ),
+          class = c("bronze", "append_only")
+        )
+      }
+
+      arrow::write_parquet(rows_to_append, target_file)
+    }
+  }
+
+  invisible(TRUE)
+}
+
+#' Current timestamp in ISO-8601 format
+#'
+#' @return Character scalar timestamp formatted as YYYY-MM-DDTHH:MM:SS±ZZZZ.
+#' @keywords internal
+#' @noRd
+.now_iso <- function() {
+  format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+}
+
+#' Build composite key for anchor inheritance joins
+#'
+#' @param df Data frame-like object.
+#' @param keys Character vector of key columns.
+#' @return Character vector of composite keys (row-wise).
+#' @keywords internal
+#' @noRd
+.make_key <- function(df, keys) {
+  do.call(paste, c(df[keys], sep = "\r"))
+}
+
+
+
+#' Return batch ids that were successfully promoted
+#'
+#' @param state bronze layer state
+#' @return character vector batch ids
+#' @keywords internal
+#' @noRd
+.promoted_batch_ids <- function(state) {
+  log <- state$promotion_log
+  if (length(log) == 0) return(character(0))
+
+  ids <- vapply(log, function(e) {
+    if (!is.null(e$status) && identical(e$status, "success")) e$batch_id else NA_character_
+  }, character(1))
+
+  unique(stats::na.omit(ids))
+}
+
+#' Build a promotion event
+#'
+#' @param preview preview list produced by .prepare_bronze_promotion_preview()
+#' @param config xacc_config object
+#' @param status "success" or "failed"
+#' @return list (promotion event)
+#' @keywords internal
+#' @noRd
+.make_promotion_event <- function(preview, config, status = "success") {
+  user <- Sys.getenv("USERNAME")
+  if (!nzchar(user)) user <- Sys.getenv("USER")
+  user <- user %||% NA_character_
+
+  host <- Sys.info()[["nodename"]] %||% NA_character_
+
+  list(
+    batch_id      = preview$batch_id,
+    stream_id     = preview$stream_id,
+    method_id     = preview$method_id,
+    status        = status,
+    promoted_at   = .now_iso(),
+    anchor_source = preview$anchor_source %||% NA_character_,
+    anchor_years  = preview$years %||% integer(0),
+    tables        = preview$tables %||% character(0),
+    tool          = config$runtime$tool$name %||% NA_character_,
+    tool_version  = config$runtime$tool$version %||% NA_character_,
+    user          = user,
+    host          = host
+  )
+}
+
+
+## CLI --------------------------------------------------------------------
+
+
+
+#' Print Bronze promotion preview
+#'
+#' @param previews List of prepared preview objects.
+#' @keywords internal
+#' @noRd
 .print_bronze_preview <- function(previews) {
 
   cli::cli_h2("Bronze Promotion Preview")
@@ -439,6 +638,11 @@ promote_to_bronze <- function(
   invisible(TRUE)
 }
 
+#' Confirm Bronze promotion
+#'
+#' @param confirm Logical. If TRUE, prompt user before writing.
+#' @keywords internal
+#' @noRd
 .confirm_bronze_promotion <- function(confirm) {
 
   if (!isTRUE(confirm)) {
@@ -453,4 +657,3 @@ promote_to_bronze <- function(
 
   invisible(TRUE)
 }
-

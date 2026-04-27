@@ -839,7 +839,7 @@ box::use(
   for (nm in names(extracted_data)) {
     extracted_data[[nm]] <- apply_privacy_rules(
       extracted_data[[nm]],
-      ctx$stream_config,
+      ctx$methods_config,
       config$runtime$pepper
     )
   }

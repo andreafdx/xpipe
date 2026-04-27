@@ -48,21 +48,21 @@ hash_phi <- function(text, pepper) {
 #' Apply Stream Privacy Rules
 #'
 #' @param df Data frame to process.
-#' @param stream_config List containing stream rules (pseudonymize, skip).
+#' @param methods_config List containing stream rules (pseudonymize, skip).
 #' @param pepper Security pepper.
 #' @return Processed data frame.
 #' @export
-apply_privacy_rules <- function(df, stream_config, pepper) {
-  cli_alert_info("Applying privacy rules for stream: {.val {stream_config$stream_id}}")
+apply_privacy_rules <- function(df, methods_config, pepper) {
+  cli_alert_info("Applying privacy rules for stream: {.val {methods_config$stream_id}}")
 
   # 1. Pseudonymization
-  if (!is.null(stream_config$pseudonymize)) {
-    df <- .pseudonymize_cols(df, stream_config$pseudonymize, pepper)
+  if (!is.null(methods_config$pseudonymize)) {
+    df <- .pseudonymize_cols(df, methods_config$pseudonymize, pepper)
   }
 
   # 2. Skip Columns
-  if (!is.null(stream_config$skip)) {
-    existing_skip <- intersect(stream_config$skip, names(df))
+  if (!is.null(methods_config$skip)) {
+    existing_skip <- intersect(methods_config$skip, names(df))
     if (length(existing_skip) > 0) {
       cli_inform("Removing skipped columns: {paste(existing_skip, collapse = ', ')}")
       df <- select(df, -all_of(existing_skip))
