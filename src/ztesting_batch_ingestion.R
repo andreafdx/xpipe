@@ -60,7 +60,7 @@ ctx <- ingest_batch(
   stream = "sdo",
   method = "xml_campania_2026",
   config = .cfg,
-  dry_run = FALSE
+  dry_run = TRUE
 )
 
 
