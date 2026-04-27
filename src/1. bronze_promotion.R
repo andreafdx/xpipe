@@ -151,7 +151,6 @@ promote_to_bronze <- function(
   jsonlite::fromJSON(path, simplifyVector = TRUE)
 }
 
-
 #' Save Bronze layer state
 #'
 #' Persists the updated Bronze layer state to `layer.json`. This state
