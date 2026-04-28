@@ -47,7 +47,8 @@
 #' }
 #'
 #' @export
-inspect_batch_layer <- function(config) {
+inspect_batch_layer <- function(config = get_xpipe_config(),
+) {
   if (!inherits(config, "xpipe_config")) {
     cli::cli_abort("{.arg config} must be a valid xpipe_config",
                    class = c("batch_layer", "config"))

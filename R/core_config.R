@@ -15,7 +15,96 @@
 #              .load_streams_contract(), .load_methods_contract()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-## Helper functions --------------------------------------------------------
+# Internal environment to hold package state
+.xpipe_env <- new.env(parent = emptyenv())
+
+# Public API ---------------------------------------------------------------
+
+#' Load and Validate Configuration
+#'
+#' Loads the full xpipe control-plane configuration, including:
+#' - runtime context
+#' - local infrastructure configuration
+#' - batch layer metadata
+#' - streams contract (domain semantics)
+#' - methods contract (ingestion mechanics)
+#'
+#' @param path Path to local.json.
+#' @param project_root Project root.
+#' @return xpipe_config object.
+#' @export
+load_xpipe_config <- function(path = NULL, project_root = NULL) {
+  config <- list()
+
+  # Runtime context
+  config$runtime <- .load_runtime_context()
+
+  # Local configuration
+  config$local <- .load_local_config(path, project_root)
+
+  # Batch layer metadata (data layer state)
+  config$batch <- .load_batch_layer(config$local, config$runtime)
+
+  # Streams contract
+  streams_contract <- .load_streams_contract(config$local)
+  config$streams_meta <- streams_contract$meta
+  config$streams      <- streams_contract$streams
+
+  # Methods contract
+  config$methods <- .load_methods_contract(config$local)
+
+  # Validate schema domains consistency
+  stream_domains  <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
+  method_domains  <- unique(vapply(config$methods, `[[`, "", "schema_domain"))
+
+  unknown_domains <- setdiff(method_domains, stream_domains)
+
+  if (length(unknown_domains) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid configuration",
+        "x" = "Methods reference unknown schema_domain(s): {.val {unknown_domains}}",
+        "i" = "Defined stream domains: {.val {stream_domains}}"
+      ),
+      class = c("config", "schema_domain")
+    )
+  }
+
+  cli::cli_alert_success("Configuration system loaded and validated.")
+
+  config_obj <- structure(config, class = "xpipe_config")
+  .xpipe_env$config <- config_obj
+
+  invisible(config_obj)
+}
+
+
+
+
+# Internal API ------------------------------------------------------------
+
+
+#' Retrieve Active xpipe Configuration
+#'
+#' @return An xpipe_config object.
+#' @keywords internal
+get_xpipe_config <- function() {
+  if (is.null(.xpipe_env$config)) {
+    cli::cli_abort(
+      c(
+        "Configuration not loaded",
+        "x" = "No active configuration found in the package environment.",
+        "i" = "Call {.code load_xpipe_config()} before running pipeline tasks."
+      ),
+      class = "config_missing"
+    )
+  }
+  .xpipe_env$config
+}
+
+
+# Helper functions --------------------------------------------------------
+
 
 #' Find Internal Asset
 #'
@@ -473,7 +562,6 @@
   )
 }
 
-
 ## Methods contract (Remote) ------------------------------------------------
 
 #' Load Methods Contract
@@ -505,64 +593,6 @@
     error_title = "Invalid methods contract",
     error_class = "methods_options"
   )
-}
-
-
-## Public API ---------------------------------------------------------------
-
-#' Load and Validate Configuration
-#'
-#' Loads the full xpipe control-plane configuration, including:
-#' - runtime context
-#' - local infrastructure configuration
-#' - batch layer metadata
-#' - streams contract (domain semantics)
-#' - methods contract (ingestion mechanics)
-#'
-#' @param path Path to local.json.
-#' @param project_root Project root.
-#' @return xpipe_config object.
-#' @export
-load_xpipe_config <- function(path = NULL, project_root = NULL) {
-  config <- list()
-
-  # Runtime context
-  config$runtime <- .load_runtime_context()
-
-  # Local configuration
-  config$local <- .load_local_config(path, project_root)
-
-  # Batch layer metadata (data layer state)
-  config$batch <- .load_batch_layer(config$local, config$runtime)
-
-  # Streams contract
-  streams_contract <- .load_streams_contract(config$local)
-  config$streams_meta <- streams_contract$meta
-  config$streams      <- streams_contract$streams
-
-  # Methods contract
-  config$methods <- .load_methods_contract(config$local)
-
-  # Validate schema domains consistency
-  stream_domains  <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
-  method_domains  <- unique(vapply(config$methods, `[[`, "", "schema_domain"))
-
-  unknown_domains <- setdiff(method_domains, stream_domains)
-
-  if (length(unknown_domains) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid configuration",
-        "x" = "Methods reference unknown schema_domain(s): {.val {unknown_domains}}",
-        "i" = "Defined stream domains: {.val {stream_domains}}"
-      ),
-      class = c("config", "schema_domain")
-    )
-  }
-
-  cli::cli_alert_success("Configuration system loaded and validated.")
-
-  structure(config, class = "xpipe_config")
 }
 
 

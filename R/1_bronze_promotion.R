@@ -76,7 +76,7 @@
 #'
 #' @export
 promote_to_bronze <- function(
-    config,
+    config = get_xpipe_config(),
     stream = NULL,
     dry_run = FALSE,
     confirm = interactive()

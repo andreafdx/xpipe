@@ -1,0 +1,171 @@
+---
+title: "todo"
+output: html_document
+---
+
+You are absolutely right on both fronts. Passing the `config` object explicitly through every single function call is an anti-pattern in R packages that manage pipelines. It clutters the API. Second, testing pipelines requires a specific approach so you don't accidentally write garbage data to your actual hard drive during a test run.
+
+Here is how we solve both.
+
+### 1. The Global Package Environment (Fixing the Config)
+
+In R, packages can maintain internal state using a hidden environment. We can create an environment to hold the configuration once it is loaded, and then make all pipeline functions look there by default.
+
+**Step A: Update `R/core_config.R`**
+Add this right near the top of `R/core_config.R` (after the header, before `.find_asset`):
+
+```r
+# Internal environment to hold package state
+.xpipe_env <- new.env(parent = emptyenv())
+
+#' Retrieve Active xpipe Configuration
+#'
+#' @return An xpipe_config object.
+#' @export
+get_xpipe_config <- function() {
+  if (is.null(.xpipe_env$config)) {
+    cli::cli_abort(
+      c(
+        "Configuration not loaded",
+        "x" = "No active configuration found in the package environment.",
+        "i" = "Call {.code load_xpipe_config()} before running pipeline tasks."
+      ),
+      class = "config_missing"
+    )
+  }
+  .xpipe_env$config
+}
+```
+
+Then, modify the end of `load_xpipe_config()` to store the config in this environment:
+
+```r
+  # [Inside load_xpipe_config, replace the last two lines with:]
+  
+  cli::cli_alert_success("Configuration system loaded and validated.")
+
+  config_obj <- structure(config, class = "xpipe_config")
+  .xpipe_env$config <- config_obj
+  
+  invisible(config_obj)
+}
+```
+
+**Step B: Update the Pipeline Signatures**
+Now, you simply set `config = get_xpipe_config()` as the default argument in your public APIs. This allows you to omit it in daily use, but still override it during testing.
+
+In `R/0_batch_materialization.R`:
+```r
+ingest_batch <- function(
+    filename,
+    stream,
+    method,
+    config = get_xpipe_config(),
+    batch_id = NULL,
+    confirm = interactive(),
+    dry_run = FALSE
+) {
+```
+
+In `R/1_bronze_promotion.R`:
+```r
+promote_to_bronze <- function(
+    config = get_xpipe_config(),
+    stream = NULL,
+    dry_run = FALSE,
+    confirm = interactive()
+) {
+```
+
+### 2. Designing Pipeline & Config Tests
+
+Testing a pipeline is fundamentally about testing **side effects** (reading files, writing files, checking directories) and **environment states**. 
+
+The industry standard for this in R is the `withr` package. It allows you to create temporary directories, files, and environment variables that are instantly destroyed the moment the test finishes. 
+
+Run `usethis::use_package("withr", type = "Suggests")` in your console. Then create these two test files.
+
+**Create `tests/testthat/test-config.R`**
+This tests that the environment variables and global state work correctly without actually messing with your real environment.
+
+```r
+test_that("Runtime context aborts if pepper is missing", {
+  # Temporarily unset the pepper key
+  withr::with_envvar(c("XNE_PEPPER_KEY" = NA_character_), {
+    expect_error(.load_runtime_context(), "Environment variable")
+  })
+})
+
+test_that("Runtime context loads correctly when pepper is present", {
+  withr::with_envvar(c("XNE_PEPPER_KEY" = "fake_secret_key"), {
+    ctx <- .load_runtime_context()
+    expect_equal(ctx$pepper, "fake_secret_key")
+    expect_true(inherits(ctx$loaded_at, "POSIXct"))
+  })
+})
+
+test_that("Package environment stores and retrieves config", {
+  # Mock a config object
+  mock_config <- structure(list(mock = TRUE), class = "xpipe_config")
+  
+  # Inject into environment
+  .xpipe_env$config <- mock_config
+  
+  # Retrieve it
+  retrieved <- get_xpipe_config()
+  expect_true(retrieved$mock)
+  
+  # Clear it and test abortion
+  .xpipe_env$config <- NULL
+  expect_error(get_xpipe_config(), class = "config_missing")
+})
+```
+
+**Create `tests/testthat/test-guardrails.R`**
+This tests the pre-flight checks of your pipeline. We mock a temporary filesystem to prove the guardrails work.
+
+```r
+test_that(".assert_batch_materializable catches collisions and missing inputs", {
+  
+  # 1. Setup a fake configuration
+  mock_config <- structure(list(), class = "xpipe_config")
+  
+  # 2. Run tests inside a temporary directory that vanishes afterward
+  withr::with_tempdir({
+    
+    # Create fake context
+    ctx <- list(
+      batch_id = "test_batch_1",
+      batch_dir = fs::path_abs("data/batch/test_batch_1"),
+      filepath = fs::path_abs("inbox/test_file.csv")
+    )
+    
+    # Test A: The target directory already exists (Collision)
+    fs::dir_create(ctx$batch_dir)
+    expect_error(
+      .assert_batch_materializable(ctx, mock_config),
+      class = "batch_collision" # Wait, you defined it as c("batch", "collision")
+    )
+    # Note: testthat matches the FIRST class in the vector or uses exact match.
+    # It's safer to check the error message if the class vector is complex.
+    expect_error(.assert_batch_materializable(ctx, mock_config), "already exists")
+    
+    # Cleanup target dir for the next test
+    fs::dir_delete(ctx$batch_dir)
+    
+    # Test B: The input file does not exist
+    expect_error(.assert_batch_materializable(ctx, mock_config), "does not exist at materialization time")
+    
+    # Test C: The input file exists but is empty (0 bytes)
+    fs::dir_create("inbox")
+    fs::file_create(ctx$filepath)
+    expect_error(.assert_batch_materializable(ctx, mock_config), "empty or unreadable")
+    
+    # Test D: Valid state (file exists and has content)
+    writeLines("test data", ctx$filepath)
+    expect_invisible(.assert_batch_materializable(ctx, mock_config))
+  })
+})
+```
+
+This approach allows you to confidently test your logic—like whether `.assert_batch_materializable` properly checks file sizes and directory existence—without actually creating `test_batch_1` in your real `data/batch/` folder.

@@ -13,7 +13,7 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-# Public API ------------------------------------------------------------------
+# Private API ------------------------------------------------------------------
 
 #' Apply Privacy Rules to an Extracted Data Frame
 #'
@@ -39,7 +39,7 @@
 #' @return The input data frame with privacy rules applied.
 #'
 #' @seealso [hash_phi()] for the underlying hashing primitive.
-#' @export
+#' @keywords internal
 apply_privacy_rules <- function(df, method_config, pepper) {
   cli::cli_alert_info("Applying privacy rules for method: {.val {method_config$type}}")
 
@@ -60,7 +60,6 @@ apply_privacy_rules <- function(df, method_config, pepper) {
 }
 
 
-# Helpers ---------------------------------------------------------------------
 
 #' HMAC-SHA256 Hash for PHI
 #'
@@ -89,6 +88,8 @@ hash_phi <- function(text, pepper) {
     as.character(openssl::sha256(charToRaw(x_clean), key = pepper_raw))
   })
 }
+
+# Helpers ---------------------------------------------------------------------
 
 #' Pseudonymize Selected Columns
 #'
