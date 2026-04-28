@@ -1,6 +1,20 @@
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 1. bronze_promotion.R
+#
+# Promotes materialized batches to the Bronze layer.
+#
+# Approach: Appends rows to the Bronze layer as an immutable ledger,
+# deriving time partitions from anchor tables and enriching rows with metadata.
+#
+# Public API:  promote_to_bronze()
+# Internals:   .get_bronze_state(), .save_bronze_state(), .identify_pending_batches(),
+#              .validate_anchor_definitions(), .prepare_bronze_promotion_preview(),
+#              .apply_bronze_promotion(), .now_iso(), .make_key(),
+#              .promoted_batch_ids(), .make_promotion_event(),
+#              .print_bronze_preview(), .confirm_bronze_promotion()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 # Public API --------------------------------------------------------------
-
-
 
 #' Promote materialized batches to the Bronze layer
 #'
@@ -126,13 +140,9 @@ promote_to_bronze <- function(
   invisible(TRUE)
 }
 
-
-
 # Helpers -----------------------------------------------------------------
 
-
 ## Pipeline ---------------------------------------------------------------
-
 
 #' Read Bronze layer state
 #'
@@ -144,7 +154,6 @@ promote_to_bronze <- function(
 #'
 #' @keywords internal
 #' @noRd
-
 .get_bronze_state <- function(config) {
   path <- fs::path(config$local$paths$bronze, "layer.json")
 
@@ -185,7 +194,6 @@ promote_to_bronze <- function(
   state
 }
 
-
 #' Save Bronze layer state
 #'
 #' Persists the updated Bronze layer state to `layer.json`. This state
@@ -199,7 +207,6 @@ promote_to_bronze <- function(
 #'
 #' @keywords internal
 #' @noRd
-
 .save_bronze_state <- function(config, state) {
   path <- fs::path(config$local$paths$bronze, "layer.json")
 
@@ -217,14 +224,13 @@ promote_to_bronze <- function(
   invisible(TRUE)
 }
 
-
-
 #' Identify unpromoted batches
 #'
 #' Scans the Batch layer metadata and returns all materialized batches
 #' that have not yet been promoted to Bronze.
 #'
 #' @param config xacc_config object.
+#' @param state Optional bronze state object.
 #' @return Data frame of pending batches ordered by creation time.
 #'
 #' @keywords internal
@@ -259,19 +265,17 @@ promote_to_bronze <- function(
   batches[order(batches$created_at), ]
 }
 
-
-
 #' Validate anchor definitions for Bronze promotion
 #'
 #' Ensures that every method defines exactly one anchor table, a valid partition
 #' column, and identity keys required to inherit anchor time to secondary tables.
 #'
 #' @param config xacc_config object.
+#' @param method_ids Optional character vector of method IDs.
 #'
 #' @keywords internal
 #' @noRd
 .validate_anchor_definitions <- function(config, method_ids = NULL) {
-  # If method_ids provided, validate only those; otherwise validate all
   methods_to_check <- if (!is.null(method_ids)) {
     intersect(method_ids, names(config$methods))
   } else {
@@ -394,13 +398,9 @@ promote_to_bronze <- function(
     format(as.Date(anchor_df[[anchor_column]]), "%Y")
   )
 
-  # Precompute key_lookup here — avoids re-reading anchor parquet in apply phase
   ak         <- .make_key(anchor_df, anchor_keys)
-  key_lookup <- setNames(anchor_df[[anchor_column]], ak)
+  key_lookup <- stats::setNames(anchor_df[[anchor_column]], ak)
 
-  # Validate uniqueness here (preview phase): if keys are duplicated the years
-  # computation below is unreliable and apply would explode. Fail early with no
-  # side effects.
   if (anyDuplicated(ak)) {
     cli::cli_abort(
       c(
@@ -433,7 +433,6 @@ promote_to_bronze <- function(
   )
 }
 
-
 #' Apply append-only Bronze promotion
 #'
 #' Writes immutable Parquet shards for each promoted batch, partitioned by anchor year.
@@ -451,7 +450,6 @@ promote_to_bronze <- function(
   key_lookup   <- preview$key_lookup
   granularity  <- preview$partition_granularity %||% "year"
 
-  # Defensive only — primary uniqueness check runs in preview phase.
   if (anyDuplicated(names(key_lookup))) {
     cli::cli_abort(
       c(
@@ -469,7 +467,6 @@ promote_to_bronze <- function(
     table_name <- fs::path_ext_remove(fs::path_file(pq))
     df         <- arrow::read_parquet(pq)
 
-    # Validate keys for secondary tables
     missing_in_df <- setdiff(anchor_keys, names(df))
     if (length(missing_in_df) > 0 && table_name != anchor_table) {
       cli::cli_abort(
@@ -482,7 +479,6 @@ promote_to_bronze <- function(
       )
     }
 
-    # Assign anchor_time via pre-built lookup
     df$`__anchor_time` <- key_lookup[.make_key(df, anchor_keys)]
 
     if (any(is.na(df$`__anchor_time`))) {
@@ -496,7 +492,6 @@ promote_to_bronze <- function(
       )
     }
 
-    # Bronze metadata
     df$`__batch_id`         <- preview$batch_id
     df$`__stream_id`        <- preview$stream_id
     df$`__method_id`        <- preview$method_id
@@ -505,7 +500,6 @@ promote_to_bronze <- function(
     df$`__ingested_at`      <- .now_iso()
     df$`__anchor_year`      <- as.integer(format(as.Date(df$`__anchor_time`), "%Y"))
 
-    # Build per-row partition path from stream granularity
     if (granularity == "year") {
       part_dir <- paste0("year=", df$`__anchor_year`)
     } else if (granularity == "month") {
@@ -537,7 +531,6 @@ promote_to_bronze <- function(
       rows_to_append <- df[part_dir == pdir, ]
       if (nrow(rows_to_append) == 0) next
 
-      # Immutable shard per (table, batch)
       target_file <- fs::path(target_dir, paste0(table_name, "__", preview$batch_id, ".parquet"))
 
       if (fs::file_exists(target_file)) {
@@ -577,8 +570,6 @@ promote_to_bronze <- function(
 .make_key <- function(df, keys) {
   do.call(paste, c(df[keys], sep = "\r"))
 }
-
-
 
 #' Return batch ids that were successfully promoted
 #'
@@ -628,10 +619,7 @@ promote_to_bronze <- function(
   )
 }
 
-
 ## CLI --------------------------------------------------------------------
-
-
 
 #' Print Bronze promotion preview
 #'

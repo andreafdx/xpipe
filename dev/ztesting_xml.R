@@ -1,6 +1,6 @@
 library(xml2)
 
-source("src/xml test/xml.R")
+source("R/xml test/xml.R")
 # or paste the function directly in the console
 #xml_path <- "C:/Users/78299/OneDrive - A.O.R.N. Antonio Cardarelli/XN3/2025_A.xml"
 #xml_path <- "C:/Users/78299/2025_A.xml"

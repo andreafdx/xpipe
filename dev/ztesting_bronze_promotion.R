@@ -1,5 +1,5 @@
 # ======================================================================= #
-# FILE: src/ztesting_bronze_promotion.R
+# FILE: R/ztesting_bronze_promotion.R
 #
 # TEMPORARY TEST SCRIPT: Verifies the Bronze Promotion Pipeline
 #
@@ -19,10 +19,10 @@ Sys.setenv(XNE_PEPPER_KEY = "dev_testing_pepper_123")
 Sys.setenv(XPIPE_SKIP_HASH_CHECK = "TRUE")
 
 # Assumes working directory is project root
-source("src/zload all.R")
-source("src/0. batch_materialization.R")
-source("src/1. bronze_promotion.R")
-source("src/tools_access.R")
+source("R/zload all.R")
+source("R/0. batch_materialization.R")
+source("R/1. bronze_promotion.R")
+source("R/tools_access.R")
 
 # 2. Load Configuration ---------------------------------------------------
 

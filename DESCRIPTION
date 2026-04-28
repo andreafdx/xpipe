@@ -1,0 +1,31 @@
+Package: xpipe
+Title: A Personal Medallion Data Pipeline for Health Administrative Data
+Version: 0.0.0.9000
+Authors@R: 
+    person("Andrea", "Fidecicchi", , "andreafidecicchi@gmail.com", role = c("aut", "cre"))
+Description: Provides tools for ingesting, validating, and promoting
+    health administrative data through a medallion architecture (Batch,
+    Bronze, Silver layers). Implements configurable ingestion methods,
+    privacy rules, and append-only promotion with full lineage tracking.
+License: file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Suggests: 
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+Imports: 
+    arrow,
+    cli,
+    climenu,
+    data.table,
+    DBI,
+    dplyr,
+    fs,
+    jsonlite,
+    jsonvalidate,
+    odbc,
+    openssl,
+    purrr,
+    tibble,
+    xml2

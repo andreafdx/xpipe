@@ -1,13 +1,23 @@
-
-box::use(
-  fs,
-  cli,
-  purrr[imap_chr]
-)
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 0. batch_materialization.R
+#
+# High-level pipeline for batch ingestion.
+#
+# Approach: Handles preparation, human-readable recaps, and execution
+# (materialization) of batch extraction. Uses the method configuration
+# to determine the extraction instrument and apply privacy rules.
+#
+# Public API:  ingest_batch()
+# Internals:   .assert_config_for_batch(), .print_ingestion_recap(),
+#              .confirm_ingestion(), .get_method_config(), .get_stream_config(),
+#              .resolve_inbox_path(), .validate_input_type(),
+#              .discover_components(), .normalize_or_generate_batch_id(),
+#              .build_batch_target_dir(), .prepare_batch_ingestion(),
+#              .assert_batch_materializable(), .resolve_extraction_instrument(),
+#              .run_extraction(), .persist_to_batch(), .materialize_batch()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Public API --------------------------------------------------------------
-
 
 #' Ingest a Data Batch
 #'
@@ -15,12 +25,11 @@ box::use(
 #' into an immutable Batch artifact.
 #'
 #' @description
-#' `ingest_batch()` performs a complete batch ingestion.
+#' \code{ingest_batch()} performs a complete batch ingestion.
 #' The operation runs in three logical steps:
 #' 1. Preparation (validation and resolution)
 #' 2. Recap (human-readable intent summary)
 #' 3. Materialization (irreversible)
-
 #'
 #' During preparation, configuration, input paths, and method/stream
 #' compatibility are fully validated. During materialization, data is
@@ -47,11 +56,10 @@ box::use(
 #' @param filename Character scalar. Name of a file or directory located in the inbox.
 #' @param stream Character scalar. Target stream identifier.
 #' @param method Character scalar. Ingestion method identifier.
-#' @param config An `xpipe_config` object loaded via `load_options()`.
+#' @param config An \code{xpipe_config} object loaded via \code{load_options()}.
 #' @param batch_id Optional explicit batch identifier.
-#' @param confirm Logical; whether to ask for confirmation. Defaults to interactive().
+#' @param confirm Logical; whether to ask for confirmation. Defaults to \code{interactive()}.
 #' @param dry_run Logical; if TRUE, performs preparation and recap only.
-
 #'
 #' @return Character scalar. The generated batch identifier.
 #'
@@ -59,11 +67,7 @@ box::use(
 #' This function performs irreversible filesystem side effects.
 #' It is recommended to validate inputs and configuration before use.
 #'
-#' @seealso
-#' `prepare_batch_ingestion`, `materialize_batch`
-#'
 #' @export
-
 ingest_batch <- function(
     filename,
     stream,
@@ -98,28 +102,22 @@ ingest_batch <- function(
 }
 
 
-
-
-
 # Batch initialization scripts --------------------------------------------
-
-
-
 
 ## Helper functions --------------------------------------------------------
 
 #' Assert configuration validity for batch creation
 #'
-#' Ensures that a valid `xpipe_config` object is provided and that
+#' Ensures that a valid \code{xpipe_config} object is provided and that
 #' all required branches (local paths, streams, methods) are present.
 #'
-#' @param config An object of class `xpipe_config`.
+#' @param config An object of class \code{xpipe_config}.
 #' @return Invisibly returns TRUE if valid, otherwise aborts.
 #' @keywords internal
 #' @noRd
 .assert_config_for_batch <- function(config) {
   if (missing(config) || !inherits(config, "xpipe_config")) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid configuration",
         "x" = "A valid {.arg config} object loaded via {.code load_options()} is required"
@@ -132,7 +130,7 @@ ingest_batch <- function(
   missing_paths <- setdiff(required_paths, names(config$local$paths))
 
   if (length(missing_paths) > 0) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid configuration",
         "x" = "Missing required paths in config: {.val {missing_paths}}"
@@ -142,7 +140,7 @@ ingest_batch <- function(
   }
 
   if (is.null(config$streams) || is.null(config$methods)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid configuration",
         "x" = "Streams or Methods options not loaded"
@@ -265,7 +263,7 @@ ingest_batch <- function(
 #' @noRd
 .get_method_config <- function(config, method_id) {
   if (!is.character(method_id) || length(method_id) != 1 || !nzchar(method_id)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid method",
         "x" = "{.arg method_id} must be a non-empty string"
@@ -276,7 +274,7 @@ ingest_batch <- function(
 
   available <- names(config$methods)
   if (!(method_id %in% available)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid method",
         "x" = "Unknown method: {.val {method_id}}",
@@ -299,7 +297,7 @@ ingest_batch <- function(
 .get_stream_config <- function(config, stream_id) {
   available <- names(config$streams)
   if (!(stream_id %in% available)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid stream",
         "x" = "Unknown stream: {.val {stream_id}}",
@@ -323,7 +321,7 @@ ingest_batch <- function(
 #' @noRd
 .resolve_inbox_path <- function(config, path) {
   if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid path",
         "x" = "{.arg path} must be a non-empty string"
@@ -334,7 +332,7 @@ ingest_batch <- function(
 
   full_path <- fs::path(config$local$paths$inbox, path)
   if (!fs::file_exists(full_path)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Input path not found",
         "x" = "Path {.file {path}} was not found in inbox",
@@ -356,7 +354,7 @@ ingest_batch <- function(
   actual_is_dir <- fs::is_dir(filepath)
 
   if (required_type == "file" && actual_is_dir) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid input type",
         "x" = "Selected method requires a file, but a directory was provided.",
@@ -367,7 +365,7 @@ ingest_batch <- function(
   }
 
   if (required_type == "directory" && !actual_is_dir) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid input type",
         "x" = "Method {.val {method_config$method_id}} requires a directory, but a file was provided.",
@@ -393,7 +391,7 @@ ingest_batch <- function(
     matches <- fs::dir_ls(dir_path, glob = pattern)
 
     if (length(matches) == 0) {
-      cli$cli_abort(
+      cli::cli_abort(
         c(
           "Missing component",
           "x" = "Could not find file for component {.val {nm}}",
@@ -405,7 +403,7 @@ ingest_batch <- function(
     }
 
     if (length(matches) > 1) {
-      cli$cli_abort(
+      cli::cli_abort(
         c(
           "Ambiguous component",
           "x" = "Multiple files found for component {.val {nm}}",
@@ -424,13 +422,13 @@ ingest_batch <- function(
 
 ### Batch id & storage -----------------------------------------------------
 
-
 #' Normalize or Generate Batch Identifier
 #'
 #' Validates an explicit batch identifier or generates a unique
 #' stream-scoped batch ID when none is provided.
 #'
 #' @param stream_id Character scalar identifying the stream.
+#' @param method_id Character scalar identifying the method.
 #' @param batch_id Optional character scalar. Explicit batch ID.
 #'
 #' @return Character scalar batch identifier.
@@ -439,7 +437,7 @@ ingest_batch <- function(
 .normalize_or_generate_batch_id <- function(stream_id, method_id, batch_id = NULL) {
   if (!is.null(batch_id)) {
     if (!is.character(batch_id) || length(batch_id) != 1 || !nzchar(batch_id)) {
-      cli$cli_abort(
+      cli::cli_abort(
         c(
           "Invalid batch_id",
           "x" = "{.arg batch_id} must be a non-empty string"
@@ -451,12 +449,9 @@ ingest_batch <- function(
   }
 
   ts <- format(Sys.time(), "%Y%m%dT%H%M%OS3")
-  #ts <- gsub("\\.", "", ts)
 
   paste0(ts, "_" ,stream_id, "_", method_id)
 }
-
-
 
 #' Build Batch Target Directory Path
 #'
@@ -464,7 +459,6 @@ ingest_batch <- function(
 #' the Batch layer, based on stream and batch identifiers.
 #'
 #' @param config xpipe_config object.
-#' @param stream_id Character scalar identifying the stream.
 #' @param batch_id Character scalar batch identifier.
 #'
 #' @return Normalized filesystem path to the batch directory.
@@ -475,7 +469,6 @@ ingest_batch <- function(
     fs::path(config$local$paths$batch, batch_id)
   )
 }
-
 
 ## Internal API -------------------------------------------------------------
 
@@ -525,7 +518,7 @@ ingest_batch <- function(
   stream_id     <- stream
 
   if (method_config$schema_domain != stream_config$schema_domain) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid batch job",
         "x" = "Method and stream belong to different schema domains",
@@ -564,30 +557,17 @@ ingest_batch <- function(
   )
 }
 
-
-box::use(
-  fs,
-  cli,
-  jsonlite,
-  arrow,
-  #./crypto[apply_privacy_rules]
-)
-
-
 # Batch materialization pipeline ------------------------------------------
 #
 # Conceptual phases:
-#   Phase A – Pre‑materialization guardrails
+#   Phase A – Pre-materialization guardrails
 #   Phase B – Extraction instrument resolution
-#   Phase C – Data extraction (in‑memory)
+#   Phase C – Data extraction (in-memory)
 #   Phase D – Batch persistence (canonical output)
 #
 # Only Phase A is implemented as a standalone conceptual function.
-# Phases B–D are sequential pipeline steps used exclusively by
+# Phases B-D are sequential pipeline steps used exclusively by
 # `materialize_batch()`.
-
-
-
 
 ## Phase A ----------------------------------------------------------------
 
@@ -719,12 +699,12 @@ box::use(
 
   if (!is.null(ctx$components)) {
     # Multi-component extraction (Directory based)
-    cli$cli_alert_info("Running multi-component extraction ({length(ctx$components)} files)")
+    cli::cli_alert_info("Running multi-component extraction ({length(ctx$components)} files)")
 
     extracted <- list()
     for (nm in names(ctx$components)) {
       path <- ctx$components[[nm]]
-      cli$cli_inform("Component {.val {nm}} : {.file {basename(path)}}")
+      cli::cli_inform("Component {.val {nm}} : {.file {basename(path)}}")
 
       # Call instrument for each component
       res <- instrument(ctx, path)
@@ -820,7 +800,6 @@ box::use(
     meta$components <- ctx$method_config$components
   }
 
-
   jsonlite::write_json(
     meta,
     fs::path(ctx$batch_dir, "_batch_metadata.json"),
@@ -861,10 +840,3 @@ box::use(
 
   invisible(TRUE)
 }
-
-
-
-
-
-
-

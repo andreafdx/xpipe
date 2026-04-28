@@ -1,20 +1,24 @@
-
-
-
-# Layer inspection --------------------------------------------------------
-
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# layers_inspect.R
+#
+# Layer inspection and formatting utilities.
+#
+# Approach: Scans the local filesystem for Batch layer directories,
+# parses metadata, and provides a structured representation for console display.
+#
+# Public API:  inspect_batch_layer()
+# Internals:   .format_datetime(), print.xpipe_batch_layer()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ## Helpers ----------------------------------------------------------------
 
 #' Format execution timestamps for display
 #'
-#' Converts ISO‑8601 or SQL‑style timestamps to a compact,
-#' human‑readable \code{YYYY‑MM‑DD HH:MM} format.
+#' Converts ISO-8601 or SQL-style timestamps to a compact,
+#' human-readable \code{YYYY-MM-DD HH:MM} format.
 #'
 #' @param x Character vector of datetime strings.
-#'
 #' @return Character vector of formatted datetimes.
-#'
 #' @keywords internal
 #' @noRd
 .format_datetime <- function(x) {
@@ -23,27 +27,26 @@
   )), "%Y-%m-%d %H:%M")
 }
 
-
-## Private API -------------------------------------------------------------
+## Public API -------------------------------------------------------------
 
 #' Inspect the Batch layer
 #'
 #' Scans the local Batch layer directory and returns a structured
 #' representation of all discovered batches and their metadata.
 #'
-#' Incomplete batches (missing `_batch_metadata.json`) are recorded
+#' Incomplete batches (missing \code{_batch_metadata.json}) are recorded
 #' but marked as such and excluded from detailed inspection.
 #'
 #' @param config An \code{xpipe_config} object.
 #'
-#' @return An object of class \code{"xpipe_batch_layer"} containing:
+#' @return An object of class \code{xpipe_batch_layer} containing:
 #' \itemize{
-#'   \item \code{root} – batch layer root path
-#'   \item \code{count} – number of batch directories found
-#'   \item \code{batches} – named list of batch metadata
+#'   \item \code{root} - batch layer root path
+#'   \item \code{count} - number of batch directories found
+#'   \item \code{batches} - named list of batch metadata
 #' }
 #'
-#' @keywords internal
+#' @export
 inspect_batch_layer <- function(config) {
   if (!inherits(config, "xpipe_config")) {
     cli::cli_abort("{.arg config} must be a valid xpipe_config",
@@ -88,9 +91,12 @@ inspect_batch_layer <- function(config) {
   class = "xpipe_batch_layer")
 }
 
-
 ## S3 Print Methods ----------------------------------------------------------
 
+#' Print Method for xpipe_batch_layer
+#'
+#' @param x An object of class \code{xpipe_batch_layer}.
+#' @param ... Additional arguments (ignored).
 #' @export
 print.xpipe_batch_layer <- function(x, ...) {
   cli::cli_div(theme = list(rule = list(
@@ -116,7 +122,6 @@ print.xpipe_batch_layer <- function(x, ...) {
 
   latest_id <- names(which.max(created))
   latest    <- metas[[latest_id]]
-
 
   # Latest batch
   cli::cli_h2("Latest Batch")
@@ -149,7 +154,6 @@ print.xpipe_batch_layer <- function(x, ...) {
 
     cli::cli_ul(items)
   }
-
 
   # Other batches
   others <- metas[names(metas) != latest_id]

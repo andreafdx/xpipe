@@ -1,16 +1,19 @@
-
-# Configuration and options -----------------------------------------------
-
-
-
-box::use(
-  #./crypto[hash_phi],
-  jsonlite,
-  jsonvalidate,
-  fs,
-  cli,
-  purrr[imap_chr]
-)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# core_config.R
+#
+# Configuration and options loading for the xpipe control plane.
+#
+# Approach: Parses and validates JSON configurations and schema files,
+# manages runtime context (like the pepper key), and normalizes paths.
+# It ensures that local infrastructure and remote layer configurations
+# are properly structured before any pipeline tasks occur.
+#
+# Public API:  load_xpipe_config()
+# Internals:   .find_asset(), .validate_json_schema(), .read_json_safe(),
+#              .load_runtime_context(), .load_local_config(), .normalize_paths(),
+#              .validate_batch_layer(), .validate_batch_hash(), .load_batch_layer(),
+#              .load_streams_contract(), .load_methods_contract()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ## Helper functions --------------------------------------------------------
 
@@ -56,7 +59,7 @@ box::use(
 #' @noRd
 .validate_json_schema <- function(json_path, schema_name, title, class) {
   if (!fs::file_exists(json_path)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(title, "x" = "JSON file not found: {.file {json_path}}"),
       class = class
     )
@@ -72,7 +75,7 @@ box::use(
   )
 
   if (!ok) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         title,
         "x" = "JSON does not conform to schema",
@@ -151,7 +154,7 @@ box::use(
   )
 
   if (is.null(runtime$pepper) || runtime$pepper == "") {
-    cli$cli_abort(
+    cli::cli_abort(
       "Environment variable {.envvar XNE_PEPPER_KEY} not found.",
       class = c("config", "runtime", "crypto")
     )
@@ -213,7 +216,7 @@ box::use(
   }
 
   if (is.null(local_config$paths)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c("Invalid configuration", "x" = "Missing {.field paths}"),
       class = c("local_options", "paths")
     )
@@ -225,7 +228,7 @@ box::use(
     else fs::path_norm(fs::path(project_root, p))
 
     if (!fs::dir_exists(p)) {
-      cli$cli_abort(
+      cli::cli_abort(
         c("Invalid configuration path", "x" = "Path {.file {p}} does not exist"),
         class = c("local_options", "paths")
       )
@@ -261,7 +264,7 @@ box::use(
   batch_path <- local_config$paths$batch
 
   if (is.null(batch_path) || !nzchar(batch_path)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid configuration",
         "x" = "Batch layer path not set",
@@ -272,7 +275,7 @@ box::use(
   }
 
   if (!fs::dir_exists(batch_path)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid Batch layer",
         "x" = "Batch layer directory does not exist",
@@ -284,7 +287,7 @@ box::use(
 
   layer_json <- fs::path(batch_path, "layer.json")
   if (!fs::file_exists(layer_json)) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid Batch layer metadata",
         "x" = "Required file {.file layer.json} not found",
@@ -328,7 +331,7 @@ box::use(
   expected_hash <- layer_options$expected_hash
 
   if (is.null(expected_hash) || expected_hash == "") {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid Batch layer metadata",
         "x" = "Missing expected_hash in layer.json"
@@ -338,7 +341,7 @@ box::use(
   }
 
   if (hash_phi(test_string, pepper) != expected_hash) {
-    cli$cli_abort(
+    cli::cli_abort(
       c(
         "Invalid Batch layer metadata",
         "x" = "Hash mismatch. System will not start."
@@ -634,7 +637,7 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
       function(v, nm) {
         paste0(
           "{.strong ", nm, "} ",
-          "➔ domain: ", v$schema_domain, " ",
+          "> domain: ", v$schema_domain, " ",
           "[", v$type, "]"
         )
       }

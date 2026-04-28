@@ -1,0 +1,9 @@
+^dev$
+^.*\.Rproj$
+^\.Rproj\.user$
+
+^data$
+^inbox$
+^docs$
+^xml_profile\.out$
+^\.superpowers$

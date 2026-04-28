@@ -1,5 +1,5 @@
 # ======================================================================= #
-# FILE: src/ztesting_batch_ingestion.R
+# FILE: R/ztesting_batch_ingestion.R
 #
 # TEMPORARY TEST SCRIPT: Verifies the Batch Ingestion Pipeline
 #
@@ -12,10 +12,10 @@ Sys.setenv(XNE_PEPPER_KEY = "dev_testing_pepper_123")
 Sys.setenv(XPIPE_SKIP_HASH_CHECK = "TRUE")
 
 # Assumes working directory is project root ("R projects/xacc")
-source("src/zload all.R")
-source("src/0. batch_materialization.R")
-# source("src/2. bronze_promotion.R") # Not needed for this test
-source("src/tools_access.R")
+source("R/zload all.R")
+source("R/0. batch_materialization.R")
+# source("R/2. bronze_promotion.R") # Not needed for this test
+source("R/tools_access.R")
 
 # 2. Load Configuration
 .cfg <- load_xpipe_config()
