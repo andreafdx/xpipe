@@ -7,7 +7,6 @@
 
 inbox/
 output/
-tests/
 .superpowers/
 
 *.parquet

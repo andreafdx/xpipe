@@ -1,0 +1,3019 @@
+R/0_batch_materialization.R
+'''
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 0. batch_materialization.R
+#
+# High-level pipeline for batch ingestion.
+#
+# Approach: Handles preparation, human-readable recaps, and execution
+# (materialization) of batch extraction. Uses the method configuration
+# to determine the extraction instrument and apply privacy rules.
+#
+# Public API:  ingest_batch()
+# Internals:   .assert_config_for_batch(), .print_ingestion_recap(),
+#              .confirm_ingestion(), .get_method_config(), .get_stream_config(),
+#              .resolve_inbox_path(), .validate_input_type(),
+#              .discover_components(), .normalize_or_generate_batch_id(),
+#              .build_batch_target_dir(), .prepare_batch_ingestion(),
+#              .assert_batch_materializable(), .resolve_extraction_instrument(),
+#              .run_extraction(), .persist_to_batch(), .materialize_batch()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Public API --------------------------------------------------------------
+
+#' Ingest a Data Batch
+#'
+#' High-level, irreversible operation that converts an inbox input
+#' into an immutable Batch artifact.
+#'
+#' @description
+#' \code{ingest_batch()} performs a complete batch ingestion.
+#' The operation runs in three logical steps:
+#' 1. Preparation (validation and resolution)
+#' 2. Recap (human-readable intent summary)
+#' 3. Materialization (irreversible)
+#'
+#' During preparation, configuration, input paths, and method/stream
+#' compatibility are fully validated. During materialization, data is
+#' extracted, privacy rules are applied, and the canonical batch
+#' representation is persisted to disk.
+#'
+#' In interactive sessions, a recap and confirmation step is shown
+#' after preparation and before materialization.
+#'
+#' @section Phases:
+#' \itemize{
+#'   \item \strong{Preparation}: validation and resolution only; no I/O
+#'   \item \strong{Materialization}: extraction and persistence (irreversible)
+#' }
+#'
+#' @section Immutability:
+#' Once materialized, a batch is considered immutable. Re-ingestion of
+#' the same input will create a new batch with a new batch identifier.
+#'
+#' @section Inspection:
+#' After ingestion, batch contents and metadata can be inspected via
+#' the Batch layer filesystem and inspection helpers.
+#'
+#' @param filename Character scalar. Name of a file or directory located in the inbox.
+#' @param stream Character scalar. Target stream identifier.
+#' @param method Character scalar. Ingestion method identifier.
+#' @param config An \code{xpipe_config} object loaded via \code{load_options()}.
+#' @param batch_id Optional explicit batch identifier.
+#' @param confirm Logical; whether to ask for confirmation. Defaults to \code{interactive()}.
+#' @param dry_run Logical; if TRUE, performs preparation and recap only.
+#'
+#' @return Character scalar. The generated batch identifier.
+#'
+#' @details
+#' This function performs irreversible filesystem side effects.
+#' It is recommended to validate inputs and configuration before use.
+#'
+#' @export
+ingest_batch <- function(
+    filename,
+    stream,
+    method,
+    config = get_xpipe_config(),
+    batch_id = NULL,
+    confirm = interactive(),
+    dry_run = FALSE
+) {
+  ctx <- .prepare_batch_ingestion(
+    filename = filename,
+    stream   = stream,
+    method   = method,
+    config   = config,
+    batch_id = batch_id
+  )
+
+  .print_ingestion_recap(ctx, action = "Batch ingestion")
+
+  if (isTRUE(dry_run)) {
+    cli::cli_alert_info(
+      "Dry run complete. No files were written and no state was changed."
+    )
+    return(invisible(ctx$batch_id))
+  }
+
+  .confirm_ingestion(confirm = confirm)
+
+  .materialize_batch(ctx, config)
+
+  invisible(ctx$batch_id)
+}
+
+
+# Batch initialization scripts --------------------------------------------
+
+## Helper functions --------------------------------------------------------
+
+#' Assert configuration validity for batch creation
+#'
+#' Ensures that a valid \code{xpipe_config} object is provided and that
+#' all required branches (local paths, streams, methods) are present.
+#'
+#' @param config An object of class \code{xpipe_config}.
+#' @return Invisibly returns TRUE if valid, otherwise aborts.
+#' @keywords internal
+#' @noRd
+.assert_config_for_batch <- function(config) {
+  if (missing(config) || !inherits(config, "xpipe_config")) {
+    cli::cli_abort(
+      c(
+        "Invalid configuration",
+        "x" = "A valid {.arg config} object loaded via {.code load_options()} is required"
+      ),
+      class = c("batch", "config")
+    )
+  }
+
+  required_paths <- c("inbox", "batch")
+  missing_paths <- setdiff(required_paths, names(config$local$paths))
+
+  if (length(missing_paths) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid configuration",
+        "x" = "Missing required paths in config: {.val {missing_paths}}"
+      ),
+      class = c("batch", "config", "paths")
+    )
+  }
+
+  if (is.null(config$streams) || is.null(config$methods)) {
+    cli::cli_abort(
+      c(
+        "Invalid configuration",
+        "x" = "Streams or Methods options not loaded"
+      ),
+      class = c("batch", "config", "metadata")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
+#' Print ingestion recap
+#'
+#' Prints a standardized recap of an ingestion intent before
+#' an irreversible operation is performed.
+#'
+#' @param ctx Ingestion context list.
+#' @param action Character scalar describing the action (e.g. "Batch ingestion").
+#'
+#' @keywords internal
+#' @noRd
+.print_ingestion_recap <- function(ctx, action = "Ingestion") {
+
+  cli::cli_h2("{action} recap")
+
+  cli::cli_text(
+    "The following input will be processed and materialized as an immutable artifact."
+  )
+
+  cli::cli_h3("Input")
+  cli::cli_bullets(c(
+    "Path   : {.file {ctx$filepath}}",
+    "Stream : {.val {ctx$stream_id}}",
+    "Method : {.val {ctx$method_id}}"
+  ))
+
+  if (!is.null(ctx$components)) {
+    cli::cli_h3("Detected components")
+    cli::cli_bullets(
+      purrr::imap_chr(
+        ctx$components,
+        ~ paste0("{.strong ", .y, "} : {.file ", basename(.x), "}")
+      )
+    )
+  }
+
+  cli::cli_h3("Target")
+  cli::cli_bullets(c(
+    "Batch ID        : {.val {ctx$batch_id}}",
+    "Batch directory : {.file {ctx$batch_dir}}"
+  ))
+
+  cli::cli_alert_warning(
+    "This operation is irreversible once materialization starts."
+  )
+
+  invisible(TRUE)
+}
+
+#' Confirm irreversible ingestion
+#'
+#' @param confirm Logical; whether confirmation is required.
+#'
+#' @return Invisibly TRUE if confirmed, otherwise aborts.
+#'
+#' @keywords internal
+#' @noRd
+.confirm_ingestion <- function(confirm = TRUE) {
+
+  if (!isTRUE(confirm)) {
+    return(invisible(TRUE))
+  }
+
+  # Try climenu first, fall back cleanly if unsupported
+  if (requireNamespace("climenu", quietly = TRUE)) {
+
+    choice <- tryCatch(
+      climenu::select(
+        c("Yes, continue", "No, abort"),
+        prompt = "Proceed with materialization?"
+      ),
+      error = function(e) NULL
+    )
+
+    if (!is.null(choice)) {
+      if (choice != "Yes, continue") {
+        cli::cli_abort(
+          "Batch ingestion aborted by user.",
+          class = "batch_abort"
+        )
+      }
+      return(invisible(TRUE))
+    }
+  }
+
+  # Fallback: readline (always works)
+  answer <- readline("Proceed with materialization? [y/N]: ")
+
+  if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
+    cli::cli_abort(
+      "Batch ingestion aborted by user.",
+      class = "batch_abort"
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
+
+## Method and Stream validation --------------------------------------------
+
+#' Retrieve method configuration
+#'
+#' @param config xpipe_config object.
+#' @param method_id Character scalar.
+#' @return A list with the method configuration.
+#' @keywords internal
+#' @noRd
+.get_method_config <- function(config, method_id) {
+  if (!is.character(method_id) || length(method_id) != 1 || !nzchar(method_id)) {
+    cli::cli_abort(
+      c(
+        "Invalid method",
+        "x" = "{.arg method_id} must be a non-empty string"
+      ),
+      class = c("batch", "method")
+    )
+  }
+
+  available <- names(config$methods)
+  if (!(method_id %in% available)) {
+    cli::cli_abort(
+      c(
+        "Invalid method",
+        "x" = "Unknown method: {.val {method_id}}",
+        "i" = "Available methods: {.str {available}}"
+      ),
+      class = c("batch", "method")
+    )
+  }
+
+  config$methods[[method_id]]
+}
+
+#' Retrieve stream configuration
+#'
+#' @param config xpipe_config object.
+#' @param stream_id Character scalar.
+#' @return A list with the stream configuration.
+#' @keywords internal
+#' @noRd
+.get_stream_config <- function(config, stream_id) {
+  available <- names(config$streams)
+  if (!(stream_id %in% available)) {
+    cli::cli_abort(
+      c(
+        "Invalid stream",
+        "x" = "Unknown stream: {.val {stream_id}}",
+        "i" = "Available streams: {.str {available}}"
+      ),
+      class = c("batch", "stream")
+    )
+  }
+
+  config$streams[[stream_id]]
+}
+
+### Inbox ------------------------------------------------------------------
+
+#' Resolve input path from inbox
+#'
+#' @param config xpipe_config object.
+#' @param path Character scalar.
+#' @return Normalized absolute path.
+#' @keywords internal
+#' @noRd
+.resolve_inbox_path <- function(config, path) {
+  if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
+    cli::cli_abort(
+      c(
+        "Invalid path",
+        "x" = "{.arg path} must be a non-empty string"
+      ),
+      class = c("batch", "path")
+    )
+  }
+
+  full_path <- fs::path(config$local$paths$inbox, path)
+  if (!fs::file_exists(full_path)) {
+    cli::cli_abort(
+      c(
+        "Input path not found",
+        "x" = "Path {.file {path}} was not found in inbox",
+        "i" = "Inbox: {.file {config$local$paths$inbox}}"
+      ),
+      class = c("batch", "path")
+    )
+  }
+
+  fs::path_norm(full_path)
+}
+
+#' Validate input type against method requirement
+#'
+#' @keywords internal
+#' @noRd
+.validate_input_type <- function(filepath, method_config) {
+  required_type <- method_config$input_type
+  actual_is_dir <- fs::is_dir(filepath)
+
+  if (required_type == "file" && actual_is_dir) {
+    cli::cli_abort(
+      c(
+        "Invalid input type",
+        "x" = "Selected method requires a file, but a directory was provided.",
+        "i" = "Path: {.file {filepath}}"
+      ),
+      class = c("batch", "input_type")
+    )
+  }
+
+  if (required_type == "directory" && !actual_is_dir) {
+    cli::cli_abort(
+      c(
+        "Invalid input type",
+        "x" = "Method {.val {method_config$method_id}} requires a directory, but a file was provided.",
+        "i" = "Path: {.file {filepath}}"
+      ),
+      class = c("batch", "input_type")
+    )
+  }
+}
+
+#' Discover and validate method components in a directory
+#'
+#' @keywords internal
+#' @noRd
+.discover_components <- function(dir_path, method_config) {
+  components <- method_config$components
+  if (is.null(components)) return(NULL)
+
+  resolved <- list()
+
+  for (nm in names(components)) {
+    pattern <- components[[nm]]
+    matches <- fs::dir_ls(dir_path, glob = pattern)
+
+    if (length(matches) == 0) {
+      cli::cli_abort(
+        c(
+          "Missing component",
+          "x" = "Could not find file for component {.val {nm}}",
+          "i" = "Pattern: {.val {pattern}}",
+          "i" = "Directory: {.file {dir_path}}"
+        ),
+        class = c("batch", "components")
+      )
+    }
+
+    if (length(matches) > 1) {
+      cli::cli_abort(
+        c(
+          "Ambiguous component",
+          "x" = "Multiple files found for component {.val {nm}}",
+          "i" = "Pattern: {.val {pattern}}",
+          "i" = "Found: {.file {basename(matches)}}"
+        ),
+        class = c("batch", "components")
+      )
+    }
+
+    resolved[[nm]] <- as.character(matches)
+  }
+
+  resolved
+}
+
+### Batch id & storage -----------------------------------------------------
+
+#' Normalize or Generate Batch Identifier
+#'
+#' Validates an explicit batch identifier or generates a unique
+#' stream-scoped batch ID when none is provided.
+#'
+#' @param stream_id Character scalar identifying the stream.
+#' @param method_id Character scalar identifying the method.
+#' @param batch_id Optional character scalar. Explicit batch ID.
+#'
+#' @return Character scalar batch identifier.
+#'
+#' @noRd
+.normalize_or_generate_batch_id <- function(stream_id, method_id, batch_id = NULL) {
+  if (!is.null(batch_id)) {
+    if (!is.character(batch_id) || length(batch_id) != 1 || !nzchar(batch_id)) {
+      cli::cli_abort(
+        c(
+          "Invalid batch_id",
+          "x" = "{.arg batch_id} must be a non-empty string"
+        ),
+        class = c("batch", "batch_id")
+      )
+    }
+    return(batch_id)
+  }
+
+  ts <- format(Sys.time(), "%Y%m%dT%H%M%OS3")
+
+  paste0(ts, "_" ,stream_id, "_", method_id)
+}
+
+#' Build Batch Target Directory Path
+#'
+#' Constructs the normalized filesystem path for a batch within
+#' the Batch layer, based on stream and batch identifiers.
+#'
+#' @param config xpipe_config object.
+#' @param batch_id Character scalar batch identifier.
+#'
+#' @return Normalized filesystem path to the batch directory.
+#'
+#' @noRd
+.build_batch_target_dir <- function(config, batch_id) {
+  fs::path_norm(
+    fs::path(config$local$paths$batch, batch_id)
+  )
+}
+
+## Internal API -------------------------------------------------------------
+
+#' Prepare Batch Ingestion Context
+#'
+#' Constructs a validated batch ingestion context based on an input file
+#' or directory located in the inbox and a configured ingestion method.
+#'
+#' This function performs configuration validation, input resolution,
+#' and method/stream compatibility checks, but does not read, transform,
+#' or write any data. The returned list represents a fully specified
+#' ingestion intent ready for materialization.
+#'
+#' @param filename Character scalar. Name of a file or directory located
+#'   in the inbox path defined in the local configuration.
+#' @param stream Character scalar identifying the target stream.
+#' @param method Character scalar identifying the ingestion method to use,
+#'   as defined in \code{methods.json}.
+#' @param config An object of class \code{xpipe_config}, as returned by
+#'   \code{load_options()}.
+#' @param batch_id Optional character scalar. Explicit batch identifier.
+#'   If \code{NULL}, a unique batch identifier is generated automatically.
+#'
+#' @return A named list containing the ingestion context.
+#'
+#' @details
+#' The context list encapsulates all metadata required for batch
+#' materialization, including resolved input paths, method and stream
+#' configuration, and target batch directory.
+#'
+#' No filesystem side effects are performed beyond path validation.
+#' Data extraction and persistence occur only during
+#' \code{materialize_batch()}.
+#'
+#' @keywords internal
+.prepare_batch_ingestion <- function(
+    filename,
+    stream,
+    method,
+    config,
+    batch_id = NULL
+){
+  .assert_config_for_batch(config)
+
+  method_config <- .get_method_config(config, method)
+  stream_config <- .get_stream_config(config, stream)
+  stream_id     <- stream
+
+  if (method_config$schema_domain != stream_config$schema_domain) {
+    cli::cli_abort(
+      c(
+        "Invalid batch job",
+        "x" = "Method and stream belong to different schema domains",
+        "i" = "Method domain: {.val {method_config$schema_domain}}",
+        "i" = "Stream domain: {.val {stream_config$schema_domain}}"
+      ),
+      class = c("batch", "schema_domain")
+    )
+  }
+
+  filepath  <- .resolve_inbox_path(config, filename)
+
+  # Validation against method requirement
+  .validate_input_type(filepath, method_config)
+
+  # Discover components if it's a directory
+  components <- if (fs::is_dir(filepath)) {
+    .discover_components(filepath, method_config)
+  } else {
+    NULL
+  }
+
+  batch_id  <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
+  batch_dir <- .build_batch_target_dir(config, batch_id)
+
+  list(
+    batch_id      = batch_id,
+    filename      = filename,
+    filepath      = filepath,
+    method_id     = method,
+    method_config = method_config,
+    stream_id     = stream_id,
+    stream_config = stream_config,
+    batch_dir     = batch_dir,
+    components    = components
+  )
+}
+
+# Batch materialization pipeline ------------------------------------------
+#
+# Conceptual phases:
+#   Phase A – Pre-materialization guardrails
+#   Phase B – Extraction instrument resolution
+#   Phase C – Data extraction (in-memory)
+#   Phase D – Batch persistence (canonical output)
+#
+# Only Phase A is implemented as a standalone conceptual function.
+# Phases B-D are sequential pipeline steps used exclusively by
+# `materialize_batch()`.
+
+## Phase A ----------------------------------------------------------------
+
+#' Assert that batch materialization is safe
+#'
+#' Performs Phase A (Materialization Guardrails) checks.
+#' Validates that the ingestion context is coherent and that
+#' filesystem preconditions are met before any side effects occur.
+#'
+#' @param ctx Ingestion context list.
+#' @param config xpipe_config object.
+#' @return Invisibly TRUE if materializable, otherwise aborts.
+#' @keywords internal
+#' @noRd
+.assert_batch_materializable <- function(ctx, config) {
+
+  if (!is.list(ctx)) {
+    cli::cli_abort(
+      c(
+        "Invalid ingestion context",
+        "x" = "{.arg ctx} must be a list"
+      ),
+      class = c("batch", "materialization")
+    )
+  }
+
+  if (!inherits(config, "xpipe_config")) {
+    cli::cli_abort(
+      c(
+        "Invalid configuration",
+        "x" = "{.arg config} must be an object of class {.cls xpipe_config}"
+      ),
+      class = c("batch", "materialization", "config")
+    )
+  }
+
+  # A1. Target collision check (batch layer)
+  if (fs::dir_exists(ctx$batch_dir)) {
+    cli::cli_abort(
+      c(
+        "Ingestion cannot proceed",
+        "x" = "Target batch directory already exists",
+        "i" = "Path: {.file {ctx$batch_dir}}",
+        "i" = "Batch id: {.val {ctx$batch_id}}"
+      ),
+      class = c("batch", "collision")
+    )
+  }
+
+  # A2. Input path re-validation
+  if (!fs::file_exists(ctx$filepath)) {
+    cli::cli_abort(
+      c(
+        "Ingestion cannot proceed",
+        "x" = "Input path does not exist at materialization time",
+        "i" = "Expected path: {.file {ctx$filepath}}"
+      ),
+      class = c("batch", "input")
+    )
+  }
+
+  # Lightweight sanity check
+  info <- fs::file_info(ctx$filepath)
+  if (is.na(info$size) || (fs::is_file(ctx$filepath) && info$size == 0)) {
+    cli::cli_abort(
+      c(
+        "Ingestion cannot proceed",
+        "x" = "Input is empty or unreadable",
+        "i" = "Path: {.file {ctx$filepath}}"
+      ),
+      class = c("batch", "input")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+## Phase B --------------------------------------------------------------
+
+#' Resolve extraction instrument
+#'
+#' @keywords internal
+#' @noRd
+.resolve_extraction_instrument <- function(ctx, config) {
+
+  # Registry: method type -> extractor function name (string)
+  # Add new extractors here; the function must be loaded before ingest_batch() is called.
+  .instrument_registry <- c(
+    "access_mdb" = "extract_access_db",
+    "xml"        = "extract_xml"
+  )
+
+  method_type <- ctx$method_config$type
+
+  fn_name <- .instrument_registry[method_type]
+
+  if (is.na(fn_name)) {
+    cli::cli_abort(
+      c(
+        "No extraction instrument registered",
+        "x" = "No extractor registered for method type {.val {method_type}}",
+        "i" = "Registered types: {.val {names(.instrument_registry)}}"
+      ),
+      class = c("batch", "instrument")
+    )
+  }
+
+  if (!exists(fn_name, mode = "function")) {
+    cli::cli_abort(
+      c(
+        "Extraction instrument not loaded",
+        "x" = "Function {.code {fn_name}} is not available in the current environment",
+        "i" = "Source the appropriate tool script before calling {.code ingest_batch()}"
+      ),
+      class = c("batch", "instrument")
+    )
+  }
+
+  get(fn_name, mode = "function")
+}
+
+## Phase C --------------------------------------------------------------
+
+#' Run extraction and load batch data into memory
+#'
+#' @keywords internal
+#' @noRd
+.run_extraction <- function(ctx, instrument) {
+
+  if (!is.null(ctx$components)) {
+    # Multi-component extraction (Directory based)
+    cli::cli_alert_info("Running multi-component extraction ({length(ctx$components)} files)")
+
+    extracted <- list()
+    for (nm in names(ctx$components)) {
+      path <- ctx$components[[nm]]
+      cli::cli_inform("Component {.val {nm}} : {.file {basename(path)}}")
+
+      # Call instrument for each component
+      res <- instrument(ctx, path)
+
+      # If instrument returns a list (unlikely for single component but possible), merge
+      if (is.data.frame(res)) {
+        extracted[[nm]] <- res
+      } else if (is.list(res)) {
+        # Prefix keys to avoid name collisions if multiple files return same table names
+        names(res) <- paste0(nm, "_", names(res))
+        extracted <- c(extracted, res)
+      }
+    }
+  } else {
+    # Single-file extraction
+    extracted <- instrument(ctx, ctx$filepath)
+  }
+
+  if (is.data.frame(extracted)) {
+    extracted <- list(data = extracted)
+  }
+
+  if (!is.list(extracted) || length(extracted) == 0) {
+    cli::cli_abort(
+      c(
+        "Invalid extraction result",
+        "x" = "Extractor must return a non-empty list of data frames"
+      ),
+      class = c("batch", "extraction")
+    )
+  }
+
+  extracted
+}
+
+## Phase D --------------------------------------------------------------
+
+#' Persist extracted data to the Batch layer
+#'
+#' @keywords internal
+#' @noRd
+.persist_to_batch <- function(ctx, extracted_data, config) {
+
+  fs::dir_create(ctx$batch_dir, recurse = TRUE)
+
+  for (nm in names(extracted_data)) {
+    tbl <- extracted_data[[nm]]
+
+    if (!is.data.frame(tbl)) {
+      cli::cli_abort(
+        c(
+          "Invalid extracted object",
+          "x" = "All extracted elements must be data.frames",
+          "i" = "Element: {.val {nm}}"
+        ),
+        class = c("batch", "materialization")
+      )
+    }
+
+    arrow::write_parquet(
+      tbl,
+      fs::path(ctx$batch_dir, paste0(nm, ".parquet"))
+    )
+  }
+
+  # Meta file as JSON for cross-platform compatibility
+  meta <- list(
+    batch_id = ctx$batch_id,
+
+    stream = list(
+      id            = ctx$stream_id,
+      schema_domain = ctx$method_config$schema_domain,
+      anchor        = ctx$stream_config$anchor
+    ),
+
+    method = list(
+      id   = ctx$method_id,
+      type = ctx$method_config$type
+    ),
+
+    input = list(
+      path       = ctx$filename,
+      input_type = ctx$method_config$input_type
+    ),
+
+    execution = list(
+      created_at  = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
+      tool       = config$runtime$tool$name,
+      tool_version = config$runtime$tool$version
+    )
+  )
+  if (!is.null(ctx$method_config$components)) {
+    meta$components <- ctx$method_config$components
+  }
+
+  jsonlite::write_json(
+    meta,
+    fs::path(ctx$batch_dir, "_batch_metadata.json"),
+    pretty = TRUE,
+    auto_unbox = TRUE
+  )
+
+  invisible(TRUE)
+}
+
+## Internal API -------------------------------------------------------------
+
+#' Materialize Batch Ingestion Context
+#'
+#' Transforms a validated ingestion context into an immutable, on-disk
+#' batch representation.
+#'
+#' @param ctx Ingestion context list.
+#' @param config xpipe_config object.
+#' @return Invisibly TRUE on success.
+#' @keywords internal
+.materialize_batch <- function(ctx, config) {
+
+  .assert_batch_materializable(ctx, config)
+
+  instrument     <- .resolve_extraction_instrument(ctx, config)
+  extracted_data <- .run_extraction(ctx, instrument)
+
+  # Apply privacy rules to each extracted table
+  for (nm in names(extracted_data)) {
+    extracted_data[[nm]] <- apply_privacy_rules(
+      extracted_data[[nm]],
+      ctx$method_config,
+      config$runtime$pepper
+    )
+  }
+  .persist_to_batch(ctx, extracted_data, config)
+
+  invisible(TRUE)
+}
+'''
+R/1_bronze_promotion.R
+'''
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 1. bronze_promotion.R
+#
+# Promotes materialized batches to the Bronze layer.
+#
+# Approach: Appends rows to the Bronze layer as an immutable ledger,
+# deriving time partitions from anchor tables and enriching rows with metadata.
+#
+# Public API:  promote_to_bronze()
+# Internals:   .get_bronze_state(), .save_bronze_state(), .identify_pending_batches(),
+#              .validate_anchor_definitions(), .prepare_bronze_promotion_preview(),
+#              .apply_bronze_promotion(), .now_iso(), .make_key(),
+#              .promoted_batch_ids(), .make_promotion_event(),
+#              .print_bronze_preview(), .confirm_bronze_promotion()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Public API --------------------------------------------------------------
+
+#' Promote materialized batches to the Bronze layer
+#'
+#' @description
+#' Promotes immutable Batch artifacts into the Bronze layer as an
+#' append-only, historical ledger.
+#'
+#' Each promotion:
+#' \itemize{
+#'   \item Appends rows only (no deletes, updates, or rewrites)
+#'   \item Derives domain time from a single anchor table per batch
+#'   \item Enriches all rows with mandatory Bronze metadata
+#'   \item Partitions data by anchor-derived time (year or month)
+#' }
+#'
+#' Bronze promotion preserves full history and lineage and does not
+#' attempt deduplication, identity resolution, or "current state"
+#' determination. These responsibilities are explicitly deferred to
+#' the Silver layer.
+#'
+#' @section Preview and safety:
+#' By default, Bronze promotion prints a preview showing:
+#' \itemize{
+#'   \item Batches to be promoted
+#'   \item Anchor source used for time derivation
+#'   \item Affected partition years
+#'   \item Tables that will be appended
+#' }
+#'
+#' Use \code{dry_run = TRUE} to perform validation and preview only,
+#' without writing any data and without updating Bronze state.
+#'
+#' @section Storage layout:
+#' Bronze is written as immutable Parquet shards per promoted batch:
+#' \itemize{
+#'   \item \code{bronze/<stream>__<method>/year=YYYY/<table>__<batch_id>.parquet}
+#' }
+#' Promotion refuses to overwrite an existing shard file.
+#'
+#' @section Anchor inheritance:
+#' Anchor time is derived from the method anchor table only. Secondary tables
+#' inherit \code{__anchor_time} by joining to the anchor table using
+#' \code{identity_keys}. If required keys are missing or if rows cannot be matched,
+#' promotion aborts for that batch.
+#'
+#' @section Immutability:
+#' Bronze promotion is irreversible. Once rows are appended (written as shards),
+#' they are never modified or removed.
+#'
+#' @param config xacc_config object.
+#' @param stream Optional stream filter. If provided, only batches
+#'   for the specified stream are considered.
+#' @param dry_run Logical. If TRUE, performs validation and preview
+#'   only. No files are written and no state is updated.
+#' @param confirm Logical. If TRUE (default in interactive sessions),
+#'   asks for confirmation before committing changes.
+#'
+#' @return Invisibly TRUE on success.
+#'
+#' @export
+promote_to_bronze <- function(
+    config = get_xpipe_config(),
+    stream = NULL,
+    dry_run = FALSE,
+    confirm = interactive()
+) {
+  # ---- read state once; shared by pending identification and promotion log
+  state <- .get_bronze_state(config)
+  state$promotion_log <- state$promotion_log %||% list()
+
+  pending <- .identify_pending_batches(config, state = state)
+
+  if (nrow(pending) == 0) {
+    cli::cli_alert_info("No pending batches to promote.")
+    return(invisible(TRUE))
+  }
+
+  if (!is.null(stream)) {
+    pending <- pending[pending$stream_id == stream, ]
+    if (nrow(pending) == 0) {
+      cli::cli_alert_info("No pending batches for stream {.val {stream}}.")
+      return(invisible(TRUE))
+    }
+  }
+
+  .validate_anchor_definitions(config, method_ids = unique(pending$method_id))
+
+  previews <- purrr::map(
+    seq_len(nrow(pending)),
+    ~ .prepare_bronze_promotion_preview(pending[.x, ], config)
+  )
+
+  .print_bronze_preview(previews)
+
+  if (isTRUE(dry_run)) {
+    cli::cli_alert_info(
+      "Dry run complete. No data was written and no state was updated."
+    )
+    return(invisible(TRUE))
+  }
+
+  .confirm_bronze_promotion(confirm)
+
+  # ---- execute + append promotion events
+  # Errors propagate immediately. Failed batches are never recorded, so they
+  # remain pending and will be retried on the next run. The promotion log is
+  # a success-only ledger — no partial or failed entries.
+  for (preview in previews) {
+    .apply_bronze_promotion(preview, config)
+
+    state$promotion_log <- c(
+      state$promotion_log,
+      list(.make_promotion_event(preview, config, status = "success"))
+    )
+
+    # persist per batch (survive partial failures)
+    .save_bronze_state(config, state)
+  }
+
+  cli::cli_alert_success(
+    "Bronze promotion complete. {length(previews)} batch(es) appended successfully."
+  )
+  invisible(TRUE)
+}
+
+# Helpers -----------------------------------------------------------------
+
+## Pipeline ---------------------------------------------------------------
+
+#' Read Bronze layer state
+#'
+#' Loads the Bronze layer state file (`layer.json`) which tracks
+#' promoted batches and promotion timestamps.
+#'
+#' @param config xacc_config object.
+#' @return A list representing the Bronze state.
+#'
+#' @keywords internal
+#' @noRd
+.get_bronze_state <- function(config) {
+  path <- fs::path(config$local$paths$bronze, "layer.json")
+
+  if (!fs::file_exists(path)) {
+    cli::cli_abort(
+      c(
+        "Bronze layer state not found",
+        "x" = "File {.file {path}} does not exist",
+        "i" = "Create it by writing the seed JSON or run {.code .init_bronze_state(config)}"
+      ),
+      class = c("bronze", "state")
+    )
+  }
+
+  state <- jsonlite::fromJSON(path, simplifyVector = FALSE)
+
+  if (!is.list(state) || !identical(state$format, "promotion_log") || is.null(state$promotion_log)) {
+    cli::cli_abort(
+      c(
+        "Invalid Bronze layer state",
+        "x" = "layer.json is not in the supported format",
+        "i" = "Overwrite bronze/layer.json with the new seed format"
+      ),
+      class = c("bronze", "state")
+    )
+  }
+
+  if (!is.list(state$promotion_log)) {
+    cli::cli_abort(
+      c(
+        "Invalid Bronze layer state",
+        "x" = "{.val promotion_log} must be a list"
+      ),
+      class = c("bronze", "state")
+    )
+  }
+
+  state
+}
+
+#' Save Bronze layer state
+#'
+#' Persists the updated Bronze layer state to `layer.json`. This state
+#' tracks which batches have been promoted and records promotion timestamps.
+#'
+#' This function performs no validation and should only be called by
+#' the Bronze promotion pipeline after successful data writes.
+#'
+#' @param config xacc_config object.
+#' @param state A list representing the Bronze layer state.
+#'
+#' @keywords internal
+#' @noRd
+.save_bronze_state <- function(config, state) {
+  path <- fs::path(config$local$paths$bronze, "layer.json")
+
+  if (!is.list(state) || !identical(state$format, "promotion_log") || is.null(state$promotion_log)) {
+    cli::cli_abort(
+      c(
+        "Invalid Bronze state write",
+        "x" = "Refusing to write invalid state (expected format=promotion_log)"
+      ),
+      class = c("bronze", "state")
+    )
+  }
+
+  jsonlite::write_json(state, path, auto_unbox = TRUE, pretty = TRUE)
+  invisible(TRUE)
+}
+
+#' Identify unpromoted batches
+#'
+#' Scans the Batch layer metadata and returns all materialized batches
+#' that have not yet been promoted to Bronze.
+#'
+#' @param config xacc_config object.
+#' @param state Optional bronze state object.
+#' @return Data frame of pending batches ordered by creation time.
+#'
+#' @keywords internal
+#' @noRd
+.identify_pending_batches <- function(config, state = NULL) {
+  if (is.null(state)) state <- .get_bronze_state(config)
+  promoted <- .promoted_batch_ids(state)
+
+  meta_files <- fs::dir_ls(
+    config$local$paths$batch,
+    recurse = TRUE,
+    glob = "*_batch_metadata.json"
+  )
+
+  if (length(meta_files) == 0) return(data.frame())
+
+  batches <- purrr::map_dfr(meta_files, function(p) {
+    meta <- jsonlite::fromJSON(p, simplifyVector = FALSE)
+
+    data.frame(
+      batch_id   = meta$batch_id,
+      stream_id  = meta$stream$id,
+      method_id  = meta$method$id,
+      created_at = meta$execution$created_at,
+      stringsAsFactors = FALSE
+    )
+  })
+
+  batches <- batches[!batches$batch_id %in% promoted, ]
+  if (nrow(batches) == 0) return(data.frame())
+
+  batches[order(batches$created_at), ]
+}
+
+#' Validate anchor definitions for Bronze promotion
+#'
+#' Ensures that every method defines exactly one anchor table, a valid partition
+#' column, and identity keys required to inherit anchor time to secondary tables.
+#'
+#' @param config xacc_config object.
+#' @param method_ids Optional character vector of method IDs.
+#'
+#' @keywords internal
+#' @noRd
+.validate_anchor_definitions <- function(config, method_ids = NULL) {
+  methods_to_check <- if (!is.null(method_ids)) {
+    intersect(method_ids, names(config$methods))
+  } else {
+    names(config$methods)
+  }
+
+  for (nm in methods_to_check) {
+    m <- config$methods[[nm]]
+
+    anchor <- m$anchor_table
+
+    if (is.null(anchor) || length(anchor) != 1 || !nzchar(anchor)) {
+      cli::cli_abort(
+        c(
+          "Invalid method anchor definition",
+          "x" = "Method {.val {nm}} must define one anchor table"
+        ),
+        class = c("bronze", "anchor")
+      )
+    }
+
+    if (is.null(m$partition_column) || !nzchar(m$partition_column)) {
+      cli::cli_abort(
+        c(
+          "Invalid partition definition",
+          "x" = "Method {.val {nm}} must define a partition_column"
+        ),
+        class = c("bronze", "anchor")
+      )
+    }
+
+    if (is.null(m$identity_keys) || length(m$identity_keys) == 0) {
+      cli::cli_abort(
+        c(
+          "Invalid identity key definition",
+          "x" = "Method {.val {nm}} must define identity_keys for anchor inheritance"
+        ),
+        class = c("bronze", "anchor")
+      )
+    }
+  }
+
+  invisible(TRUE)
+}
+
+#' Prepare Bronze promotion preview
+#'
+#' Computes the anchor source, affected years, and tables for a batch
+#' without performing any writes.
+#'
+#' @param batch One-row batch metadata data frame.
+#' @param config xacc_config object.
+#' @return A list describing the planned Bronze promotion.
+#'
+#' @keywords internal
+#' @noRd
+.prepare_bronze_promotion_preview <- function(batch, config) {
+
+  method_cfg <- config$methods[[batch$method_id]]
+
+  anchor_keys <- method_cfg$identity_keys
+  if (is.null(anchor_keys) || length(anchor_keys) == 0) {
+    cli::cli_abort(
+      c(
+        "Missing method identity keys",
+        "x" = "Method {.val {batch$method_id}} must define identity_keys to inherit anchor_time",
+        "i" = "These keys must exist in the anchor table and all secondary tables"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
+  anchor_table  <- method_cfg$anchor_table
+  anchor_column <- method_cfg$partition_column
+  anchor_source <- paste0(anchor_table, ".", anchor_column)
+
+  batch_dir <- fs::path(
+    config$local$paths$batch,
+    batch$batch_id
+  )
+
+  anchor_path <- fs::path(batch_dir, paste0(anchor_table, ".parquet"))
+  if (!fs::file_exists(anchor_path)) {
+    cli::cli_abort(
+      c(
+        "Anchor table missing",
+        "x" = "Required anchor table {.val {anchor_table}} was not found",
+        "i" = "Expected location: {.file {batch_dir}}"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
+  anchor_df <- arrow::read_parquet(anchor_path)
+
+  missing_keys <- setdiff(anchor_keys, names(anchor_df))
+  if (length(missing_keys) > 0) {
+    cli::cli_abort(
+      c(
+        "Anchor keys missing in anchor table",
+        "x" = "Anchor table {.val {anchor_table}} is missing required keys: {.val {missing_keys}}",
+        "i" = "Table location: {.file {anchor_path}}"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
+  if (!anchor_column %in% names(anchor_df)) {
+    cli::cli_abort(
+      c(
+        "Missing anchor column",
+        "x" = "Column {.val {anchor_column}} not found in anchor table {.val {anchor_table}}",
+        "i" = "Table location: {.file {anchor_path}}"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
+  anchor_year <- as.integer(
+    format(as.Date(anchor_df[[anchor_column]]), "%Y")
+  )
+
+  ak         <- .make_key(anchor_df, anchor_keys)
+  key_lookup <- stats::setNames(anchor_df[[anchor_column]], ak)
+
+  if (anyDuplicated(ak)) {
+    cli::cli_abort(
+      c(
+        "Anchor keys are not unique",
+        "x" = "Anchor table {.val {anchor_table}} contains duplicate identity keys",
+        "i" = "Cannot deterministically inherit anchor_time",
+        "i" = "Batch: {.val {batch$batch_id}}"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
+  tables <- fs::path_ext_remove(
+    fs::path_file(fs::dir_ls(batch_dir, glob = "*.parquet"))
+  )
+
+  list(
+    batch_id              = batch$batch_id,
+    stream_id             = batch$stream_id,
+    method_id             = batch$method_id,
+    anchor_source         = anchor_source,
+    anchor_table          = anchor_table,
+    anchor_column         = anchor_column,
+    anchor_keys           = anchor_keys,
+    key_lookup            = key_lookup,
+    years                 = sort(unique(anchor_year)),
+    tables                = tables,
+    created_at            = batch$created_at,
+    partition_granularity = config$streams[[batch$stream_id]]$partition_granularity %||% "year"
+  )
+}
+
+#' Apply append-only Bronze promotion
+#'
+#' Writes immutable Parquet shards for each promoted batch, partitioned by anchor year.
+#' No existing Bronze Parquet files are read or rewritten.
+#'
+#' @param preview Prepared Bronze promotion preview.
+#' @param config xacc_config object.
+#'
+#' @keywords internal
+#' @noRd
+.apply_bronze_promotion <- function(preview, config) {
+  batch_dir    <- fs::path(config$local$paths$batch, preview$batch_id)
+  anchor_table <- preview$anchor_table
+  anchor_keys  <- preview$anchor_keys
+  key_lookup   <- preview$key_lookup
+  granularity  <- preview$partition_granularity %||% "year"
+
+  if (anyDuplicated(names(key_lookup))) {
+    cli::cli_abort(
+      c(
+        "Anchor table keys are not unique",
+        "x" = "Cannot inherit anchor_time deterministically from anchor table {.val {anchor_table}}",
+        "i" = "Method: {.val {preview$method_id}}",
+        "i" = "Batch: {.val {preview$batch_id}}"
+      ),
+      class = c("bronze", "anchor")
+    )
+  }
+
+  for (pq in fs::dir_ls(batch_dir, glob = "*.parquet")) {
+
+    table_name <- fs::path_ext_remove(fs::path_file(pq))
+    df         <- arrow::read_parquet(pq)
+
+    missing_in_df <- setdiff(anchor_keys, names(df))
+    if (length(missing_in_df) > 0 && table_name != anchor_table) {
+      cli::cli_abort(
+        c(
+          "Secondary table cannot inherit anchor_time",
+          "x" = "Table {.val {table_name}} missing keys required to join to anchor table: {.val {missing_in_df}}",
+          "i" = "Batch: {.val {preview$batch_id}}"
+        ),
+        class = c("bronze", "anchor")
+      )
+    }
+
+    df$`__anchor_time` <- key_lookup[.make_key(df, anchor_keys)]
+
+    if (any(is.na(df$`__anchor_time`))) {
+      cli::cli_abort(
+        c(
+          "Anchor inheritance failed",
+          "x" = "{sum(is.na(df$`__anchor_time`))} row(s) in {.val {table_name}} unmatched",
+          "i" = "Batch: {.val {preview$batch_id}}"
+        ),
+        class = c("bronze", "anchor")
+      )
+    }
+
+    df$`__batch_id`         <- preview$batch_id
+    df$`__stream_id`        <- preview$stream_id
+    df$`__method_id`        <- preview$method_id
+    df$`__anchor_source`    <- preview$anchor_source
+    df$`__batch_created_at` <- preview$created_at
+    df$`__ingested_at`      <- .now_iso()
+    df$`__anchor_year`      <- as.integer(format(as.Date(df$`__anchor_time`), "%Y"))
+
+    if (granularity == "year") {
+      part_dir <- paste0("year=", df$`__anchor_year`)
+    } else if (granularity == "month") {
+      df$`__anchor_month` <- as.integer(format(as.Date(df$`__anchor_time`), "%m"))
+      part_dir <- paste0(
+        "year=", df$`__anchor_year`,
+        "/month=", sprintf("%02d", df$`__anchor_month`)
+      )
+    } else {
+      cli::cli_abort(
+        c(
+          "Unsupported partition granularity",
+          "x" = "Stream {.val {preview$stream_id}} declares unsupported granularity: {.val {granularity}}",
+          "i" = "Supported values: 'year', 'month'"
+        ),
+        class = c("bronze", "partition")
+      )
+    }
+
+    for (pdir in unique(part_dir)) {
+
+      target_dir <- fs::path(
+        config$local$paths$bronze,
+        paste0(preview$stream_id, "__", preview$method_id),
+        pdir
+      )
+      fs::dir_create(target_dir, recurse = TRUE)
+
+      rows_to_append <- df[part_dir == pdir, ]
+      if (nrow(rows_to_append) == 0) next
+
+      target_file <- fs::path(target_dir, paste0(table_name, "__", preview$batch_id, ".parquet"))
+
+      if (fs::file_exists(target_file)) {
+        cli::cli_abort(
+          c(
+            "Bronze shard already exists",
+            "x" = "Refusing to overwrite existing shard (append-only invariant)",
+            "i" = "File: {.file {target_file}}"
+          ),
+          class = c("bronze", "append_only")
+        )
+      }
+
+      arrow::write_parquet(rows_to_append, target_file)
+    }
+  }
+
+  invisible(TRUE)
+}
+
+#' Current timestamp in ISO-8601 format
+#'
+#' @return Character scalar timestamp formatted as YYYY-MM-DDTHH:MM:SS±ZZZZ.
+#' @keywords internal
+#' @noRd
+.now_iso <- function() {
+  format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z")
+}
+
+#' Build composite key for anchor inheritance joins
+#'
+#' @param df Data frame-like object.
+#' @param keys Character vector of key columns.
+#' @return Character vector of composite keys (row-wise).
+#' @keywords internal
+#' @noRd
+.make_key <- function(df, keys) {
+  do.call(paste, c(df[keys], sep = "\r"))
+}
+
+#' Return batch ids that were successfully promoted
+#'
+#' @param state bronze layer state
+#' @return character vector batch ids
+#' @keywords internal
+#' @noRd
+.promoted_batch_ids <- function(state) {
+  log <- state$promotion_log
+  if (length(log) == 0) return(character(0))
+
+  ids <- vapply(log, function(e) {
+    if (!is.null(e$status) && identical(e$status, "success")) e$batch_id else NA_character_
+  }, character(1))
+
+  unique(stats::na.omit(ids))
+}
+
+#' Build a promotion event
+#'
+#' @param preview preview list produced by .prepare_bronze_promotion_preview()
+#' @param config xacc_config object
+#' @param status Character scalar. Always "success" — logged only on completion.
+#' @return list (promotion event)
+#' @keywords internal
+#' @noRd
+.make_promotion_event <- function(preview, config, status = "success") {
+  user <- Sys.getenv("USERNAME")
+  if (!nzchar(user)) user <- Sys.getenv("USER")
+  user <- user %||% NA_character_
+
+  host <- Sys.info()[["nodename"]] %||% NA_character_
+
+  list(
+    batch_id      = preview$batch_id,
+    stream_id     = preview$stream_id,
+    method_id     = preview$method_id,
+    status        = status,
+    promoted_at   = .now_iso(),
+    anchor_source = preview$anchor_source %||% NA_character_,
+    anchor_years  = preview$years %||% integer(0),
+    tables        = preview$tables %||% character(0),
+    tool          = config$runtime$tool$name %||% NA_character_,
+    tool_version  = config$runtime$tool$version %||% NA_character_,
+    user          = user,
+    host          = host
+  )
+}
+
+## CLI --------------------------------------------------------------------
+
+#' Print Bronze promotion preview
+#'
+#' @param previews List of prepared preview objects.
+#' @keywords internal
+#' @noRd
+.print_bronze_preview <- function(previews) {
+
+  cli::cli_h2("Bronze Promotion Preview")
+
+  for (p in previews) {
+    cli::cli_h3("Batch {.val {p$batch_id}}")
+
+    cli::cli_bullets(c(
+      "Stream          : {.val {p$stream_id}}",
+      "Method          : {.val {p$method_id}}",
+      "Anchor source   : {.val {p$anchor_source}}",
+      "Anchor years    : {.val {paste(p$years, collapse = ', ')}}",
+      "Tables promoted : {.val {paste(p$tables, collapse = ', ')}}"
+    ))
+  }
+
+  cli::cli_alert_warning(
+    "Bronze promotion is append-only and irreversible."
+  )
+
+  invisible(TRUE)
+}
+
+#' Confirm Bronze promotion
+#'
+#' @param confirm Logical. If TRUE, prompt user before writing.
+#' @keywords internal
+#' @noRd
+.confirm_bronze_promotion <- function(confirm) {
+
+  if (!isTRUE(confirm)) {
+    return(invisible(TRUE))
+  }
+
+  answer <- readline("Proceed with Bronze promotion? [y/N]: ")
+
+  if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
+    cli::cli_abort("Bronze promotion aborted by user.", class = "bronze_abort")
+  }
+
+  invisible(TRUE)
+}
+'''
+R/core_config.R
+'''
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# core_config.R
+#
+# Configuration and options loading for the xpipe control plane.
+#
+# Approach: Parses and validates JSON configurations and schema files,
+# manages runtime context (like the pepper key), and normalizes paths.
+# It ensures that local infrastructure and remote layer configurations
+# are properly structured before any pipeline tasks occur.
+#
+# Public API:  load_xpipe_config()
+# Internals:   .find_asset(), .validate_json_schema(), .read_json_safe(),
+#              .load_runtime_context(), .load_local_config(), .normalize_paths(),
+#              .validate_batch_layer(), .validate_batch_hash(), .load_batch_layer(),
+#              .load_streams_contract(), .load_methods_contract()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Internal environment to hold package state
+.xpipe_env <- new.env(parent = emptyenv())
+
+# Public API ---------------------------------------------------------------
+
+#' Load and Validate Configuration
+#'
+#' Loads the full xpipe control-plane configuration, including:
+#' - runtime context
+#' - local infrastructure configuration
+#' - batch layer metadata
+#' - streams contract (domain semantics)
+#' - methods contract (ingestion mechanics)
+#'
+#' @param path Path to local.json.
+#' @param project_root Project root.
+#' @return xpipe_config object.
+#' @export
+load_xpipe_config <- function(path = NULL, project_root = NULL) {
+  config <- list()
+
+  # Runtime context
+  config$runtime <- .load_runtime_context()
+
+  # Local configuration
+  config$local <- .load_local_config(path, project_root)
+
+  # Batch layer metadata (data layer state)
+  config$batch <- .load_batch_layer(config$local, config$runtime)
+
+  # Streams contract
+  streams_contract <- .load_streams_contract(config$local)
+  config$streams_meta <- streams_contract$meta
+  config$streams      <- streams_contract$streams
+
+  # Methods contract
+  config$methods <- .load_methods_contract(config$local)
+
+  # Validate schema domains consistency
+  stream_domains  <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
+  method_domains  <- unique(vapply(config$methods, `[[`, "", "schema_domain"))
+
+  unknown_domains <- setdiff(method_domains, stream_domains)
+
+  if (length(unknown_domains) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid configuration",
+        "x" = "Methods reference unknown schema_domain(s): {.val {unknown_domains}}",
+        "i" = "Defined stream domains: {.val {stream_domains}}"
+      ),
+      class = c("config", "schema_domain")
+    )
+  }
+
+  cli::cli_alert_success("Configuration system loaded and validated.")
+
+  config_obj <- structure(config, class = "xpipe_config")
+  .xpipe_env$config <- config_obj
+
+  invisible(config_obj)
+}
+
+
+
+
+# Internal API ------------------------------------------------------------
+
+
+#' Retrieve Active xpipe Configuration
+#'
+#' @return An xpipe_config object.
+#' @keywords internal
+get_xpipe_config <- function() {
+  if (is.null(.xpipe_env$config)) {
+    cli::cli_abort(
+      c(
+        "Configuration not loaded",
+        "x" = "No active configuration found in the package environment.",
+        "i" = "Call {.code load_xpipe_config()} before running pipeline tasks."
+      ),
+      class = "config_missing"
+    )
+  }
+  .xpipe_env$config
+}
+
+
+# Helper functions --------------------------------------------------------
+
+
+#' Find Internal Asset
+#'
+#' Resilient helper to locate internal files (config, schemas) in both
+#' development and installed package modes.
+#'
+#' @param ... Character strings defining the subpath within 'inst'.
+#' @return Character scalar. The absolute path to the asset.
+#' @noRd
+.find_asset <- function(...) {
+  search_paths <- c(".", "..", "../..")
+
+  for (base in search_paths) {
+    dev_path <- fs::path_abs(fs::path(base, "inst", ...))
+    if (fs::file_exists(dev_path) || fs::dir_exists(dev_path)) {
+      return(dev_path)
+    }
+  }
+
+  pkg_path <- system.file(..., package = "xpipe")
+  if (pkg_path != "") {
+    return(pkg_path)
+  }
+
+  cli::cli_abort(
+    c(
+      "Internal asset not found",
+      "x" = "Could not locate {.file {fs::path(...)}}"
+    ),
+    class = "asset_not_found"
+  )
+}
+
+#' Validate JSON File Against Internal Schema
+#'
+#' @param json_path Path to JSON file.
+#' @param schema_name Schema file name.
+#' @param title Error title.
+#' @param class Error classes.
+#' @return Invisibly TRUE if valid.
+#' @noRd
+.validate_json_schema <- function(json_path, schema_name, title, class) {
+  if (!fs::file_exists(json_path)) {
+    cli::cli_abort(
+      c(title, "x" = "JSON file not found: {.file {json_path}}"),
+      class = class
+    )
+  }
+
+  schema_path <- .find_asset("schema", schema_name)
+
+  ok <- jsonvalidate::json_validate(
+    json_path,
+    schema = schema_path,
+    engine = "ajv",
+    verbose = TRUE
+  )
+
+  if (!ok) {
+    cli::cli_abort(
+      c(
+        title,
+        "x" = "JSON does not conform to schema",
+        "i" = "Schema: {.file {schema_path}}",
+        "i" = "File: {.file {json_path}}"
+      ),
+      class = class
+    )
+  }
+
+  invisible(TRUE)
+}
+
+#' Read JSON Safely
+#'
+#' @param path Path to JSON file.
+#' @param error_title Error title.
+#' @param error_class Error classes.
+#' @return Parsed JSON as list.
+#' @noRd
+.read_json_safe <- function(path, error_title, error_class) {
+  if (!fs::file_exists(path)) {
+    cli::cli_abort(
+      c(error_title, "x" = "JSON file not found: {.file {path}}"),
+      class = error_class
+    )
+  }
+
+  tryCatch(
+    jsonlite::fromJSON(path, simplifyVector = TRUE),
+    error = function(e) {
+      # Escape braces so cli/glue cannot interpret them
+      msg <- conditionMessage(e)
+      msg <- gsub("\\{", "{{", msg)
+      msg <- gsub("\\}", "}}", msg)
+
+      cli::cli_abort(
+        c(
+          error_title,
+          "x" = "Invalid JSON syntax",
+          "i" = msg
+        ),
+        class = error_class
+      )
+    }
+  )
+}
+
+
+## Runtime context --------------------------------------------------------
+
+#' Load Runtime Context
+#'
+#' Initializes the ephemeral runtime context for the current process.
+#'
+#' The runtime context contains environment-bound and non-persistent
+#' information such as cryptographic keys and load timestamps.
+#'
+#' This is NOT a data layer and does not represent persisted state.
+#'
+#' @return Runtime context configuration.
+#' @noRd
+.load_runtime_context <- function() {
+  runtime <- list(
+    tool = list(
+      name    = "xpipe",
+      version =
+        if (requireNamespace("xpipe", quietly = TRUE)) {
+          as.character(utils::packageVersion("xpipe"))
+        } else {
+          "dev"
+        }
+    ),
+    pepper = Sys.getenv("XNE_PEPPER_KEY"),
+    loaded_at = Sys.time()
+  )
+
+  if (is.null(runtime$pepper) || runtime$pepper == "") {
+    cli::cli_abort(
+      "Environment variable {.envvar XNE_PEPPER_KEY} not found.",
+      class = c("config", "runtime", "crypto")
+    )
+  }
+
+  runtime
+}
+
+## Local configuration ----------------------------------------------------
+
+#' Load Local Configuration
+#'
+#' Loads and normalizes environment-specific infrastructure configuration.
+#'
+#' The local configuration defines filesystem paths, logging locations,
+#' and other deployment-specific settings required to run the system.
+#'
+#' This is NOT a data layer and does not encode domain or semantic rules.
+#'
+#' @param path Path to local.json.
+#' @param project_root Root for resolving relative paths.
+#' @return Normalized local configuration.
+#' @noRd
+.load_local_config <- function(path = NULL, project_root = NULL) {
+  if (is.null(path)) {
+    path <- .find_asset("_xne", "local.json")
+  }
+
+  .validate_json_schema(
+    json_path = path,
+    schema_name = "local.schema.json",
+    title = "Invalid local.json",
+    class = c("config_options", "schema")
+  )
+
+  local_cfg <- .read_json_safe(
+    path,
+    error_title = "Invalid local configuration",
+    error_class = "local_options"
+  )
+
+  .normalize_paths(local_cfg, project_root)
+}
+
+#' Normalize Configuration Paths
+#'
+#' Resolves and validates all filesystem paths defined in local.json.
+#'
+#' Ensures that paths are absolute, normalized, and exist on disk.
+#' This function operates purely at the infrastructure level.
+#'
+#' @param local_config Raw local configuration.
+#' @param project_root Base path.
+#' @return Normalized local configuration.
+#' @noRd
+.normalize_paths <- function(local_config, project_root = NULL) {
+  if (is.null(project_root)) {
+    project_root <- fs::path_abs(".")
+  }
+
+  if (is.null(local_config$paths)) {
+    cli::cli_abort(
+      c("Invalid configuration", "x" = "Missing {.field paths}"),
+      class = c("local_options", "paths")
+    )
+  }
+
+  local_config$paths <- lapply(local_config$paths, function(p) {
+    p <- fs::path_expand(p)
+    p <- if (fs::is_absolute_path(p)) fs::path_norm(p)
+    else fs::path_norm(fs::path(project_root, p))
+
+    if (!fs::dir_exists(p)) {
+      cli::cli_abort(
+        c("Invalid configuration path", "x" = "Path {.file {p}} does not exist"),
+        class = c("local_options", "paths")
+      )
+    }
+
+    p
+  })
+
+  if (!is.null(local_config$logging$path)) {
+    p <- fs::path_norm(fs::path(project_root, local_config$logging$path))
+    local_config$logging$path <- p
+  }
+
+  local_config
+}
+
+
+## Batch layer (Remote) ---------------------------------------------------
+
+#' Validate Batch Layer Presence and Metadata
+#'
+#' Validates the Batch data layer location and the presence of its
+#' persistent metadata file (`layer.json`).
+#'
+#' The Batch layer is a medallion DATA layer. The associated `layer.json`
+#' represents layer STATE (integrity and provenance), not configuration
+#' or domain semantics.
+#'
+#' @param local_config Local configuration.
+#' @return Path to layer.json.
+#' @noRd
+.validate_batch_layer <- function(local_config) {
+  batch_path <- local_config$paths$batch
+
+  if (is.null(batch_path) || !nzchar(batch_path)) {
+    cli::cli_abort(
+      c(
+        "Invalid configuration",
+        "x" = "Batch layer path not set",
+        "i" = "Expected field: paths.batch"
+      ),
+      class = c("local_options", "paths")
+    )
+  }
+
+  if (!fs::dir_exists(batch_path)) {
+    cli::cli_abort(
+      c(
+        "Invalid Batch layer",
+        "x" = "Batch layer directory does not exist",
+        "i" = "Path: {.file {batch_path}}"
+      ),
+      class = c("batch_layer", "paths")
+    )
+  }
+
+  layer_json <- fs::path(batch_path, "layer.json")
+  if (!fs::file_exists(layer_json)) {
+    cli::cli_abort(
+      c(
+        "Invalid Batch layer metadata",
+        "x" = "Required file {.file layer.json} not found",
+        "i" = "Expected: layer.json in {.file {batch_path}}"
+      ),
+      class = c("batch_layer", "metadata")
+    )
+  }
+
+  .validate_json_schema(
+    json_path   = layer_json,
+    schema_name = "batch_layer.schema.json",
+    title       = "Invalid Batch layer metadata",
+    class       = c("config_options", "batch_layer", "schema")
+  )
+
+  layer_json
+}
+
+#' Validate Batch Layer Integrity Hash
+#'
+#' Verifies the integrity of the Batch layer metadata using a shared
+#' cryptographic secret. This protects against accidental or unauthorized
+#' modification of layer state.
+#'
+#' @param layer_options Parsed layer.json.
+#' @param pepper Runtime key.
+#' @param test_string Internal test string.
+#' @noRd
+.validate_batch_hash <- function(
+    layer_options,
+    pepper,
+    test_string = "byut5f778DfOPth567"
+) {
+  # Bypass hash check if environment variable is set
+  if (Sys.getenv("XPIPE_SKIP_HASH_CHECK") == "TRUE") {
+    cli::cli_alert_warning("Bypassing Batch layer integrity hash check.")
+    return(invisible(TRUE))
+  }
+
+  expected_hash <- layer_options$expected_hash
+
+  if (is.null(expected_hash) || expected_hash == "") {
+    cli::cli_abort(
+      c(
+        "Invalid Batch layer metadata",
+        "x" = "Missing expected_hash in layer.json"
+      ),
+      class = c("batch_layer", "crypto")
+    )
+  }
+
+  if (hash_phi(test_string, pepper) != expected_hash) {
+    cli::cli_abort(
+      c(
+        "Invalid Batch layer metadata",
+        "x" = "Hash mismatch. System will not start."
+      ),
+      class = c("batch_layer", "crypto")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+#' Load Batch Layer Metadata
+#'
+#' Loads and validates the persistent metadata describing the Batch
+#' medallion layer. This metadata represents STATE of the data layer,
+#' not configuration or domain logic.
+#'
+#' @param local_config Local configuration.
+#' @param runtime_config Runtime context.
+#' @return Parsed and validated Batch layer metadata.
+#' @noRd
+.load_batch_layer <- function(local_config, runtime_config) {
+  layer_json <- .validate_batch_layer(local_config)
+
+  layer_options <- .read_json_safe(
+    path = layer_json,
+    error_title = "Invalid Batch layer metadata",
+    error_class = c("json_options", "batch_layer")
+  )
+
+  .validate_batch_hash(layer_options, runtime_config$pepper)
+
+  layer_options
+}
+
+
+## Streams contract (Remote) ----------------------------------------------
+
+#' Load Streams Contract
+#'
+#' Loads and validates the Streams contract, which defines domain-level
+#' semantic invariants (streams) used across Batch, Bronze, and Silver.
+#'
+#' The Streams contract is GOVERNANCE METADATA, not configuration and not
+#' a medallion data layer.
+#'
+#' @param local_config Local configuration.
+#' @return A list with two elements:
+#'   - meta: streams contract metadata
+#'   - streams: named list of stream definitions
+#' @noRd
+.load_streams_contract <- function(local_config) {
+  path <- fs::path(local_config$paths$shared, "streams.json")
+
+  .validate_json_schema(
+    json_path  = path,
+    schema_name = "streams.schema.json",
+    title = "Invalid streams.json",
+    class = c("config_options", "schema")
+  )
+
+  raw <- .read_json_safe(
+    path,
+    error_title = "Invalid streams contract",
+    error_class = "streams_options"
+  )
+
+  # Extract and validate contract metadata
+  meta <- raw$`_meta`
+
+  if (is.null(meta) || is.null(meta$type) || meta$type != "streams_contract") {
+    cli::cli_abort(
+      c(
+        "Invalid streams contract",
+        "x" = "Missing or invalid {.field _meta.type}",
+        "i" = "Expected: 'streams_contract'"
+      ),
+      class = c("streams_contract", "metadata")
+    )
+  }
+
+  # Extract actual streams
+  streams <- raw[names(raw) != "_meta"]
+
+  if (length(streams) == 0) {
+    cli::cli_abort(
+      c(
+        "Invalid streams contract",
+        "x" = "No stream definitions found"
+      ),
+      class = c("streams_contract", "streams")
+    )
+  }
+
+  #  Minimal semantic validation
+  for (nm in names(streams)) {
+    s <- streams[[nm]]
+
+    missing_fields <- setdiff(
+      c("label", "anchor", "partition_granularity", "valid_from"),
+      names(s)
+    )
+
+    if (length(missing_fields) > 0) {
+      cli::cli_abort(
+        c(
+          "Invalid stream definition",
+          "x" = "Stream {.val {nm}} missing required fields: {.val {missing_fields}}"
+        ),
+        class = c("streams_contract", "streams")
+      )
+    }
+
+    if (!(s$anchor %in% c("start", "end"))) {
+      cli::cli_abort(
+        c(
+          "Invalid stream definition",
+          "x" = "Stream {.val {nm}} has invalid anchor: {.val {s$anchor}}",
+          "i" = "Allowed: 'start', 'end'"
+        ),
+        class = c("streams_contract", "streams")
+      )
+    }
+  }
+
+  list(
+    meta    = meta,
+    streams = streams
+  )
+}
+
+## Methods contract (Remote) ------------------------------------------------
+
+#' Load Methods Contract
+#'
+#' Loads and validates the Methods contract, which defines ingestion
+#' mechanics and extraction rules used to materialize Batch data.
+#'
+#' A Method describes HOW data is ingested (format, components,
+#' identity, partitioning, privacy), not WHAT the data means.
+#'
+#' The Methods contract is a CONTROL-PLANE artifact and must not
+#' be confused with medallion data layers.
+#'
+#' @param local_config Local configuration.
+#' @return Validated methods configuration.
+#' @noRd
+.load_methods_contract <- function(local_config) {
+  path <- fs::path(local_config$paths$shared, "methods.json")
+
+  .validate_json_schema(
+    json_path = path,
+    schema_name = "methods.schema.json",
+    title = "Invalid methods.json",
+    class = c("config_options", "schema")
+  )
+
+  .read_json_safe(
+    path,
+    error_title = "Invalid methods contract",
+    error_class = "methods_options"
+  )
+}
+
+
+## S3 Print Methods --------------------------------------------------------------
+
+#' Render Configuration Gracefully
+#'
+#' Provides a structured console summary of the active control-plane
+#' configuration.
+#'
+#' @param x An S3 object of class \code{xpipe_config}.
+#' @param ... Additional arguments (ignored).
+#' @noRd
+.render_config <- function(x, ...) {
+  cli::cli_div(
+    theme = list(
+      rule = list(color = "cyan", "line-type" = "double")
+    )
+  )
+  cli::cli_rule("Configuration", right = "xpipe")
+
+  # 1. RUNTIME CONTEXT
+  cli::cli_h2("Runtime Context")
+  cli::cli_bullets(c(
+    "Loaded at : {.val {format(x$runtime$loaded_at)}}",
+    "Security  : HMAC-SHA256 (Masked Pepper: {.val {substr(x$runtime$pepper, 1, 4)}}...)"
+  ))
+
+  # 2. LOCAL INFRASTRUCTURE
+  cli::cli_h2("Local Infrastructure")
+  if (!is.null(x$local$paths)) {
+    cli::cli_bullets(
+      purrr::imap_chr(
+        x$local$paths,
+        ~ paste0("{.strong ", format(.y, width = 10), "} : {.file ", .x, "}")
+      )
+    )
+  }
+
+  # 3. STREAMS CONTRACT (Semantic Truth)
+  cli::cli_h2("Streams Contract")
+  if (!is.null(x$streams_meta)) {
+    cli::cli_bullets(c(
+      "Contract type : {.val {x$streams_meta$type}}",
+      "Version       : {.val {x$streams_meta$version}}",
+      "Maintainer    : {.val {x$streams_meta$maintainer}}",
+      "Last updated  : {.val {x$streams_meta$last_updated}}"
+    ))
+  }
+
+  if (!is.null(x$streams)) {
+    stream_bullets <- purrr::imap_chr(
+      x$streams,
+      function(v, nm) {
+        paste0(
+          "{.strong ", nm, "} ",
+          "[", v$label, "] ",
+          "(domain: ", v$schema_domain, " | ",
+          "anchor: ", v$anchor, " | ",
+          "partition: ", v$partition_granularity, ")"
+        )
+      }
+    )
+    cli::cli_bullets(stream_bullets)
+  }
+
+  # 4. METHODS CONTRACT (Ingestion Mechanics)
+  cli::cli_h2("Methods Contract")
+  if (!is.null(x$methods)) {
+    method_bullets <- purrr::imap_chr(
+      x$methods,
+      function(v, nm) {
+        paste0(
+          "{.strong ", nm, "} ",
+          "> domain: ", v$schema_domain, " ",
+          "[", v$type, "]"
+        )
+      }
+    )
+    cli::cli_bullets(method_bullets)
+  }
+
+  # 5. BATCH LAYER STATUS
+  cli::cli_h2("Batch Layer State")
+  cli::cli_alert_success("Batch layer metadata validated and trusted.")
+
+  cli::cli_rule()
+  cli::cli_end()
+
+  invisible(x)
+}
+
+#' Print xpipe_config
+#'
+#' @param x xpipe_config object.
+#' @param ... Ignored.
+#' @noRd
+print.xpipe_config <- function(x, ...) {
+  .render_config(x, ...)
+}
+'''
+R/core_crypto.R
+'''
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# crypto.R
+#
+# Pseudonymization and privacy rule application.
+#
+# Approach: PHI columns are pseudonymized using HMAC-SHA256 with a runtime
+# pepper loaded from the environment. The pepper is never stored on disk.
+# Pseudonymization is deterministic (same input + pepper = same hash), which
+# allows downstream joins without exposing raw identifiers.
+#
+# Public API:  apply_privacy_rules()
+# Internal:    hash_phi(), .pseudonymize_cols()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# Private API ------------------------------------------------------------------
+
+#' Apply Privacy Rules to an Extracted Data Frame
+#'
+#' Applies method-level privacy rules to a data frame produced during batch
+#' extraction. Two rule types are supported:
+#'
+#' - **Pseudonymization**: selected columns are replaced with HMAC-SHA256
+#'   hashes, keyed by a runtime pepper. Hashing is deterministic and
+#'   case/whitespace-insensitive.
+#' - **Column removal**: columns listed under `skip` are dropped entirely
+#'   before persistence.
+#'
+#' Rules are defined in `methods.json` and loaded as part of the method
+#' configuration. This function is called by the batch materialization
+#' pipeline and should not need to be invoked directly.
+#'
+#' @param df Data frame to process.
+#' @param method_config Named list containing privacy rule fields
+#'   (`pseudonymize`, `skip`) as defined in the methods contract.
+#' @param pepper Character scalar. HMAC key loaded from the environment
+#'   via [load_xpipe_config()]. Must be non-empty.
+#'
+#' @return The input data frame with privacy rules applied.
+#'
+#' @seealso [hash_phi()] for the underlying hashing primitive.
+#' @keywords internal
+apply_privacy_rules <- function(df, method_config, pepper) {
+  cli::cli_alert_info("Applying privacy rules for method: {.val {method_config$type}}")
+
+  if (!is.null(method_config$pseudonymize)) {
+    df <- .pseudonymize_cols(df, method_config$pseudonymize, pepper)
+  }
+
+  if (!is.null(method_config$skip)) {
+    existing_skip <- intersect(method_config$skip, names(df))
+    if (length(existing_skip) > 0) {
+      cli::cli_inform("Removing skipped columns: {paste(existing_skip, collapse = ', ')}")
+      df <- dplyr::select(df, -dplyr::all_of(existing_skip))
+    }
+  }
+
+  cli::cli_alert_success("Privacy rules applied successfully.")
+  df
+}
+
+
+
+#' HMAC-SHA256 Hash for PHI
+#'
+#' Hashes a character vector using HMAC-SHA256 keyed by a runtime pepper.
+#' Input is uppercased and stripped of leading/trailing whitespace before
+#' hashing, making the operation case- and whitespace-insensitive.
+#' `NA` and empty strings are returned as `NA_character_`.
+#'
+#' @param text Character vector of values to hash.
+#' @param pepper Character scalar. HMAC key. Must be non-empty.
+#'
+#' @return Character vector of hex-encoded HMAC-SHA256 hashes,
+#'   same length as `text`.
+#'
+#' @keywords internal
+hash_phi <- function(text, pepper) {
+  if (missing(pepper) || is.null(pepper) || pepper == "") {
+    cli::cli_abort("Missing key for hashing.")
+  }
+
+  pepper_raw <- charToRaw(pepper)
+
+  purrr::map_chr(text, function(x) {
+    if (is.na(x) || x == "") return(NA_character_)
+    x_clean <- toupper(trimws(as.character(x)))
+    as.character(openssl::sha256(charToRaw(x_clean), key = pepper_raw))
+  })
+}
+
+# Helpers ---------------------------------------------------------------------
+
+#' Pseudonymize Selected Columns
+#'
+#' @param df Data frame.
+#' @param cols Character vector of column names to pseudonymize.
+#' @param pepper Character scalar. HMAC key.
+#'
+#' @return Data frame with selected columns replaced by HMAC-SHA256 hashes.
+#'
+#' @noRd
+.pseudonymize_cols <- function(df, cols, pepper) {
+  existing <- intersect(cols, names(df))
+  if (length(existing) == 0) return(df)
+
+  cli::cli_inform("Pseudonymizing columns: {paste(existing, collapse = ', ')}")
+  dplyr::mutate(df, dplyr::across(dplyr::all_of(existing), ~ hash_phi(.x, pepper)))
+}
+'''
+R/layers_inspect.R
+'''
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# layers_inspect.R
+#
+# Layer inspection and formatting utilities.
+#
+# Approach: Scans the local filesystem for Batch layer directories,
+# parses metadata, and provides a structured representation for console display.
+#
+# Public API:  inspect_batch_layer()
+# Internals:   .format_datetime(), print.xpipe_batch_layer()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Helpers ----------------------------------------------------------------
+
+#' Format execution timestamps for display
+#'
+#' Converts ISO-8601 or SQL-style timestamps to a compact,
+#' human-readable \code{YYYY-MM-DD HH:MM} format.
+#'
+#' @param x Character vector of datetime strings.
+#' @return Character vector of formatted datetimes.
+#' @keywords internal
+#' @noRd
+.format_datetime <- function(x) {
+  format(as.POSIXct(x, tryFormats = c(
+    "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"
+  )), "%Y-%m-%d %H:%M")
+}
+
+## Public API -------------------------------------------------------------
+
+#' Inspect the Batch layer
+#'
+#' Scans the local Batch layer directory and returns a structured
+#' representation of all discovered batches and their metadata.
+#'
+#' Incomplete batches (missing \code{_batch_metadata.json}) are recorded
+#' but marked as such and excluded from detailed inspection.
+#'
+#' @param config An \code{xpipe_config} object.
+#'
+#' @return An object of class \code{xpipe_batch_layer} containing:
+#' \itemize{
+#'   \item \code{root} - batch layer root path
+#'   \item \code{count} - number of batch directories found
+#'   \item \code{batches} - named list of batch metadata
+#' }
+#'
+#' @export
+inspect_batch_layer <- function(config = get_xpipe_config()) {
+  if (!inherits(config, "xpipe_config")) {
+    cli::cli_abort("{.arg config} must be a valid xpipe_config",
+                   class = c("batch_layer", "config"))
+  }
+
+  batch_root <- config$local$paths$batch
+
+  if (!fs::dir_exists(batch_root)) {
+    cli::cli_abort(
+      "Batch layer directory does not exist: {.file {batch_root}}",
+      class = c("batch_layer", "paths")
+    )
+  }
+
+  batch_dirs <- fs::dir_ls(batch_root, type = "directory", recurse = FALSE)
+
+  # Defensive: remove empty directory names
+  batch_dirs <- batch_dirs[nzchar(basename(batch_dirs))]
+
+  ids <- basename(batch_dirs)
+  metadata_files <- fs::path(batch_dirs, "_batch_metadata.json")
+  has_meta <- fs::file_exists(metadata_files)
+
+  batches <- vector("list", length(ids))
+  names(batches) <- ids
+
+  for (i in seq_along(ids)) {
+    if (!has_meta[i]) {
+      batches[[i]] <- list(.status = "incomplete")
+      next
+    }
+
+    batches[[i]] <- jsonlite::fromJSON(metadata_files[i], simplifyVector = TRUE)
+  }
+
+  structure(list(
+    root    = batch_root,
+    count   = length(ids),
+    batches = batches
+  ),
+  class = "xpipe_batch_layer")
+}
+
+## S3 Print Methods ----------------------------------------------------------
+
+#' Print Method for xpipe_batch_layer
+#'
+#' @param x An object of class \code{xpipe_batch_layer}.
+#' @param ... Additional arguments (ignored).
+#' @export
+print.xpipe_batch_layer <- function(x, ...) {
+  cli::cli_div(theme = list(rule = list(
+    color = "cyan", "line-type" = "double"
+  )))
+
+  cli::cli_rule("Batch Layer", right = "xpipe")
+
+  cli::cli_bullets(c("Path        : {.file {x$root}}", "Batch count : {.val {x$count}}"))
+
+  if (x$count == 0) {
+    cli::cli_alert_info("No batches found.")
+    return(invisible(x))
+  }
+
+  # Filter valid batches
+  metas <- x$batches
+  metas <- metas[!vapply(metas, function(m)
+    isTRUE(m$.status == "incomplete"), logical(1))]
+
+  created <- vapply(metas, function(m)
+    as.POSIXct(m$execution$created_at, tz = "UTC"), as.POSIXct(NA))
+
+  latest_id <- names(which.max(created))
+  latest    <- metas[[latest_id]]
+
+  # Latest batch
+  cli::cli_h2("Latest Batch")
+  cli::cli_text("{.strong {latest_id}}")
+
+  cli::cli_bullets(c(
+    paste0(
+      "Stream       : ",
+      latest$stream$id,
+      " [",
+      latest$stream$schema_domain,
+      "]"
+    ),
+    paste0("Method       : ", latest$method$id, " [", latest$method$type, "]"),
+    paste0("Input        : ", latest$input$path),
+    paste0("Created at   : ", latest$execution$created_at),
+    paste0(
+      "Producer     : ",
+      latest$execution$tool,
+      " ",
+      latest$execution$tool_version
+    )
+  ))
+
+  # Components
+  if (!is.null(latest$components)) {
+    cli::cli_text("Components")
+
+    items <- purrr::imap_chr(latest$components, ~ paste0(.x))
+
+    cli::cli_ul(items)
+  }
+
+  # Other batches
+  others <- metas[names(metas) != latest_id]
+
+  if (length(others) > 0) {
+    cli::cli_h2("Other batches")
+
+    by_stream <- split(others, vapply(others, function(m)
+      m$stream$id, character(1)))
+
+    for (stream_id in names(by_stream)) {
+      cli::cli_h3("{stream_id} stream")
+
+      items <- vapply(names(by_stream[[stream_id]]), function(batch_id) {
+        m <- by_stream[[stream_id]][[batch_id]]
+        paste(batch_id,
+              "|",
+              m$method$id,
+              "|",
+              .format_datetime(m$execution$created_at))
+      }, character(1))
+
+      cli::cli_ul(items)
+    }
+  }
+
+  cli::cli_rule()
+  cli::cli_end()
+
+  invisible(x)
+}
+'''
+R/tools_access.R
+'''
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# tools_access.R
+#
+# Access Database Extractor for Batch Ingestion.
+#
+# Approach: Extracts data frames from .mdb or .accdb files using ODBC
+# (Windows) or mdb-export (Linux). Fully integrated with the batch
+# materialization pipeline.
+#
+# Public API:  extract_access_db()
+# Internals:   .connect_access_db()
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#' Connect to Access database using ODBC (Auto-detect Win/Linux)
+#'
+#' @param path_to_mdb Path to .mdb file.
+#' @return DBI connection object.
+#' @keywords internal
+#' @noRd
+.connect_access_db <- function(path_to_mdb) {
+  .mdb_path_abs <- normalizePath(path_to_mdb, winslash = "/", mustWork = TRUE)
+
+  is_windows <- .Platform$OS.type == "windows"
+
+  if (is_windows) {
+    driver_name <- "Microsoft Access Driver (*.mdb, *.accdb)"
+  } else {
+    drivers <- odbc::odbcListDrivers()
+    has_mdb <- any(grepl("MDBTools", drivers$name, ignore.case = TRUE))
+    if (has_mdb) {
+      driver_name <- drivers$name[grep("MDBTools", drivers$name, ignore.case = TRUE)][1]
+    } else {
+      driver_name <- "/usr/lib/x86_64-linux-gnu/odbc/libmdbodbc.so"
+    }
+  }
+
+  cli::cli_alert_info("Connecting using driver: {.val {driver_name}}")
+
+  con <- if (is_windows) {
+    DBI::dbConnect(
+      odbc::odbc(),
+      .connection_string = paste0(
+        "Driver={", driver_name, "};",
+        "DBQ=", .mdb_path_abs, ";"
+      )
+    )
+  } else {
+    DBI::dbConnect(
+      odbc::odbc(),
+      .connection_string = paste0("Driver=MDBTools;DBQ=", .mdb_path_abs, ";"),
+      timeout = 0
+    )
+  }
+  return(con)
+}
+
+#' Extract Access Database
+#'
+#' Extracts tables configured in the method component list from an Access Database.
+#'
+#' @param job Batch job object.
+#' @param path Path to .mdb file.
+#' @return A named list of data frames.
+#' @export
+extract_access_db <- function(job, path) {
+  is_windows <- .Platform$OS.type == "windows"
+
+  target_tables <- job$method_config$components
+
+  if (is.null(target_tables) || length(target_tables) == 0) {
+    cli::cli_abort(
+      c(
+        "No tables defined for extraction",
+        "x" = "Method {.val {job$method_id}} is missing the {.field components} list."
+      ),
+      class = c("batch_job", "config")
+    )
+  }
+
+  if (is_windows) {
+    con <- .connect_access_db(path)
+    on.exit(DBI::dbDisconnect(con))
+
+    cli::cli_alert_info("Reading {length(target_tables)} tables via ODBC (Windows)...")
+    dfs <- list()
+    for (t in target_tables) {
+      if (t %in% DBI::dbListTables(con)) {
+        cli::cli_inform("Reading: {.val {t}}")
+        dfs[[t]] <- tibble::as_tibble(DBI::dbReadTable(con, t))
+        cli::cli_alert_success("Read {.val {t}} : {nrow(dfs[[t]])} rows")
+      }
+    }
+    return(dfs)
+
+  } else {
+    cli::cli_alert_info("Reading {length(target_tables)} tables via mdb-export (Linux)...")
+
+    available_tables <- system2("mdb-tables", args = c("-1", shQuote(path)), stdout = TRUE)
+
+    dfs <- list()
+    for (t in target_tables) {
+      if (t %in% available_tables) {
+        cli::cli_inform("Exporting: {.val {t}}")
+
+        csv_data <- utils::read.csv(pipe(paste("mdb-export", shQuote(path), shQuote(t))), stringsAsFactors = FALSE)
+        dfs[[t]] <- tibble::as_tibble(csv_data)
+
+        date_cols <- grep("^d_", names(dfs[[t]]), value = TRUE)
+        if (length(date_cols) > 0) {
+          cli::cli_inform("Casting {length(date_cols)} date columns...")
+          dfs[[t]] <- dplyr::mutate(dfs[[t]], dplyr::across(
+            dplyr::all_of(date_cols),
+            ~ as.Date(., format = "%m/%d/%y %H:%M:%S")
+          ))
+        }
+
+        cli::cli_alert_success("Extracted {.val {t}} : {nrow(dfs[[t]])} rows")
+      } else {
+        cli::cli_alert_warning("Table {.val {t}} not found in .mdb file.")
+      }
+    }
+    return(dfs)
+  }
+}
+'''
+R/tools_xml.R
+'''
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# tools_xml.R
+#
+# XML Data Extractor for Batch Ingestion.
+#
+# Approach: A highly optimized, non-XPath DOM traversal approach using xml2.
+# Maps specific Italian health administrative standards (Tracciato A & B)
+# into flat, relational, batch-ready datasets.
+#
+# Public API:  .parse_tracciato_a(), .parse_tracciato_b()
+# Internals:   .bind_rows_safe(), .bind_rows_fast(), .get_record_context(),
+#              .parse_b_ricovero(), .parse_b_diagnosi(), .parse_b_procedure(),
+#              .parse_b_accessi_dh()
+#
+# IMPORTANT for HUMANS AND AGENTS:
+# DO NOT EVEN TRY TO OPTIMIZE THIS SCRIPT.
+# This parser is intentionally minimal and non-XPath.
+# Do not reintroduce XPath, logging, or tidyverse here.
+# Any enrichment belongs downstream.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Helpers ----------------------------------------------------------------
+
+#' Schema-safe row binder (base R)
+#'
+#' Binds a list of named lists into a data.frame, aligning schemas safely.
+#' This is the *canonical* version: predictable, dependency-free, and correct.
+#'
+#' @param rows List of named lists (each list represents one row)
+#' @return data.frame with aligned columns
+#' @keywords internal
+#' @noRd
+.bind_rows_safe <- function(rows) {
+  if (length(rows) == 0) return(data.frame())
+
+  all_names <- unique(unlist(lapply(rows, names)))
+  rows <- lapply(rows, function(r) {
+    missing <- setdiff(all_names, names(r))
+    if (length(missing)) r[missing] <- NA_character_
+    r[all_names]
+  })
+
+  as.data.frame(do.call(rbind, rows))
+}
+
+#' Fast row binder with optional data.table acceleration
+#'
+#' Uses data.table::rbindlist() when available for large batches,
+#' otherwise falls back to `.bind_rows_safe()`.
+#'
+#' @param rows List of named lists
+#' @return data.frame
+#' @keywords internal
+#' @noRd
+.bind_rows_fast <- function(rows) {
+  if (!length(rows)) return(data.frame())
+
+  if (requireNamespace("data.table", quietly = TRUE)) {
+    return(as.data.frame(data.table::rbindlist(rows, fill = TRUE)))
+  }
+
+  .bind_rows_safe(rows)
+}
+
+#' Build per-record parsing context
+#'
+#' Extacts and caches DOM information reused across table parsers.
+#'
+#' @param rec xml2::xml_node representing one <bInformazioniRicovero>
+#' @return named list containing cached DOM nodes and attributes
+#' @keywords internal
+#' @noRd
+.get_record_context <- function(rec) {
+  rec_children <- xml2::xml_children(rec)
+  rec_names    <- xml2::xml_name(rec_children)
+
+  info <- rec_children[rec_names == "informazioniRicovero"][[1]]
+  info_children <- xml2::xml_children(info)
+  info_names    <- xml2::xml_name(info_children)
+
+  list(
+    info          = info,
+    info_children = info_children,
+    info_names    = info_names,
+    codice        = xml2::xml_attr(info, "codiceIstitutoDiCura"),
+    prog          = xml2::xml_attr(info, "progressivoSDO"),
+    trasm         = rec_children[rec_names == "trasmissione"]
+  )
+}
+
+# Tracciato A -------------------------------------------------------------
+
+#' Parse Tracciato A XML document
+#'
+#' @param doc xml2::xml_document
+#' @return data.frame
+#' @keywords internal
+#' @export
+.parse_tracciato_a <- function(doc) {
+
+  records <- xml2::xml_find_all(doc, ".//aInformazioniAnagrafiche")
+  n <- length(records)
+
+  rows <- vector("list", n)
+
+  for (i in seq_len(n)) {
+
+    rec <- records[[i]]
+    rec_children <- xml2::xml_children(rec)
+    rec_names    <- xml2::xml_name(rec_children)
+
+    row <- list()
+
+    trasm <- rec_children[rec_names == "trasmissione"]
+    if (length(trasm) == 1) {
+      t_children <- xml2::xml_children(trasm[[1]])
+      is_scalar  <- xml2::xml_length(t_children) == 0
+      if (any(is_scalar)) {
+        row[paste0("trasmissione_", xml2::xml_name(t_children[is_scalar]))] <-
+          as.list(xml2::xml_text(t_children[is_scalar]))
+      }
+    }
+
+    info <- rec_children[rec_names == "informazioniAnagrafiche"][[1]]
+
+    row$codiceIstitutoDiCura <- xml2::xml_attr(info, "codiceIstitutoDiCura")
+    row$progressivoSDO       <- xml2::xml_attr(info, "progressivoSDO")
+
+    info_children <- xml2::xml_children(info)
+    is_scalar <- xml2::xml_length(info_children) == 0
+    if (any(is_scalar)) {
+      row[xml2::xml_name(info_children[is_scalar])] <-
+        as.list(xml2::xml_text(info_children[is_scalar]))
+    }
+
+    rows[[i]] <- row
+  }
+
+  .bind_rows_fast(rows)
+}
+
+# Tracciato B -------------------------------------------------------------
+
+#' Parse ricovero row (1:1)
+#'
+#' @param ctx Record context
+#' @return named list
+#' @keywords internal
+#' @noRd
+.parse_b_ricovero <- function(ctx) {
+
+  row <- list()
+
+  if (length(ctx$trasm) == 1) {
+    t_children <- xml2::xml_children(ctx$trasm[[1]])
+    is_scalar  <- xml2::xml_length(t_children) == 0
+    if (any(is_scalar)) {
+      row[paste0("trasmissione_", xml2::xml_name(t_children[is_scalar]))] <-
+        as.list(xml2::xml_text(t_children[is_scalar]))
+    }
+  }
+
+  row[names(xml2::xml_attrs(ctx$info))] <- as.list(xml2::xml_attrs(ctx$info))
+
+  is_scalar <- xml2::xml_length(ctx$info_children) == 0
+  if (any(is_scalar)) {
+    row[ctx$info_names[is_scalar]] <-
+      as.list(xml2::xml_text(ctx$info_children[is_scalar]))
+  }
+
+  dim <- ctx$info_children[ctx$info_names == "dimissione"]
+  if (length(dim) == 1) {
+    d_children <- xml2::xml_children(dim[[1]])
+    is_scalar  <- xml2::xml_length(d_children) == 0
+    if (any(is_scalar)) {
+      row[paste0("dim_", xml2::xml_name(d_children[is_scalar]))] <-
+        as.list(xml2::xml_text(d_children[is_scalar]))
+    }
+  }
+
+  row
+}
+
+#' Parse diagnosi rows (1–N)
+#'
+#' @param ctx Record context
+#' @return list of named lists
+#' @keywords internal
+#' @noRd
+.parse_b_diagnosi <- function(ctx) {
+
+  out <- list()
+  codice <- ctx$codice
+  prog   <- ctx$prog
+
+  dp <- ctx$info_children[ctx$info_names == "diagnosiPrincipale"]
+  if (length(dp) == 1) {
+    ch <- xml2::xml_children(dp[[1]])
+    is_scalar <- xml2::xml_length(ch) == 0
+    if (any(is_scalar)) {
+      row <- list(
+        codiceIstitutoDiCura = codice,
+        progressivoSDO       = prog,
+        tipoDiagnosi         = "principale",
+        numDiagnosi          = 0L
+      )
+      row[xml2::xml_name(ch[is_scalar])] <- as.list(xml2::xml_text(ch[is_scalar]))
+      out[[length(out) + 1]] <- row
+    }
+  }
+
+  ds <- ctx$info_children[ctx$info_names == "diagnosiSecondarie"]
+  if (length(ds) > 0) {
+    for (node in ds) {
+      ch <- xml2::xml_children(node)
+      is_scalar <- xml2::xml_length(ch) == 0
+      if (any(is_scalar)) {
+        val <- xml2::xml_attr(node, "numDiagnosiSecondaria")
+        num <- if (!is.na(val)) as.integer(val) else NA_integer_
+        row <- list(
+          codiceIstitutoDiCura = codice,
+          progressivoSDO       = prog,
+          tipoDiagnosi         = "secondaria",
+          numDiagnosi          = num
+        )
+        row[xml2::xml_name(ch[is_scalar])] <- as.list(xml2::xml_text(ch[is_scalar]))
+        out[[length(out) + 1]] <- row
+      }
+    }
+  }
+
+  out
+}
+
+#' Parse intervention/procedure rows (1–N)
+#'
+#' @param ctx Record context
+#' @return list of named lists
+#' @keywords internal
+#' @noRd
+.parse_b_procedure <- function(ctx) {
+
+  out <- list()
+  codice <- ctx$codice
+  prog   <- ctx$prog
+
+  ip <- ctx$info_children[ctx$info_names == "interventoPrincipale"]
+  if (length(ip) == 1) {
+
+    node <- ip[[1]]
+    ch <- xml2::xml_children(node)
+    is_scalar <- xml2::xml_length(ch) == 0
+
+    row <- list(
+      codiceIstitutoDiCura = codice,
+      progressivoSDO       = prog,
+      tipoIntervento       = "principale",
+      numIntervento        = 0L
+    )
+
+    if (any(is_scalar)) {
+      row[xml2::xml_name(ch[is_scalar])] <- as.list(xml2::xml_text(ch[is_scalar]))
+    }
+
+    out[[length(out) + 1]] <- row
+  }
+
+  sec <- ctx$info_children[ctx$info_names == "interventiSecondari"]
+  if (length(sec) > 0) {
+    for (node in sec) {
+
+      ch <- xml2::xml_children(node)
+      is_scalar <- xml2::xml_length(ch) == 0
+
+      val <- xml2::xml_attr(node, "numInterventoSecondario")
+      num <- if (!is.na(val)) as.integer(val) else NA_integer_
+
+      row <- list(
+        codiceIstitutoDiCura = codice,
+        progressivoSDO       = prog,
+        tipoIntervento       = "secondario",
+        numIntervento        = num
+      )
+
+      if (any(is_scalar)) {
+        row[xml2::xml_name(ch[is_scalar])] <- as.list(xml2::xml_text(ch[is_scalar]))
+      }
+
+      out[[length(out) + 1]] <- row
+    }
+  }
+
+  out
+}
+
+#' Parse day-hospital access dates (0–N)
+#'
+#' @param ctx Record context
+#' @return list of named lists
+#' @keywords internal
+#' @noRd
+.parse_b_accessi_dh <- function(ctx) {
+
+  out <- list()
+  codice <- ctx$codice
+  prog   <- ctx$prog
+
+  dh <- ctx$info_children[ctx$info_names == "AccessiInDH"]
+  if (length(dh) == 1) {
+    dates <- xml2::xml_children(dh[[1]])
+    for (i in seq_along(dates)) {
+      out[[length(out) + 1]] <- list(
+        codiceIstitutoDiCura = codice,
+        progressivoSDO       = prog,
+        numAccesso           = i,
+        dataAccesso          = xml2::xml_text(dates[[i]])
+      )
+    }
+  }
+
+  out
+}
+
+#' Parse Tracciato B XML document
+#'
+#' Top-level dispatcher for Tracciato B batch extraction.
+#'
+#' @param doc xml2::xml_document
+#' @return list of data frames
+#' @keywords internal
+#' @export
+.parse_tracciato_b <- function(doc) {
+
+  records <- xml2::xml_find_all(doc, ".//bInformazioniRicovero")
+  n <- length(records)
+
+  rows_ricovero   <- vector("list", n)
+  rows_diagnosi   <- vector("list", n * 3)
+  rows_procedure  <- vector("list", n * 2)
+  rows_accessi_dh <- vector("list", n)
+
+  kr <- kd <- kp <- kdh <- 0
+
+  for (rec in records) {
+    tryCatch({
+      ctx <- .get_record_context(rec)
+
+      ricovero_row <- .parse_b_ricovero(ctx)
+      diagnosi_rows <- .parse_b_diagnosi(ctx)
+      procedure_rows <- .parse_b_procedure(ctx)
+      accessi_rows <- .parse_b_accessi_dh(ctx)
+
+      kr <- kr + 1
+      rows_ricovero[[kr]] <- ricovero_row
+
+      for (row in diagnosi_rows)  { kd  <- kd  + 1; rows_diagnosi[[kd]]   <- row }
+      for (row in procedure_rows) { kp  <- kp  + 1; rows_procedure[[kp]]  <- row }
+      for (row in accessi_rows)   { kdh <- kdh + 1; rows_accessi_dh[[kdh]] <- row }
+
+    }, error = function(e) {
+      cli::cli_warn("Skipping malformed record: {conditionMessage(e)}")
+    })
+  }
+
+  list(
+    ricovero   = .bind_rows_fast(rows_ricovero[seq_len(kr)]),
+    diagnosi   = .bind_rows_fast(rows_diagnosi[seq_len(kd)]),
+    procedure  = .bind_rows_fast(rows_procedure[seq_len(kp)]),
+    accessi_dh = .bind_rows_fast(rows_accessi_dh[seq_len(kdh)])
+  )
+}
+'''
