@@ -6,5 +6,5 @@ source("R/tools_xml.R")
 
 source("R/layers_inspect.R")
 
-source("R/0. batch_materialization.R")
-source("R/1. bronze_promotion.R")
+source("R/0_batch_materialization.R")
+source("R/1_bronze_promotion.R")

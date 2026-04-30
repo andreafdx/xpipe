@@ -1,6 +1,6 @@
 library(xml2)
 
-source("R/xml test/xml.R")
+source("R/tools_xml.R")
 # or paste the function directly in the console
 #xml_path <- "C:/Users/78299/OneDrive - A.O.R.N. Antonio Cardarelli/XN3/2025_A.xml"
 #xml_path <- "C:/Users/78299/2025_A.xml"
@@ -15,11 +15,11 @@ docb <- read_xml(xmlb_path)
 # Full
 
 system.time({
-  df_full <- parse_tracciato_a(doc)
+  df_full <- .parse_tracciato_a(doc)
 })
 
 system.time({
-  list_b <- parse_tracciato_b(docb)
+  list_b <- .parse_tracciato_b(docb)
 })
 
 
