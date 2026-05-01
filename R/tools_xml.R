@@ -19,6 +19,35 @@
 # Any enrichment belongs downstream.
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+
+# Internal API ------------------------------------------------------------
+
+
+#' Extract XML Data (Main Dispatcher)
+#' @keywords internal
+extract_xml <- function(ctx, path) {
+  cli::cli_inform("Reading XML document: {.file {basename(path)}}")
+
+  doc <- xml2::read_xml(path)
+  root_name <- xml2::xml_name(xml2::xml_root(doc))
+  domain    <- ctx$method_config$schema_domain
+
+  if (domain == "sdo") {
+    return(.extract_xml_sdo(doc, root_name, path))
+  }
+
+  cli::cli_abort(
+    c(
+      "Unsupported schema domain",
+      "x" = "The XML extractor does not support the domain: {.val {domain}}"
+    ),
+    class = c("batch", "extraction", "xml")
+  )
+}
+
+
+
+
 # Helpers ----------------------------------------------------------------
 
 #' Schema-safe row binder (base R)
@@ -88,7 +117,33 @@
   )
 }
 
-# Tracciato A -------------------------------------------------------------
+
+
+# SDO ---------------------------------------------------------------------
+
+#' SDO Domain Helper
+#' @noRd
+.extract_xml_sdo <- function(doc, root_name, path) {
+  if (root_name == "flsaInformazioniAnagrafiche") {
+  .log_debug("Detected Tracciato A schema.")
+  return(list(anagrafica = .parse_tracciato_a(doc)))
+  }
+
+  if (root_name == "flsbInformazioniRicovero") {
+    .log_debug("Detected Tracciato B schema.")
+    return(.parse_tracciato_b(doc))
+  }
+
+  cli::cli_abort(
+    c(
+      "Unrecognized SDO XML schema",
+      "x" = "File {.file {basename(path)}} has unknown root node: {.val {root_name}}"
+    ),
+    class = c("batch", "extraction", "xml", "sdo")
+  )
+}
+
+## Tracciato A -------------------------------------------------------------
 
 #' Parse Tracciato A XML document
 #'
@@ -139,7 +194,7 @@
   .bind_rows_fast(rows)
 }
 
-# Tracciato B -------------------------------------------------------------
+## Tracciato B -------------------------------------------------------------
 
 #' Parse ricovero row (1:1)
 #'

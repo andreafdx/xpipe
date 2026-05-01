@@ -22,11 +22,8 @@
     "input_type": "directory",
     "anchor_table": "ricovero",
     "components": {
-      "anagrafica": "*_A.xml",
-      "ricovero": "*_B.xml",
-      "diagnosi": "*_B.xml",
-      "procedure": "*_B.xml",
-      "accessi_dh": "*_B.xml"
+      "tracciato_a": "*_A.xml",
+      "tracciato_b": "*_B.xml"
     },
     "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"],
     "partition_column": "dim_dataDimissioneMorte",

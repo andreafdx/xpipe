@@ -1,0 +1,25 @@
+{
+  "batch_id": "20260501T023719.096_sdo_xml_campania_2026",
+  "stream": {
+    "id": "sdo",
+    "schema_domain": "sdo",
+    "anchor": "end"
+  },
+  "method": {
+    "id": "xml_campania_2026",
+    "type": "xml"
+  },
+  "input": {
+    "path": "xml",
+    "input_type": "directory"
+  },
+  "execution": {
+    "created_at": "2026-05-01T02:38:51+0200",
+    "tool": "xpipe",
+    "tool_version": "dev"
+  },
+  "components": {
+    "tracciato_a": "*_A.xml",
+    "tracciato_b": "*_B.xml"
+  }
+}

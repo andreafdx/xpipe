@@ -213,6 +213,30 @@ get_xpipe_config <- function() {
   )
 }
 
+#' Conditionally print debug information based on local.json
+#' @param text The string to print (supports cli formatting)
+#' @param .envir The environment to evaluate the string in
+#' @keywords internal
+#' @noRd
+.log_debug <- function(text, .envir = parent.frame()) {
+  # 1. Check for manual script overrides first
+  is_verbose <- getOption("xpipe.verbose")
+
+  # 2. If no manual override, read from the loaded local.json
+  if (is.null(is_verbose)) {
+    # Safely retrieve the active config from the package environment
+    cfg <- tryCatch(get_xpipe_config(), error = function(e) NULL)
+
+    # Check if the JSON level is explicitly set to "debug"
+    is_verbose <- !is.null(cfg) && identical(cfg$local$logging$level, "debug")
+  }
+
+  # 3. Print only if debug is enabled
+  if (isTRUE(is_verbose)) {
+    mess <- c("[DEBUG] ", text)
+    cli::cli_inform(msg, .envir = .envir)
+  }
+}
 
 ## Runtime context --------------------------------------------------------
 

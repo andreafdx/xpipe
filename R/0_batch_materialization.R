@@ -104,6 +104,94 @@ ingest_batch <- function(
 
 # Batch initialization scripts --------------------------------------------
 
+## Internal API -------------------------------------------------------------
+
+#' Prepare Batch Ingestion Context
+#'
+#' Constructs a validated batch ingestion context based on an input file
+#' or directory located in the inbox and a configured ingestion method.
+#'
+#' This function performs configuration validation, input resolution,
+#' and method/stream compatibility checks, but does not read, transform,
+#' or write any data. The returned list represents a fully specified
+#' ingestion intent ready for materialization.
+#'
+#' @param filename Character scalar. Name of a file or directory located
+#'   in the inbox path defined in the local configuration.
+#' @param stream Character scalar identifying the target stream.
+#' @param method Character scalar identifying the ingestion method to use,
+#'   as defined in \code{methods.json}.
+#' @param config An object of class \code{xpipe_config}, as returned by
+#'   \code{load_options()}.
+#' @param batch_id Optional character scalar. Explicit batch identifier.
+#'   If \code{NULL}, a unique batch identifier is generated automatically.
+#'
+#' @return A named list containing the ingestion context.
+#'
+#' @details
+#' The context list encapsulates all metadata required for batch
+#' materialization, including resolved input paths, method and stream
+#' configuration, and target batch directory.
+#'
+#' No filesystem side effects are performed beyond path validation.
+#' Data extraction and persistence occur only during
+#' \code{materialize_batch()}.
+#'
+#' @keywords internal
+.prepare_batch_ingestion <- function(
+    filename,
+    stream,
+    method,
+    config,
+    batch_id = NULL
+){
+  .assert_config_for_batch(config)
+
+  method_config <- .get_method_config(config, method)
+  stream_config <- .get_stream_config(config, stream)
+  stream_id     <- stream
+
+  if (method_config$schema_domain != stream_config$schema_domain) {
+    cli::cli_abort(
+      c(
+        "Invalid batch job",
+        "x" = "Method and stream belong to different schema domains",
+        "i" = "Method domain: {.val {method_config$schema_domain}}",
+        "i" = "Stream domain: {.val {stream_config$schema_domain}}"
+      ),
+      class = c("batch", "schema_domain")
+    )
+  }
+
+  filepath  <- .resolve_inbox_path(config, filename)
+
+  # Validation against method requirement
+  .validate_input_type(filepath, method_config)
+
+  # Discover components if it's a directory
+  components <- if (fs::is_dir(filepath)) {
+    .discover_components(filepath, method_config)
+  } else {
+    NULL
+  }
+
+  batch_id  <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
+  batch_dir <- .build_batch_target_dir(config, batch_id)
+
+  list(
+    batch_id      = batch_id,
+    filename      = filename,
+    filepath      = filepath,
+    method_id     = method,
+    method_config = method_config,
+    stream_id     = stream_id,
+    stream_config = stream_config,
+    batch_dir     = batch_dir,
+    components    = components
+  )
+}
+
+
 ## Helper functions --------------------------------------------------------
 
 #' Assert configuration validity for batch creation
@@ -470,92 +558,6 @@ ingest_batch <- function(
   )
 }
 
-## Internal API -------------------------------------------------------------
-
-#' Prepare Batch Ingestion Context
-#'
-#' Constructs a validated batch ingestion context based on an input file
-#' or directory located in the inbox and a configured ingestion method.
-#'
-#' This function performs configuration validation, input resolution,
-#' and method/stream compatibility checks, but does not read, transform,
-#' or write any data. The returned list represents a fully specified
-#' ingestion intent ready for materialization.
-#'
-#' @param filename Character scalar. Name of a file or directory located
-#'   in the inbox path defined in the local configuration.
-#' @param stream Character scalar identifying the target stream.
-#' @param method Character scalar identifying the ingestion method to use,
-#'   as defined in \code{methods.json}.
-#' @param config An object of class \code{xpipe_config}, as returned by
-#'   \code{load_options()}.
-#' @param batch_id Optional character scalar. Explicit batch identifier.
-#'   If \code{NULL}, a unique batch identifier is generated automatically.
-#'
-#' @return A named list containing the ingestion context.
-#'
-#' @details
-#' The context list encapsulates all metadata required for batch
-#' materialization, including resolved input paths, method and stream
-#' configuration, and target batch directory.
-#'
-#' No filesystem side effects are performed beyond path validation.
-#' Data extraction and persistence occur only during
-#' \code{materialize_batch()}.
-#'
-#' @keywords internal
-.prepare_batch_ingestion <- function(
-    filename,
-    stream,
-    method,
-    config,
-    batch_id = NULL
-){
-  .assert_config_for_batch(config)
-
-  method_config <- .get_method_config(config, method)
-  stream_config <- .get_stream_config(config, stream)
-  stream_id     <- stream
-
-  if (method_config$schema_domain != stream_config$schema_domain) {
-    cli::cli_abort(
-      c(
-        "Invalid batch job",
-        "x" = "Method and stream belong to different schema domains",
-        "i" = "Method domain: {.val {method_config$schema_domain}}",
-        "i" = "Stream domain: {.val {stream_config$schema_domain}}"
-      ),
-      class = c("batch", "schema_domain")
-    )
-  }
-
-  filepath  <- .resolve_inbox_path(config, filename)
-
-  # Validation against method requirement
-  .validate_input_type(filepath, method_config)
-
-  # Discover components if it's a directory
-  components <- if (fs::is_dir(filepath)) {
-    .discover_components(filepath, method_config)
-  } else {
-    NULL
-  }
-
-  batch_id  <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
-  batch_dir <- .build_batch_target_dir(config, batch_id)
-
-  list(
-    batch_id      = batch_id,
-    filename      = filename,
-    filepath      = filepath,
-    method_id     = method,
-    method_config = method_config,
-    stream_id     = stream_id,
-    stream_config = stream_config,
-    batch_dir     = batch_dir,
-    components    = components
-  )
-}
 
 # Batch materialization pipeline ------------------------------------------
 #
@@ -568,6 +570,44 @@ ingest_batch <- function(
 # Only Phase A is implemented as a standalone conceptual function.
 # Phases B-D are sequential pipeline steps used exclusively by
 # `materialize_batch()`.
+
+## Internal API -------------------------------------------------------------
+
+#' Materialize Batch Ingestion Context
+#'
+#' Transforms a validated ingestion context into an immutable, on-disk
+#' batch representation.
+#'
+#' @param ctx Ingestion context list.
+#' @param config xpipe_config object.
+#' @return Invisibly TRUE on success.
+#' @keywords internal
+.materialize_batch <- function(ctx, config) {
+
+  .assert_batch_materializable(ctx, config)
+
+  instrument     <- .resolve_extraction_instrument(ctx, config)
+
+  cli::cli_alert_info("Running extraction")
+
+  extracted_data <- .run_extraction(ctx, instrument)
+
+  # Apply privacy rules to each extracted table
+  cli::cli_alert_info("Applying privacy rules")
+
+  for (nm in names(extracted_data)) {
+    extracted_data[[nm]] <- apply_privacy_rules(
+      df            = extracted_data[[nm]],
+      table_name    = nm,
+      method_config = ctx$method_config,
+      pepper        = config$runtime$pepper
+    )
+  }
+  .persist_to_batch(ctx, extracted_data, config)
+
+  invisible(TRUE)
+}
+
 
 ## Phase A ----------------------------------------------------------------
 
@@ -698,16 +738,12 @@ ingest_batch <- function(
 .run_extraction <- function(ctx, instrument) {
 
   if (!is.null(ctx$components)) {
-    # Multi-component extraction (Directory based)
-    cli::cli_alert_info("Running multi-component extraction ({length(ctx$components)} files)")
-
+    cli::cli_inform("Extracting {length(ctx$components)} components")
     extracted <- list()
     for (nm in names(ctx$components)) {
       path <- ctx$components[[nm]]
-      cli::cli_inform("Component {.val {nm}} : {.file {basename(path)}}")
-
-      # Call instrument for each component
       res <- instrument(ctx, path)
+      .log_debug("Parsed component {.val {nm}}")
 
       # If instrument returns a list (unlikely for single component but possible), merge
       if (is.data.frame(res)) {
@@ -736,7 +772,6 @@ ingest_batch <- function(
       class = c("batch", "extraction")
     )
   }
-
   extracted
 }
 
@@ -807,36 +842,8 @@ ingest_batch <- function(
     auto_unbox = TRUE
   )
 
-  invisible(TRUE)
-}
-
-## Internal API -------------------------------------------------------------
-
-#' Materialize Batch Ingestion Context
-#'
-#' Transforms a validated ingestion context into an immutable, on-disk
-#' batch representation.
-#'
-#' @param ctx Ingestion context list.
-#' @param config xpipe_config object.
-#' @return Invisibly TRUE on success.
-#' @keywords internal
-.materialize_batch <- function(ctx, config) {
-
-  .assert_batch_materializable(ctx, config)
-
-  instrument     <- .resolve_extraction_instrument(ctx, config)
-  extracted_data <- .run_extraction(ctx, instrument)
-
-  # Apply privacy rules to each extracted table
-  for (nm in names(extracted_data)) {
-    extracted_data[[nm]] <- apply_privacy_rules(
-      extracted_data[[nm]],
-      ctx$method_config,
-      config$runtime$pepper
-    )
-  }
-  .persist_to_batch(ctx, extracted_data, config)
+  cli::cli_alert_success("Batch materialized: {.val {ctx$batch_id}}")
 
   invisible(TRUE)
 }
+

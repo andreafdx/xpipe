@@ -40,22 +40,36 @@
 #'
 #' @seealso [hash_phi()] for the underlying hashing primitive.
 #' @keywords internal
-apply_privacy_rules <- function(df, method_config, pepper) {
-  cli::cli_alert_info("Applying privacy rules for method: {.val {method_config$type}}")
+apply_privacy_rules <- function(df, table_name, method_config, pepper) {
+  if (nrow(df) == 0) return(df)
+
+  existing_pseudo <- character(0)
+  existing_skip   <- character(0)
 
   if (!is.null(method_config$pseudonymize)) {
-    df <- .pseudonymize_cols(df, method_config$pseudonymize, pepper)
+    existing_pseudo <- intersect(method_config$pseudonymize, names(df))
   }
 
   if (!is.null(method_config$skip)) {
     existing_skip <- intersect(method_config$skip, names(df))
+  }
+
+  if (length(existing_pseudo) > 0 || length(existing_skip) > 0) {
+
+    cli::cli_inform("Applying privacy to {table_name}")
+
+    if (length(existing_pseudo) > 0) {
+      df <- .pseudonymize_cols(df, existing_pseudo, pepper)
+      .log_debug("[DEBUG] Pseudonymized: {paste(existing_pseudo, collapse = ', ')}")
+    }
+
     if (length(existing_skip) > 0) {
-      cli::cli_inform("Removing skipped columns: {paste(existing_skip, collapse = ', ')}")
       df <- dplyr::select(df, -dplyr::all_of(existing_skip))
+      # Visible only if local.json has level: "debug"
+      .log_debug("Dropped: {paste(existing_skip, collapse = ', ')}")
     }
   }
 
-  cli::cli_alert_success("Privacy rules applied successfully.")
   df
 }
 
@@ -103,7 +117,5 @@ hash_phi <- function(text, pepper) {
 .pseudonymize_cols <- function(df, cols, pepper) {
   existing <- intersect(cols, names(df))
   if (length(existing) == 0) return(df)
-
-  cli::cli_inform("Pseudonymizing columns: {paste(existing, collapse = ', ')}")
   dplyr::mutate(df, dplyr::across(dplyr::all_of(existing), ~ hash_phi(.x, pepper)))
 }

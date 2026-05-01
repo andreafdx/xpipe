@@ -21,7 +21,7 @@ test_that(".assert_batch_materializable catches collisions and missing inputs", 
     fs::dir_create(ctx$batch_dir)
     expect_error(
       .assert_batch_materializable(ctx, mock_config),
-      class = "batch_collision" # Wait, you defined it as c("batch", "collision")
+      class = "collision"
     )
     # Note: testthat matches the FIRST class in the vector or uses exact match.
     # It's safer to check the error message if the class vector is complex.

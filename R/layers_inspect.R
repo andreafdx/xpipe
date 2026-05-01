@@ -117,6 +117,10 @@ print.xpipe_batch_layer <- function(x, ...) {
   metas <- metas[!vapply(metas, function(m)
     isTRUE(m$.status == "incomplete"), logical(1))]
 
+  if (length(metas) == 0) {
+    cli::cli_alert_warning("Found {x$count} batch directories, but all are incomplete (missing metadata).")
+    return(invisible(x))
+  }
   created <- vapply(metas, function(m)
     as.POSIXct(m$execution$created_at, tz = "UTC"), as.POSIXct(NA))
 
