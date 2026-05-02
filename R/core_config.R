@@ -34,24 +34,58 @@
 #' @return xpipe_config object.
 #' @export
 load_xpipe_config <- function(path = NULL, project_root = NULL) {
+  checkmate::assert_string(path, null.ok = TRUE)
+  checkmate::assert_string(project_root, null.ok = TRUE)
+
   config <- list()
 
-  # Runtime context
-  config$runtime <- .load_runtime_context()
+  config$runtime <- rlang::try_fetch(
+    .load_runtime_context(),
+    xpipe_error = function(e) cli::cli_abort(
+      "Failed to initialize runtime context",
+      parent = e,
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  )
 
-  # Local configuration
-  config$local <- .load_local_config(path, project_root)
+  config$local <- rlang::try_fetch(
+    .load_local_config(path, project_root),
+    xpipe_error = function(e) cli::cli_abort(
+      "Failed to load local configuration",
+      parent = e,
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  )
 
-  # Batch layer metadata (data layer state)
-  config$batch <- .load_batch_layer(config$local, config$runtime)
+  config$batch <- rlang::try_fetch(
+    .load_batch_layer(config$local, config$runtime),
+    xpipe_error = function(e) cli::cli_abort(
+      "Failed to load Batch layer",
+      parent = e,
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  )
 
-  # Streams contract
-  streams_contract <- .load_streams_contract(config$local)
+  streams_contract <- rlang::try_fetch(
+    .load_streams_contract(config$local),
+    xpipe_error = function(e) cli::cli_abort(
+      "Failed to load Streams contract",
+      parent = e,
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  )
   config$streams_meta <- streams_contract$meta
   config$streams      <- streams_contract$streams
 
-  # Methods contract
-  config$methods <- .load_methods_contract(config$local)
+  config$methods <- rlang::try_fetch(
+    .load_methods_contract(config$local),
+    xpipe_error = function(e) cli::cli_abort(
+      "Failed to load Methods contract",
+      parent = e,
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  )
+
 
   # Validate schema domains consistency
   stream_domains  <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
@@ -79,8 +113,6 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
 }
 
 
-
-
 # Internal API ------------------------------------------------------------
 
 
@@ -103,142 +135,8 @@ get_xpipe_config <- function() {
 }
 
 
-# Helper functions --------------------------------------------------------
 
-
-#' Find Internal Asset
-#'
-#' Resilient helper to locate internal files (config, schemas) in both
-#' development and installed package modes.
-#'
-#' @param ... Character strings defining the subpath within 'inst'.
-#' @return Character scalar. The absolute path to the asset.
-#' @noRd
-.find_asset <- function(...) {
-  search_paths <- c(".", "..", "../..")
-
-  for (base in search_paths) {
-    dev_path <- fs::path_abs(fs::path(base, "inst", ...))
-    if (fs::file_exists(dev_path) || fs::dir_exists(dev_path)) {
-      return(dev_path)
-    }
-  }
-
-  pkg_path <- system.file(..., package = "xpipe")
-  if (pkg_path != "") {
-    return(pkg_path)
-  }
-
-  cli::cli_abort(
-    c(
-      "Internal asset not found",
-      "x" = "Could not locate {.file {fs::path(...)}}"
-    ),
-    class = "asset_not_found"
-  )
-}
-
-#' Validate JSON File Against Internal Schema
-#'
-#' @param json_path Path to JSON file.
-#' @param schema_name Schema file name.
-#' @param title Error title.
-#' @param class Error classes.
-#' @return Invisibly TRUE if valid.
-#' @noRd
-.validate_json_schema <- function(json_path, schema_name, title, class) {
-  if (!fs::file_exists(json_path)) {
-    cli::cli_abort(
-      c(title, "x" = "JSON file not found: {.file {json_path}}"),
-      class = class
-    )
-  }
-
-  schema_path <- .find_asset("schema", schema_name)
-
-  ok <- jsonvalidate::json_validate(
-    json_path,
-    schema = schema_path,
-    engine = "ajv",
-    verbose = TRUE
-  )
-
-  if (!ok) {
-    cli::cli_abort(
-      c(
-        title,
-        "x" = "JSON does not conform to schema",
-        "i" = "Schema: {.file {schema_path}}",
-        "i" = "File: {.file {json_path}}"
-      ),
-      class = class
-    )
-  }
-
-  invisible(TRUE)
-}
-
-#' Read JSON Safely
-#'
-#' @param path Path to JSON file.
-#' @param error_title Error title.
-#' @param error_class Error classes.
-#' @return Parsed JSON as list.
-#' @noRd
-.read_json_safe <- function(path, error_title, error_class) {
-  if (!fs::file_exists(path)) {
-    cli::cli_abort(
-      c(error_title, "x" = "JSON file not found: {.file {path}}"),
-      class = error_class
-    )
-  }
-
-  tryCatch(
-    jsonlite::fromJSON(path, simplifyVector = TRUE),
-    error = function(e) {
-      # Escape braces so cli/glue cannot interpret them
-      msg <- conditionMessage(e)
-      msg <- gsub("\\{", "{{", msg)
-      msg <- gsub("\\}", "}}", msg)
-
-      cli::cli_abort(
-        c(
-          error_title,
-          "x" = "Invalid JSON syntax",
-          "i" = msg
-        ),
-        class = error_class
-      )
-    }
-  )
-}
-
-#' Conditionally print debug information based on local.json
-#' @param text The string to print (supports cli formatting)
-#' @param .envir The environment to evaluate the string in
-#' @keywords internal
-#' @noRd
-.log_debug <- function(text, .envir = parent.frame()) {
-  # 1. Check for manual script overrides first
-  is_verbose <- getOption("xpipe.verbose")
-
-  # 2. If no manual override, read from the loaded local.json
-  if (is.null(is_verbose)) {
-    # Safely retrieve the active config from the package environment
-    cfg <- tryCatch(get_xpipe_config(), error = function(e) NULL)
-
-    # Check if the JSON level is explicitly set to "debug"
-    is_verbose <- !is.null(cfg) && identical(cfg$local$logging$level, "debug")
-  }
-
-  # 3. Print only if debug is enabled
-  if (isTRUE(is_verbose)) {
-    mess <- c("[DEBUG] ", text)
-    cli::cli_inform(msg, .envir = .envir)
-  }
-}
-
-## Runtime context --------------------------------------------------------
+# Main Helpers (steps) --------------------------------------------------------
 
 #' Load Runtime Context
 #'
@@ -262,21 +160,19 @@ get_xpipe_config <- function() {
           "dev"
         }
     ),
-    pepper = Sys.getenv("XNE_PEPPER_KEY"),
+    pepper = Sys.getenv("XNE_PEPPER_KEY", unset = NA_character_),
     loaded_at = Sys.time()
   )
 
-  if (is.null(runtime$pepper) || runtime$pepper == "") {
+  if (!checkmate::test_string(runtime$pepper, min.chars = 1)) {
     cli::cli_abort(
       "Environment variable {.envvar XNE_PEPPER_KEY} not found.",
-      class = c("config", "runtime", "crypto")
+      class = c("pepper_not_found")
     )
   }
 
   runtime
 }
-
-## Local configuration ----------------------------------------------------
 
 #' Load Local Configuration
 #'
@@ -299,8 +195,8 @@ get_xpipe_config <- function() {
   .validate_json_schema(
     json_path = path,
     schema_name = "local.schema.json",
-    title = "Invalid local.json",
-    class = c("config_options", "schema")
+    error_title = "Invalid local.json",
+    error_class = c("config_options", "schema")
   )
 
   local_cfg <- .read_json_safe(
@@ -310,160 +206,6 @@ get_xpipe_config <- function() {
   )
 
   .normalize_paths(local_cfg, project_root)
-}
-
-#' Normalize Configuration Paths
-#'
-#' Resolves and validates all filesystem paths defined in local.json.
-#'
-#' Ensures that paths are absolute, normalized, and exist on disk.
-#' This function operates purely at the infrastructure level.
-#'
-#' @param local_config Raw local configuration.
-#' @param project_root Base path.
-#' @return Normalized local configuration.
-#' @noRd
-.normalize_paths <- function(local_config, project_root = NULL) {
-  if (is.null(project_root)) {
-    project_root <- fs::path_abs(".")
-  }
-
-  if (is.null(local_config$paths)) {
-    cli::cli_abort(
-      c("Invalid configuration", "x" = "Missing {.field paths}"),
-      class = c("local_options", "paths")
-    )
-  }
-
-  local_config$paths <- lapply(local_config$paths, function(p) {
-    p <- fs::path_expand(p)
-    p <- if (fs::is_absolute_path(p)) fs::path_norm(p)
-    else fs::path_norm(fs::path(project_root, p))
-
-    if (!fs::dir_exists(p)) {
-      cli::cli_abort(
-        c("Invalid configuration path", "x" = "Path {.file {p}} does not exist"),
-        class = c("local_options", "paths")
-      )
-    }
-
-    p
-  })
-
-  if (!is.null(local_config$logging$path)) {
-    p <- fs::path_norm(fs::path(project_root, local_config$logging$path))
-    local_config$logging$path <- p
-  }
-
-  local_config
-}
-
-
-## Batch layer (Remote) ---------------------------------------------------
-
-#' Validate Batch Layer Presence and Metadata
-#'
-#' Validates the Batch data layer location and the presence of its
-#' persistent metadata file (`layer.json`).
-#'
-#' The Batch layer is a medallion DATA layer. The associated `layer.json`
-#' represents layer STATE (integrity and provenance), not configuration
-#' or domain semantics.
-#'
-#' @param local_config Local configuration.
-#' @return Path to layer.json.
-#' @noRd
-.validate_batch_layer <- function(local_config) {
-  batch_path <- local_config$paths$batch
-
-  if (is.null(batch_path) || !nzchar(batch_path)) {
-    cli::cli_abort(
-      c(
-        "Invalid configuration",
-        "x" = "Batch layer path not set",
-        "i" = "Expected field: paths.batch"
-      ),
-      class = c("local_options", "paths")
-    )
-  }
-
-  if (!fs::dir_exists(batch_path)) {
-    cli::cli_abort(
-      c(
-        "Invalid Batch layer",
-        "x" = "Batch layer directory does not exist",
-        "i" = "Path: {.file {batch_path}}"
-      ),
-      class = c("batch_layer", "paths")
-    )
-  }
-
-  layer_json <- fs::path(batch_path, "layer.json")
-  if (!fs::file_exists(layer_json)) {
-    cli::cli_abort(
-      c(
-        "Invalid Batch layer metadata",
-        "x" = "Required file {.file layer.json} not found",
-        "i" = "Expected: layer.json in {.file {batch_path}}"
-      ),
-      class = c("batch_layer", "metadata")
-    )
-  }
-
-  .validate_json_schema(
-    json_path   = layer_json,
-    schema_name = "batch_layer.schema.json",
-    title       = "Invalid Batch layer metadata",
-    class       = c("config_options", "batch_layer", "schema")
-  )
-
-  layer_json
-}
-
-#' Validate Batch Layer Integrity Hash
-#'
-#' Verifies the integrity of the Batch layer metadata using a shared
-#' cryptographic secret. This protects against accidental or unauthorized
-#' modification of layer state.
-#'
-#' @param layer_options Parsed layer.json.
-#' @param pepper Runtime key.
-#' @param test_string Internal test string.
-#' @noRd
-.validate_batch_hash <- function(
-    layer_options,
-    pepper,
-    test_string = "byut5f778DfOPth567"
-) {
-  # Bypass hash check if environment variable is set
-  if (Sys.getenv("XPIPE_SKIP_HASH_CHECK") == "TRUE") {
-    cli::cli_alert_warning("Bypassing Batch layer integrity hash check.")
-    return(invisible(TRUE))
-  }
-
-  expected_hash <- layer_options$expected_hash
-
-  if (is.null(expected_hash) || expected_hash == "") {
-    cli::cli_abort(
-      c(
-        "Invalid Batch layer metadata",
-        "x" = "Missing expected_hash in layer.json"
-      ),
-      class = c("batch_layer", "crypto")
-    )
-  }
-
-  if (hash_phi(test_string, pepper) != expected_hash) {
-    cli::cli_abort(
-      c(
-        "Invalid Batch layer metadata",
-        "x" = "Hash mismatch. System will not start."
-      ),
-      class = c("batch_layer", "crypto")
-    )
-  }
-
-  invisible(TRUE)
 }
 
 #' Load Batch Layer Metadata
@@ -489,10 +231,6 @@ get_xpipe_config <- function() {
 
   layer_options
 }
-
-
-## Streams contract (Remote) ----------------------------------------------
-
 #' Load Streams Contract
 #'
 #' Loads and validates the Streams contract, which defines domain-level
@@ -586,8 +324,6 @@ get_xpipe_config <- function() {
   )
 }
 
-## Methods contract (Remote) ------------------------------------------------
-
 #' Load Methods Contract
 #'
 #' Loads and validates the Methods contract, which defines ingestion
@@ -620,7 +356,303 @@ get_xpipe_config <- function() {
 }
 
 
-## S3 Print Methods --------------------------------------------------------------
+
+
+
+# Sub-helpers --------------------------------------------------------
+
+
+#' Find Internal Asset
+#'
+#' Resilient helper to locate internal files (config, schemas) in both
+#' development and installed package modes.
+#'
+#' @param ... Character strings defining the subpath within 'inst'.
+#' @return Character scalar. The absolute path to the asset.
+#' @noRd
+.find_asset <- function(...) {
+  search_paths <- c(".", "..", "../..")
+
+  for (base in search_paths) {
+    dev_path <- fs::path_abs(fs::path(base, "inst", ...))
+    if (fs::file_exists(dev_path) || fs::dir_exists(dev_path)) {
+      return(dev_path)
+    }
+  }
+
+  pkg_path <- system.file(..., package = "xpipe")
+  if (pkg_path != "") {
+    return(pkg_path)
+  }
+
+  cli::cli_abort(
+    c(
+      "Internal asset not found",
+      "x" = "Could not locate {.file {fs::path(...)}}"
+    ),
+    class = "asset_not_found"
+  )
+}
+
+#' Validate JSON File Against Internal Schema
+#'
+#' @param json_path Path to JSON file.
+#' @param schema_name Schema file name.
+#' @param title Error title.
+#' @param class Error classes.
+#' @return Invisibly TRUE if valid.
+#' @noRd
+.validate_json_schema <- function(json_path, schema_name, error_title, error_class) {
+  rlang::check_string(json_path)
+  rlang::check_string(schema_name)
+  rlang::check_string(error_title)
+  rlang::check_character(error_class)
+
+
+  if (!fs::file_exists(json_path)) {
+    cli::cli_abort(
+      c(title, "x" = "JSON file not found: {.file {json_path}}"),
+      class = c(error_class, "json", "json_not_found")
+    )
+  }
+
+  schema_path <- .find_asset("schema", schema_name)
+
+  ok <- jsonvalidate::json_validate(
+    json_path,
+    schema = schema_path,
+    engine = "ajv",
+    verbose = TRUE
+  )
+
+  if (!ok) {
+    cli::cli_abort(
+      c(
+        title,
+        "x" = "JSON does not conform to schema",
+        "i" = "Schema: {.file {schema_path}}",
+        "i" = "File: {.file {json_path}}"
+      ),
+      class = c(error_class, "json", "json_not_conform")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+#' Read JSON Safely
+#'
+#' @param path Path to JSON file.
+#' @param error_title Error title.
+#' @param error_class Error classes.
+#' @return Parsed JSON as list.
+#' @noRd
+.read_json_safe <- function(path, error_title, error_class) {
+  rlang::check_string(path)
+  rlang::check_string(error_title)
+  rlang::check_character(error_class)
+
+  if (!fs::file_exists(path)) {
+    cli::cli_abort(
+      c(error_title, "x" = "JSON file not found: {.file {path}}"),
+      class = error_class
+    )
+  }
+
+  tryCatch(
+    jsonlite::fromJSON(path, simplifyVector = TRUE),
+    error = function(e) {
+      # Escape braces so cli/glue cannot interpret them
+      msg <- conditionMessage(e)
+      msg <- gsub("\\{", "{{", msg)
+      msg <- gsub("\\}", "}}", msg)
+
+      cli::cli_abort(
+        c(
+          error_title,
+          "x" = "Invalid JSON syntax",
+          "i" = msg
+        ),
+        class = error_class
+      )
+    }
+  )
+}
+
+#' Normalize Configuration Paths
+#'
+#' Resolves and validates all filesystem paths defined in local.json.
+#'
+#' Ensures that paths are absolute, normalized, and exist on disk.
+#' This function operates purely at the infrastructure level.
+#'
+#' @param local_config Raw local configuration.
+#' @param project_root Base path.
+#' @return Normalized local configuration.
+#' @noRd
+.normalize_paths <- function(local_config, project_root = NULL) {
+  if (is.null(project_root)) {
+    project_root <- fs::path_abs(".")
+  }
+
+  if (is.null(local_config$paths)) {
+    cli::cli_abort(
+      c("Invalid configuration", "x" = "Missing {.field paths}"),
+      class = c("local_options", "paths")
+    )
+  }
+
+  local_config$paths <- lapply(local_config$paths, function(p) {
+    p <- fs::path_expand(p)
+    p <- if (fs::is_absolute_path(p)) fs::path_norm(p)
+    else fs::path_norm(fs::path(project_root, p))
+
+    if (!fs::dir_exists(p)) {
+      cli::cli_abort(
+        c("Invalid configuration path", "x" = "Path {.file {p}} does not exist"),
+        class = c("local_options", "paths")
+      )
+    }
+
+    p
+  })
+
+  if (!is.null(local_config$logging$path)) {
+    p <- fs::path_norm(fs::path(project_root, local_config$logging$path))
+    local_config$logging$path <- p
+  }
+
+  local_config
+}
+
+
+#' Validate Batch Layer Presence and Metadata
+#'
+#' Validates the Batch data layer location and the presence of its
+#' persistent metadata file (`layer.json`).
+#'
+#' The Batch layer is a medallion DATA layer. The associated `layer.json`
+#' represents layer STATE (integrity and provenance), not configuration
+#' or domain semantics.
+#'
+#' @param local_config Local configuration.
+#' @return Path to layer.json.
+#' @noRd
+.validate_batch_layer <- function(local_config) {
+  batch_path <- local_config$paths$batch
+
+  if (!checkmate::test_string(batch_path, min.chars = 1)) {
+    cli::cli_abort(
+      c("Invalid configuration", "x" = "Batch layer path not set", "i" = "Expected field: paths.batch"),
+      class = c("xpipe_local_paths", "xpipe_local_error", "xpipe_error")
+    )
+  }
+
+  if (!fs::dir_exists(batch_path)) {
+    cli::cli_abort(
+      c(
+        "Invalid Batch layer",
+        "x" = "Batch layer directory does not exist",
+        "i" = "Path: {.file {batch_path}}"
+      ),
+      class = c("batch_layer", "paths")
+    )
+  }
+
+  layer_json <- fs::path(batch_path, "layer.json")
+  if (!fs::file_exists(layer_json)) {
+    cli::cli_abort(
+      c(
+        "Invalid Batch layer metadata",
+        "x" = "Required file {.file layer.json} not found",
+        "i" = "Expected: layer.json in {.file {batch_path}}"
+      ),
+      class = c("batch_layer", "metadata")
+    )
+  }
+
+  .validate_json_schema(
+    json_path   = layer_json,
+    schema_name = "batch_layer.schema.json",
+    error_title = "Invalid Batch layer metadata",
+    error_class = c("config_options", "batch_layer", "schema")
+  )
+
+  layer_json
+}
+
+#' Validate Batch Layer Integrity Hash
+#'
+#' Verifies the integrity of the Batch layer metadata using a shared
+#' cryptographic secret. This protects against accidental or unauthorized
+#' modification of layer state.
+#'
+#' @param layer_options Parsed layer.json.
+#' @param pepper Runtime key.
+#' @param test_string Internal test string.
+#' @noRd
+.validate_batch_hash <- function(
+    layer_options,
+    pepper,
+    test_string = "byut5f778DfOPth567"
+) {
+  # Bypass hash check if environment variable is set
+  if (Sys.getenv("XPIPE_SKIP_HASH_CHECK") == "TRUE") {
+    cli::cli_alert_warning("Bypassing Batch layer integrity hash check.")
+    return(invisible(TRUE))
+  }
+
+  expected_hash <- layer_options$expected_hash
+
+  if (!checkmate::test_string(expected_hash, min.chars = 1)) {
+    cli::cli_abort(
+      c("Invalid Batch layer metadata", "x" = "Missing {.field expected_hash} in layer.json"),
+      class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
+    )
+  }
+
+  if (hash_phi(test_string, pepper) != expected_hash) {
+    cli::cli_abort(
+      c(
+        "Invalid Batch layer metadata",
+        "x" = "Hash mismatch. System will not start."
+      ),
+      class = c("batch_layer", "crypto")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
+
+#' Conditionally print debug information based on local.json
+#' @param text The string to print (supports cli formatting)
+#' @param .envir The environment to evaluate the string in
+#' @keywords internal
+#' @noRd
+.log_debug <- function(text, .envir = parent.frame()) {
+  # 1. Check for manual script overrides first
+  is_verbose <- getOption("xpipe.verbose")
+
+  # 2. If no manual override, read from the loaded local.json
+  if (is.null(is_verbose)) {
+    # Safely retrieve the active config from the package environment
+    cfg <- tryCatch(get_xpipe_config(), error = function(e) NULL)
+
+    # Check if the JSON level is explicitly set to "debug"
+    is_verbose <- !is.null(cfg) && identical(cfg$local$logging$level, "debug")
+  }
+
+  # 3. Print only if debug is enabled
+  if (isTRUE(is_verbose)) {
+    msg <- c("[DEBUG] ", text)
+    cli::cli_inform(msg, .envir = .envir)
+  }
+}
+
+
+# S3 Print Methods --------------------------------------------------------------
 
 #' Render Configuration Gracefully
 #'
@@ -717,3 +749,4 @@ get_xpipe_config <- function() {
 print.xpipe_config <- function(x, ...) {
   .render_config(x, ...)
 }
+
