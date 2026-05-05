@@ -24,8 +24,12 @@
 
 
 #' Extract XML Data (Main Dispatcher)
+#' @export
 #' @keywords internal
 extract_xml <- function(ctx, path) {
+  checkmate::assert_list(ctx)
+  checkmate::assert_string(path)
+
   cli::cli_inform("Reading XML document: {.file {basename(path)}}")
 
   doc <- xml2::read_xml(path)
@@ -41,7 +45,7 @@ extract_xml <- function(ctx, path) {
       "Unsupported schema domain",
       "x" = "The XML extractor does not support the domain: {.val {domain}}"
     ),
-    class = c("batch", "extraction", "xml")
+    class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
   )
 }
 
@@ -57,7 +61,6 @@ extract_xml <- function(ctx, path) {
 #'
 #' @param rows List of named lists (each list represents one row)
 #' @return data.frame with aligned columns
-#' @keywords internal
 #' @noRd
 .bind_rows_safe <- function(rows) {
   if (length(rows) == 0) return(data.frame())
@@ -79,7 +82,6 @@ extract_xml <- function(ctx, path) {
 #'
 #' @param rows List of named lists
 #' @return data.frame
-#' @keywords internal
 #' @noRd
 .bind_rows_fast <- function(rows) {
   if (!length(rows)) return(data.frame())
@@ -97,7 +99,6 @@ extract_xml <- function(ctx, path) {
 #'
 #' @param rec xml2::xml_node representing one <bInformazioniRicovero>
 #' @return named list containing cached DOM nodes and attributes
-#' @keywords internal
 #' @noRd
 .get_record_context <- function(rec) {
   rec_children <- xml2::xml_children(rec)
@@ -139,7 +140,7 @@ extract_xml <- function(ctx, path) {
       "Unrecognized SDO XML schema",
       "x" = "File {.file {basename(path)}} has unknown root node: {.val {root_name}}"
     ),
-    class = c("batch", "extraction", "xml", "sdo")
+    class =  c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
   )
 }
 
@@ -149,8 +150,7 @@ extract_xml <- function(ctx, path) {
 #'
 #' @param doc xml2::xml_document
 #' @return data.frame
-#' @keywords internal
-#' @export
+#' @noRd
 .parse_tracciato_a <- function(doc) {
 
   records <- xml2::xml_find_all(doc, ".//aInformazioniAnagrafiche")
@@ -200,7 +200,6 @@ extract_xml <- function(ctx, path) {
 #'
 #' @param ctx Record context
 #' @return named list
-#' @keywords internal
 #' @noRd
 .parse_b_ricovero <- function(ctx) {
 
@@ -240,7 +239,6 @@ extract_xml <- function(ctx, path) {
 #'
 #' @param ctx Record context
 #' @return list of named lists
-#' @keywords internal
 #' @noRd
 .parse_b_diagnosi <- function(ctx) {
 
@@ -291,7 +289,6 @@ extract_xml <- function(ctx, path) {
 #'
 #' @param ctx Record context
 #' @return list of named lists
-#' @keywords internal
 #' @noRd
 .parse_b_procedure <- function(ctx) {
 
@@ -352,7 +349,6 @@ extract_xml <- function(ctx, path) {
 #'
 #' @param ctx Record context
 #' @return list of named lists
-#' @keywords internal
 #' @noRd
 .parse_b_accessi_dh <- function(ctx) {
 
@@ -382,7 +378,6 @@ extract_xml <- function(ctx, path) {
 #'
 #' @param doc xml2::xml_document
 #' @return list of data frames
-#' @keywords internal
 #' @export
 .parse_tracciato_b <- function(doc) {
 

@@ -14,6 +14,16 @@
 #              .print_bronze_preview(), .confirm_bronze_promotion()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Error Class Taxonomy --------------------------------------------------------
+#
+#   xpipe_error
+#   └── xpipe_bronze_error
+#       ├── xpipe_bronze_state       # layer.json missing, invalid format, or bad write
+#       ├── xpipe_bronze_anchor      # anchor table/column/key definition or join failure
+#       ├── xpipe_bronze_partition   # unsupported partition granularity
+#       ├── xpipe_bronze_append_only # shard already exists, refusing to overwrite
+#       └── xpipe_bronze_abort       # user declined confirmation prompt
+
 # Public API --------------------------------------------------------------
 
 #' Promote materialized batches to the Bronze layer
@@ -81,6 +91,11 @@ promote_to_bronze <- function(
     dry_run = FALSE,
     confirm = interactive()
 ) {
+  checkmate::assert_class(config, "xpipe_config")
+  checkmate::assert_string(stream, null.ok = TRUE)
+  checkmate::assert_flag(dry_run)
+  checkmate::assert_flag(confirm)
+
   # ---- read state once; shared by pending identification and promotion log
   state <- .get_bronze_state(config)
   state$promotion_log <- state$promotion_log %||% list()
@@ -164,11 +179,18 @@ promote_to_bronze <- function(
         "x" = "File {.file {path}} does not exist",
         "i" = "Create it by writing the seed JSON or run {.code .init_bronze_state(config)}"
       ),
-      class = c("bronze", "state")
+      class = c("xpipe_bronze_state", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
-  state <- jsonlite::fromJSON(path, simplifyVector = FALSE)
+  state <- rlang::try_fetch(
+    jsonlite::fromJSON(path, simplifyVector = FALSE),
+    error = function(e) cli::cli_abort(
+      c("Invalid Bronze layer state", "x" = "Failed to parse layer.json"),
+      parent = e,
+      class = c("xpipe_bronze_state", "xpipe_bronze_error", "xpipe_error")
+    )
+  )
 
   if (!is.list(state) || !identical(state$format, "promotion_log") || is.null(state$promotion_log)) {
     cli::cli_abort(
@@ -177,7 +199,7 @@ promote_to_bronze <- function(
         "x" = "layer.json is not in the supported format",
         "i" = "Overwrite bronze/layer.json with the new seed format"
       ),
-      class = c("bronze", "state")
+      class = c("xpipe_bronze_state", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
@@ -187,7 +209,7 @@ promote_to_bronze <- function(
         "Invalid Bronze layer state",
         "x" = "{.val promotion_log} must be a list"
       ),
-      class = c("bronze", "state")
+      class = c("xpipe_bronze_state", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
@@ -216,7 +238,7 @@ promote_to_bronze <- function(
         "Invalid Bronze state write",
         "x" = "Refusing to write invalid state (expected format=promotion_log)"
       ),
-      class = c("bronze", "state")
+      class = c("xpipe_bronze_state", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
@@ -236,6 +258,8 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .identify_pending_batches <- function(config, state = NULL) {
+  checkmate::assert_class(config, "xpipe_config")
+
   if (is.null(state)) state <- .get_bronze_state(config)
   promoted <- .promoted_batch_ids(state)
 
@@ -276,6 +300,9 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .validate_anchor_definitions <- function(config, method_ids = NULL) {
+  checkmate::assert_class(config, "xpipe_config")
+  if (!is.null(method_ids)) rlang::check_character(method_ids)
+
   methods_to_check <- if (!is.null(method_ids)) {
     intersect(method_ids, names(config$methods))
   } else {
@@ -287,23 +314,23 @@ promote_to_bronze <- function(
 
     anchor <- m$anchor_table
 
-    if (is.null(anchor) || length(anchor) != 1 || !nzchar(anchor)) {
+    if (!checkmate::test_string(anchor, min.chars = 1)){
       cli::cli_abort(
         c(
           "Invalid method anchor definition",
           "x" = "Method {.val {nm}} must define one anchor table"
         ),
-        class = c("bronze", "anchor")
+        class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
       )
     }
 
-    if (is.null(m$partition_column) || !nzchar(m$partition_column)) {
+    if (!checkmate::test_string(m$partition_column, min.chars = 1)) {
       cli::cli_abort(
         c(
           "Invalid partition definition",
           "x" = "Method {.val {nm}} must define a partition_column"
         ),
-        class = c("bronze", "anchor")
+        class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
       )
     }
 
@@ -313,7 +340,7 @@ promote_to_bronze <- function(
           "Invalid identity key definition",
           "x" = "Method {.val {nm}} must define identity_keys for anchor inheritance"
         ),
-        class = c("bronze", "anchor")
+        class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
       )
     }
   }
@@ -333,6 +360,8 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .prepare_bronze_promotion_preview <- function(batch, config) {
+  checkmate::assert_data_frame(batch, nrows = 1)
+  checkmate::assert_class(config, "xpipe_config")
 
   method_cfg <- config$methods[[batch$method_id]]
 
@@ -344,7 +373,7 @@ promote_to_bronze <- function(
         "x" = "Method {.val {batch$method_id}} must define identity_keys to inherit anchor_time",
         "i" = "These keys must exist in the anchor table and all secondary tables"
       ),
-      class = c("bronze", "anchor")
+      class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
@@ -365,7 +394,7 @@ promote_to_bronze <- function(
         "x" = "Required anchor table {.val {anchor_table}} was not found",
         "i" = "Expected location: {.file {batch_dir}}"
       ),
-      class = c("bronze", "anchor")
+      class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
@@ -379,7 +408,7 @@ promote_to_bronze <- function(
         "x" = "Anchor table {.val {anchor_table}} is missing required keys: {.val {missing_keys}}",
         "i" = "Table location: {.file {anchor_path}}"
       ),
-      class = c("bronze", "anchor")
+      class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
@@ -390,7 +419,7 @@ promote_to_bronze <- function(
         "x" = "Column {.val {anchor_column}} not found in anchor table {.val {anchor_table}}",
         "i" = "Table location: {.file {anchor_path}}"
       ),
-      class = c("bronze", "anchor")
+      class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
@@ -409,7 +438,7 @@ promote_to_bronze <- function(
         "i" = "Cannot deterministically inherit anchor_time",
         "i" = "Batch: {.val {batch$batch_id}}"
       ),
-      class = c("bronze", "anchor")
+      class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
@@ -444,6 +473,9 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .apply_bronze_promotion <- function(preview, config) {
+  rlang::check_required(preview)
+  checkmate::assert_class(config, "xpipe_config")
+
   batch_dir    <- fs::path(config$local$paths$batch, preview$batch_id)
   anchor_table <- preview$anchor_table
   anchor_keys  <- preview$anchor_keys
@@ -458,7 +490,7 @@ promote_to_bronze <- function(
         "i" = "Method: {.val {preview$method_id}}",
         "i" = "Batch: {.val {preview$batch_id}}"
       ),
-      class = c("bronze", "anchor")
+      class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
     )
   }
 
@@ -475,7 +507,7 @@ promote_to_bronze <- function(
           "x" = "Table {.val {table_name}} missing keys required to join to anchor table: {.val {missing_in_df}}",
           "i" = "Batch: {.val {preview$batch_id}}"
         ),
-        class = c("bronze", "anchor")
+        class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
       )
     }
 
@@ -488,7 +520,7 @@ promote_to_bronze <- function(
           "x" = "{sum(is.na(df$`__anchor_time`))} row(s) in {.val {table_name}} unmatched",
           "i" = "Batch: {.val {preview$batch_id}}"
         ),
-        class = c("bronze", "anchor")
+        class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
       )
     }
 
@@ -515,7 +547,7 @@ promote_to_bronze <- function(
           "x" = "Stream {.val {preview$stream_id}} declares unsupported granularity: {.val {granularity}}",
           "i" = "Supported values: 'year', 'month'"
         ),
-        class = c("bronze", "partition")
+        class = c("xpipe_bronze_partition", "xpipe_bronze_error", "xpipe_error")
       )
     }
 
@@ -540,7 +572,7 @@ promote_to_bronze <- function(
             "x" = "Refusing to overwrite existing shard (append-only invariant)",
             "i" = "File: {.file {target_file}}"
           ),
-          class = c("bronze", "append_only")
+          class = c("xpipe_bronze_append_only", "xpipe_bronze_error", "xpipe_error")
         )
       }
 
@@ -568,6 +600,8 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .make_key <- function(df, keys) {
+  rlang::check_required(df)
+  rlang::check_character(keys)
   do.call(paste, c(df[keys], sep = "\r"))
 }
 
@@ -578,6 +612,8 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .promoted_batch_ids <- function(state) {
+  rlang::check_required(state)
+
   log <- state$promotion_log
   if (length(log) == 0) return(character(0))
 
@@ -597,6 +633,9 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .make_promotion_event <- function(preview, config, status = "success") {
+  rlang::check_required(preview)
+  rlang::check_string(status)
+
   user <- Sys.getenv("USERNAME")
   if (!nzchar(user)) user <- Sys.getenv("USER")
   user <- user %||% NA_character_
@@ -627,6 +666,7 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .print_bronze_preview <- function(previews) {
+  rlang::check_required(previews)
 
   cli::cli_h2("Bronze Promotion Preview")
 
@@ -663,7 +703,10 @@ promote_to_bronze <- function(
   answer <- readline("Proceed with Bronze promotion? [y/N]: ")
 
   if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
-    cli::cli_abort("Bronze promotion aborted by user.", class = "bronze_abort")
+    cli::cli_abort(
+      "Bronze promotion aborted by user.",
+      class = c("xpipe_bronze_abort", "xpipe_bronze_error", "xpipe_error")
+    )
   }
 
   invisible(TRUE)

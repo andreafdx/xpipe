@@ -15,8 +15,45 @@
 #              .load_streams_contract(), .load_methods_contract()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Internal environment to hold package state
+
+# Internal Environment ----------------------------------------------------
+#
+# This is to hold package state
 .xpipe_env <- new.env(parent = emptyenv())
+
+# Error Class Taxonomy --------------------------------------------------------
+#
+# All errors in this file inherit from `xpipe_error` (package base class),
+# allowing callers to catch any xpipe error at a single level if needed.
+#
+# Hierarchy (specific → domain → base):
+#
+#   xpipe_error                        # catch-all for the package
+#   ├── xpipe_runtime_error
+#   │   └── xpipe_runtime_pepper       # XNE_PEPPER_KEY missing or empty
+#   ├── xpipe_config_error
+#   │   ├── xpipe_config_missing       # load_xpipe_config() not yet called
+#   │   └── xpipe_config_schema_domain # method references unknown stream domain
+#   ├── xpipe_local_error
+#   │   └── xpipe_local_paths          # missing or non-existent path in local.json
+#   ├── xpipe_batch_error
+#   │   ├── xpipe_batch_paths          # batch directory missing or not configured
+#   │   ├── xpipe_batch_metadata       # layer.json missing or invalid
+#   │   └── xpipe_batch_hash           # HMAC integrity check failed
+#   ├── xpipe_streams_error
+#   │   ├── xpipe_streams_metadata     # _meta block missing or invalid type
+#   │   └── xpipe_streams_definition   # stream missing fields or invalid anchor
+#   ├── xpipe_methods_error            # methods contract load or schema failure
+#   ├── xpipe_json_error               # (composed into domain errors via error_class)
+#   │   ├── xpipe_json_not_found       # file does not exist
+#   │   ├── xpipe_json_schema          # file fails schema validation
+#   │   └── xpipe_json_invalid         # file is not valid JSON
+#   └── xpipe_asset_error
+#       └── xpipe_asset_not_found      # internal inst/ asset not locatable
+#
+# Usage in tryCatch / try_fetch:
+#   rlang::try_fetch(expr, xpipe_error = function(e) ...)   # catch anything
+#   rlang::try_fetch(expr, xpipe_batch_error = function(e) ...) # catch batch only
 
 # Public API ---------------------------------------------------------------
 
@@ -39,53 +76,25 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
 
   config <- list()
 
-  config$runtime <- rlang::try_fetch(
-    .load_runtime_context(),
-    xpipe_error = function(e) cli::cli_abort(
-      "Failed to initialize runtime context",
-      parent = e,
-      class = c("xpipe_config_error", "xpipe_error")
-    )
+  config$runtime <- .config_step("initialize runtime context",
+                                 .load_runtime_context()
+  )
+  config$local   <- .config_step("load local configuration",
+                                 .load_local_config(path, project_root)
+  )
+  config$batch   <- .config_step("load Batch layer",
+                                 .load_batch_layer(config$local, config$runtime)
   )
 
-  config$local <- rlang::try_fetch(
-    .load_local_config(path, project_root),
-    xpipe_error = function(e) cli::cli_abort(
-      "Failed to load local configuration",
-      parent = e,
-      class = c("xpipe_config_error", "xpipe_error")
-    )
-  )
-
-  config$batch <- rlang::try_fetch(
-    .load_batch_layer(config$local, config$runtime),
-    xpipe_error = function(e) cli::cli_abort(
-      "Failed to load Batch layer",
-      parent = e,
-      class = c("xpipe_config_error", "xpipe_error")
-    )
-  )
-
-  streams_contract <- rlang::try_fetch(
-    .load_streams_contract(config$local),
-    xpipe_error = function(e) cli::cli_abort(
-      "Failed to load Streams contract",
-      parent = e,
-      class = c("xpipe_config_error", "xpipe_error")
-    )
+  streams_contract <- .config_step("load Streams contract",
+                                   .load_streams_contract(config$local)
   )
   config$streams_meta <- streams_contract$meta
   config$streams      <- streams_contract$streams
 
-  config$methods <- rlang::try_fetch(
-    .load_methods_contract(config$local),
-    xpipe_error = function(e) cli::cli_abort(
-      "Failed to load Methods contract",
-      parent = e,
-      class = c("xpipe_config_error", "xpipe_error")
-    )
+  config$methods <- .config_step("load Methods contract",
+                                 .load_methods_contract(config$local)
   )
-
 
   # Validate schema domains consistency
   stream_domains  <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
@@ -100,7 +109,7 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
         "x" = "Methods reference unknown schema_domain(s): {.val {unknown_domains}}",
         "i" = "Defined stream domains: {.val {stream_domains}}"
       ),
-      class = c("config", "schema_domain")
+      class = c("xpipe_config_schema_domain", "xpipe_config_error", "xpipe_error")
     )
   }
 
@@ -128,7 +137,7 @@ get_xpipe_config <- function() {
         "x" = "No active configuration found in the package environment.",
         "i" = "Call {.code load_xpipe_config()} before running pipeline tasks."
       ),
-      class = "config_missing"
+      class = c("xpipe_config_missing", "xpipe_config_error", "xpipe_error")
     )
   }
   .xpipe_env$config
@@ -167,7 +176,7 @@ get_xpipe_config <- function() {
   if (!checkmate::test_string(runtime$pepper, min.chars = 1)) {
     cli::cli_abort(
       "Environment variable {.envvar XNE_PEPPER_KEY} not found.",
-      class = c("pepper_not_found")
+      class = c("xpipe_runtime_pepper", "xpipe_runtime_error", "xpipe_error")
     )
   }
 
@@ -196,13 +205,13 @@ get_xpipe_config <- function() {
     json_path = path,
     schema_name = "local.schema.json",
     error_title = "Invalid local.json",
-    error_class = c("config_options", "schema")
+    error_class = "xpipe_local_error"
   )
 
   local_cfg <- .read_json_safe(
     path,
     error_title = "Invalid local configuration",
-    error_class = "local_options"
+    error_class = "xpipe_local_error"
   )
 
   .normalize_paths(local_cfg, project_root)
@@ -224,7 +233,7 @@ get_xpipe_config <- function() {
   layer_options <- .read_json_safe(
     path = layer_json,
     error_title = "Invalid Batch layer metadata",
-    error_class = c("json_options", "batch_layer")
+    error_class = "xpipe_batch_metadata"
   )
 
   .validate_batch_hash(layer_options, runtime_config$pepper)
@@ -250,14 +259,14 @@ get_xpipe_config <- function() {
   .validate_json_schema(
     json_path  = path,
     schema_name = "streams.schema.json",
-    title = "Invalid streams.json",
-    class = c("config_options", "schema")
+    error_title = "Invalid streams.json",
+    error_class = "xpipe_streams_error"
   )
 
   raw <- .read_json_safe(
     path,
     error_title = "Invalid streams contract",
-    error_class = "streams_options"
+    error_class = "xpipe_streams_error"
   )
 
   # Extract and validate contract metadata
@@ -270,7 +279,7 @@ get_xpipe_config <- function() {
         "x" = "Missing or invalid {.field _meta.type}",
         "i" = "Expected: 'streams_contract'"
       ),
-      class = c("streams_contract", "metadata")
+      class = c("xpipe_streams_metadata", "xpipe_streams_error", "xpipe_error")
     )
   }
 
@@ -283,7 +292,7 @@ get_xpipe_config <- function() {
         "Invalid streams contract",
         "x" = "No stream definitions found"
       ),
-      class = c("streams_contract", "streams")
+      class = c("xpipe_streams_definition", "xpipe_streams_error", "xpipe_error")
     )
   }
 
@@ -302,7 +311,7 @@ get_xpipe_config <- function() {
           "Invalid stream definition",
           "x" = "Stream {.val {nm}} missing required fields: {.val {missing_fields}}"
         ),
-        class = c("streams_contract", "streams")
+        class = c("xpipe_streams_definition", "xpipe_streams_error", "xpipe_error")
       )
     }
 
@@ -313,7 +322,7 @@ get_xpipe_config <- function() {
           "x" = "Stream {.val {nm}} has invalid anchor: {.val {s$anchor}}",
           "i" = "Allowed: 'start', 'end'"
         ),
-        class = c("streams_contract", "streams")
+        class = c("xpipe_streams_definition", "xpipe_streams_error", "xpipe_error")
       )
     }
   }
@@ -344,14 +353,14 @@ get_xpipe_config <- function() {
   .validate_json_schema(
     json_path = path,
     schema_name = "methods.schema.json",
-    title = "Invalid methods.json",
-    class = c("config_options", "schema")
+    error_title = "Invalid methods.json",
+    error_class = "xpipe_methods_error"
   )
 
   .read_json_safe(
     path,
     error_title = "Invalid methods contract",
-    error_class = "methods_options"
+    error_class = "xpipe_methods_error"
   )
 }
 
@@ -361,6 +370,44 @@ get_xpipe_config <- function() {
 
 # Sub-helpers --------------------------------------------------------
 
+#' Wrap a Configuration Boot Step with Contextual Error Handling
+#'
+#' Executes a single configuration loading step and catches any
+#' `xpipe_error` condition, rethrowing it as `xpipe_config_error`
+#' with a step-level label prepended to the message chain.
+#'
+#' The original error is preserved as the parent condition and
+#' rendered by cli as a "Caused by" line, so no diagnostic
+#' information is lost.
+#'
+#' @param label A string describing the step, used in the outer
+#'   error message as "Failed to {label}". Should complete the
+#'   sentence naturally, e.g. `"load Batch layer"`.
+#' @param expr A single expression to evaluate — typically one
+#'   internal helper call. Eagerly evaluated, so multi-line
+#'   blocks must be wrapped in `{}`.
+#'
+#' @return The result of `expr` if it succeeds.
+#'
+#' @section Error handling:
+#'   Catches: any condition inheriting from `xpipe_error`.
+#'   Throws:  `c("xpipe_config_error", "xpipe_error")`.
+#'   Intermediate class handlers (e.g. `xpipe_batch_error`) are
+#'   not needed here because all throws in this codebase use
+#'   leaf-level classes, all of which inherit from `xpipe_error`.
+#'
+#' @noRd
+.config_step <- function(label, expr) {
+  rlang::try_fetch(
+    expr,
+    xpipe_error = function(e) cli::cli_abort(
+      "Failed to {label}",
+      parent = e,
+      call = NULL,
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  )
+}
 
 #' Find Internal Asset
 #'
@@ -390,7 +437,7 @@ get_xpipe_config <- function() {
       "Internal asset not found",
       "x" = "Could not locate {.file {fs::path(...)}}"
     ),
-    class = "asset_not_found"
+    class = c("xpipe_asset_not_found", "xpipe_asset_error", "xpipe_error")
   )
 }
 
@@ -406,13 +453,13 @@ get_xpipe_config <- function() {
   rlang::check_string(json_path)
   rlang::check_string(schema_name)
   rlang::check_string(error_title)
-  rlang::check_character(error_class)
+  rlang::check_string(error_class)
 
 
   if (!fs::file_exists(json_path)) {
     cli::cli_abort(
-      c(title, "x" = "JSON file not found: {.file {json_path}}"),
-      class = c(error_class, "json", "json_not_found")
+      c(error_title, "x" = "JSON file not found: {.file {json_path}}"),
+      class = c(error_class, "xpipe_json_not_found", "xpipe_json_error", "xpipe_error")
     )
   }
 
@@ -428,12 +475,12 @@ get_xpipe_config <- function() {
   if (!ok) {
     cli::cli_abort(
       c(
-        title,
+        error_title,
         "x" = "JSON does not conform to schema",
         "i" = "Schema: {.file {schema_path}}",
         "i" = "File: {.file {json_path}}"
       ),
-      class = c(error_class, "json", "json_not_conform")
+      class = c(error_class, "xpipe_json_schema", "xpipe_json_error", "xpipe_error")
     )
   }
 
@@ -450,32 +497,22 @@ get_xpipe_config <- function() {
 .read_json_safe <- function(path, error_title, error_class) {
   rlang::check_string(path)
   rlang::check_string(error_title)
-  rlang::check_character(error_class)
+  rlang::check_string(error_class)
 
   if (!fs::file_exists(path)) {
     cli::cli_abort(
       c(error_title, "x" = "JSON file not found: {.file {path}}"),
-      class = error_class
+      class = c(error_class, "xpipe_json_not_found", "xpipe_json_error", "xpipe_error")
     )
   }
 
-  tryCatch(
+  rlang::try_fetch(
     jsonlite::fromJSON(path, simplifyVector = TRUE),
-    error = function(e) {
-      # Escape braces so cli/glue cannot interpret them
-      msg <- conditionMessage(e)
-      msg <- gsub("\\{", "{{", msg)
-      msg <- gsub("\\}", "}}", msg)
-
-      cli::cli_abort(
-        c(
-          error_title,
-          "x" = "Invalid JSON syntax",
-          "i" = msg
-        ),
-        class = error_class
-      )
-    }
+    error = function(e) cli::cli_abort(
+      c(error_title, "x" = "Invalid JSON syntax"),
+      parent = e,
+      class = c(error_class, "xpipe_json_invalid", "xpipe_json_error", "xpipe_error")
+    )
   )
 }
 
@@ -498,7 +535,7 @@ get_xpipe_config <- function() {
   if (is.null(local_config$paths)) {
     cli::cli_abort(
       c("Invalid configuration", "x" = "Missing {.field paths}"),
-      class = c("local_options", "paths")
+      class = c("xpipe_local_paths", "xpipe_local_error", "xpipe_error")
     )
   }
 
@@ -510,7 +547,7 @@ get_xpipe_config <- function() {
     if (!fs::dir_exists(p)) {
       cli::cli_abort(
         c("Invalid configuration path", "x" = "Path {.file {p}} does not exist"),
-        class = c("local_options", "paths")
+        class = c("xpipe_local_paths", "xpipe_local_error", "xpipe_error")
       )
     }
 
@@ -544,7 +581,7 @@ get_xpipe_config <- function() {
   if (!checkmate::test_string(batch_path, min.chars = 1)) {
     cli::cli_abort(
       c("Invalid configuration", "x" = "Batch layer path not set", "i" = "Expected field: paths.batch"),
-      class = c("xpipe_local_paths", "xpipe_local_error", "xpipe_error")
+      class = c("xpipe_batch_paths", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -555,7 +592,7 @@ get_xpipe_config <- function() {
         "x" = "Batch layer directory does not exist",
         "i" = "Path: {.file {batch_path}}"
       ),
-      class = c("batch_layer", "paths")
+      class = c("xpipe_batch_paths", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -567,7 +604,7 @@ get_xpipe_config <- function() {
         "x" = "Required file {.file layer.json} not found",
         "i" = "Expected: layer.json in {.file {batch_path}}"
       ),
-      class = c("batch_layer", "metadata")
+      class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -575,7 +612,7 @@ get_xpipe_config <- function() {
     json_path   = layer_json,
     schema_name = "batch_layer.schema.json",
     error_title = "Invalid Batch layer metadata",
-    error_class = c("config_options", "batch_layer", "schema")
+    error_class = "xpipe_batch_metadata"
   )
 
   layer_json
@@ -617,7 +654,7 @@ get_xpipe_config <- function() {
         "Invalid Batch layer metadata",
         "x" = "Hash mismatch. System will not start."
       ),
-      class = c("batch_layer", "crypto")
+      class = c("xpipe_batch_hash", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -670,12 +707,17 @@ get_xpipe_config <- function() {
   )
   cli::cli_rule("Configuration", right = "xpipe")
 
+  pad_nbsp <- function(x, w) gsub(" ", "\u00a0", format(x, width = w))
+
   # 1. RUNTIME CONTEXT
   cli::cli_h2("Runtime Context")
+
+
   cli::cli_bullets(c(
-    "Loaded at : {.val {format(x$runtime$loaded_at)}}",
-    "Security  : HMAC-SHA256 (Masked Pepper: {.val {substr(x$runtime$pepper, 1, 4)}}...)"
+    "{pad_nbsp('Loaded at', 10)}: {.field {format(x$runtime$loaded_at)}}",
+    "{pad_nbsp('Security', 10)}: HMAC-SHA256 (Masked Pepper: {.envvar {substr(x$runtime$pepper, 1, 4)}}...)"
   ))
+
 
   # 2. LOCAL INFRASTRUCTURE
   cli::cli_h2("Local Infrastructure")
@@ -683,7 +725,7 @@ get_xpipe_config <- function() {
     cli::cli_bullets(
       purrr::imap_chr(
         x$local$paths,
-        ~ paste0("{.strong ", format(.y, width = 10), "} : {.file ", .x, "}")
+        ~ paste0("{pad_nbsp('", .y, "', 10)}: {.file ", .x, "}")
       )
     )
   }
@@ -692,47 +734,98 @@ get_xpipe_config <- function() {
   cli::cli_h2("Streams Contract")
   if (!is.null(x$streams_meta)) {
     cli::cli_bullets(c(
-      "Contract type : {.val {x$streams_meta$type}}",
-      "Version       : {.val {x$streams_meta$version}}",
-      "Maintainer    : {.val {x$streams_meta$maintainer}}",
-      "Last updated  : {.val {x$streams_meta$last_updated}}"
+      "{pad_nbsp('Contract type', 13)}: {.field {x$streams_meta$type}}",
+      "{pad_nbsp('Version', 13)}: {.field {x$streams_meta$version}}",
+      "{pad_nbsp('Maintainer', 13)}: {.field {x$streams_meta$maintainer}}",
+      "{pad_nbsp('Last updated', 13)}: {.field {x$streams_meta$last_updated}}"
     ))
   }
 
+
+
   if (!is.null(x$streams)) {
-    stream_bullets <- purrr::imap_chr(
-      x$streams,
-      function(v, nm) {
-        paste0(
-          "{.strong ", nm, "} ",
-          "[", v$label, "] ",
-          "(domain: ", v$schema_domain, " | ",
-          "anchor: ", v$anchor, " | ",
-          "partition: ", v$partition_granularity, ")"
+    nms <- names(x$streams)
+    labels <- purrr::map_chr(x$streams, "label")
+    domains <- purrr::map_chr(x$streams, "schema_domain")
+    anchors <- purrr::map_chr(x$streams, "anchor")
+    parts <- purrr::map_chr(x$streams, "partition_granularity")
+
+    w_nm  <- max(nchar(nms), nchar("STREAM"))
+    w_lbl <- max(nchar(labels), nchar("LABEL"))
+    w_dom <- max(nchar(domains), nchar("DOMAIN"))
+    w_anc <- max(nchar(anchors), nchar("ANCHOR"))
+
+    # 1. Format the header with ANSI styling via inline formatting
+    header <- cli::format_inline(
+      "{.strong {format('STREAM', width = w_nm)}   {format('LABEL', width = w_lbl)}   {format('DOMAIN', width = w_dom)}   {format('ANCHOR', width = w_anc)}   PARTITION}"
+    )
+
+    # 2. Build the unstyled rows
+    table_rows <- purrr::pmap_chr(
+      list(nms, labels, domains, anchors, parts),
+      function(nm, lbl, dom, anc, part) {
+        paste(
+          format(nm, width = w_nm),
+          format(lbl, width = w_lbl),
+          format(dom, width = w_dom),
+          format(anc, width = w_anc),
+          part,
+          sep = "   "
         )
       }
     )
-    cli::cli_bullets(stream_bullets)
+
+    # 3. Combine and print inside a box
+    # cat_boxx handles the printing automatically
+    cli::cat_boxx(
+      c(header, table_rows),
+      header = "Streams",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = "cyan" # Optional: color the box border itself
+    )
   }
+
+
 
   # 4. METHODS CONTRACT (Ingestion Mechanics)
   cli::cli_h2("Methods Contract")
   if (!is.null(x$methods)) {
-    method_bullets <- purrr::imap_chr(
-      x$methods,
-      function(v, nm) {
-        paste0(
-          "{.strong ", nm, "} ",
-          "> domain: ", v$schema_domain, " ",
-          "[", v$type, "]"
+    nms <- names(x$methods)
+    domains <- purrr::map_chr(x$methods, "schema_domain")
+    types <- purrr::map_chr(x$methods, "type")
+
+    w_nm  <- max(nchar(nms), nchar("METHOD"))
+    w_dom <- max(nchar(domains), nchar("DOMAIN"))
+
+    header <- cli::format_inline(
+      "{.strong {format('METHOD', width = w_nm)}   {format('DOMAIN', width = w_dom)}   TYPE}"
+    )
+
+    table_rows <- purrr::pmap_chr(
+      list(nms, domains, types),
+      function(nm, dom, type) {
+        paste(
+          format(nm, width = w_nm),
+          format(dom, width = w_dom),
+          type, # Dropping the brackets '[' and ']' since the column header makes it clear
+          sep = "   "
         )
       }
     )
-    cli::cli_bullets(method_bullets)
+
+    cli::cat_boxx(
+      c(header, table_rows),
+      header = "Methods",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = "cyan"
+    )
   }
 
   # 5. BATCH LAYER STATUS
-  cli::cli_h2("Batch Layer State")
   cli::cli_alert_success("Batch layer metadata validated and trusted.")
 
   cli::cli_rule()

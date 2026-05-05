@@ -17,6 +17,30 @@
 #              .run_extraction(), .persist_to_batch(), .materialize_batch()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Error Class Taxonomy --------------------------------------------------------
+#
+# All errors inherit from `xpipe_error` (package base) and `xpipe_batch_error`
+# (file-level domain). New leaves from core_config.R taxonomy also apply here
+# (xpipe_batch_paths, xpipe_batch_metadata, xpipe_batch_hash).
+#
+#   xpipe_error
+#   └── xpipe_batch_error
+#       ├── xpipe_batch_config        # invalid or incomplete xpipe_config object
+#       ├── xpipe_batch_schema_domain # method/stream schema domain mismatch
+#       ├── xpipe_batch_method        # unknown or invalid method identifier
+#       ├── xpipe_batch_stream        # unknown stream identifier
+#       ├── xpipe_batch_path          # inbox path invalid or not found
+#       ├── xpipe_batch_input_type    # file vs directory requirement mismatch
+#       ├── xpipe_batch_components    # directory component missing or ambiguous
+#       ├── xpipe_batch_id            # invalid explicit batch_id
+#       ├── xpipe_batch_collision     # target batch directory already exists
+#       ├── xpipe_batch_input         # input missing or empty at materialization
+#       ├── xpipe_batch_instrument    # extractor not registered or not loaded
+#       ├── xpipe_batch_extraction    # extractor returned invalid result
+#       ├── xpipe_batch_materialization # ctx or config invalid at materialization
+#       └── xpipe_batch_abort         # user declined confirmation prompt
+
+
 # Public API --------------------------------------------------------------
 
 #' Ingest a Data Batch
@@ -77,6 +101,14 @@ ingest_batch <- function(
     confirm = interactive(),
     dry_run = FALSE
 ) {
+  checkmate::assert_string(filename)
+  checkmate::assert_string(stream)
+  checkmate::assert_string(method)
+  checkmate::assert_class(config, "xpipe_config")
+  checkmate::assert_string(batch_id, null.ok = TRUE)
+  checkmate::assert_flag(confirm)
+  checkmate::assert_flag(dry_run)
+
   ctx <- .prepare_batch_ingestion(
     filename = filename,
     stream   = stream,
@@ -159,7 +191,7 @@ ingest_batch <- function(
         "i" = "Method domain: {.val {method_config$schema_domain}}",
         "i" = "Stream domain: {.val {stream_config$schema_domain}}"
       ),
-      class = c("batch", "schema_domain")
+      class = c("xpipe_batch_schema_domain", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -204,13 +236,11 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .assert_config_for_batch <- function(config) {
-  if (missing(config) || !inherits(config, "xpipe_config")) {
+  if (!inherits(config, "xpipe_config")) {
     cli::cli_abort(
-      c(
-        "Invalid configuration",
-        "x" = "A valid {.arg config} object loaded via {.code load_options()} is required"
-      ),
-      class = c("batch", "config")
+      c("Invalid configuration",
+        "x" = "Expected an {.cls xpipe_config} object from {.code load_xpipe_config()}"),
+      class = c("xpipe_batch_config", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -223,7 +253,7 @@ ingest_batch <- function(
         "Invalid configuration",
         "x" = "Missing required paths in config: {.val {missing_paths}}"
       ),
-      class = c("batch", "config", "paths")
+      class = c("xpipe_batch_config", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -233,7 +263,7 @@ ingest_batch <- function(
         "Invalid configuration",
         "x" = "Streams or Methods options not loaded"
       ),
-      class = c("batch", "config", "metadata")
+      class = c("xpipe_batch_config", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -318,7 +348,7 @@ ingest_batch <- function(
       if (choice != "Yes, continue") {
         cli::cli_abort(
           "Batch ingestion aborted by user.",
-          class = "batch_abort"
+          class = c("xpipe_batch_abort", "xpipe_batch_error", "xpipe_error")
         )
       }
       return(invisible(TRUE))
@@ -331,7 +361,7 @@ ingest_batch <- function(
   if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
     cli::cli_abort(
       "Batch ingestion aborted by user.",
-      class = "batch_abort"
+      class = c("xpipe_batch_abort", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -350,15 +380,7 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .get_method_config <- function(config, method_id) {
-  if (!is.character(method_id) || length(method_id) != 1 || !nzchar(method_id)) {
-    cli::cli_abort(
-      c(
-        "Invalid method",
-        "x" = "{.arg method_id} must be a non-empty string"
-      ),
-      class = c("batch", "method")
-    )
-  }
+  rlang::check_string(method_id)
 
   available <- names(config$methods)
   if (!(method_id %in% available)) {
@@ -368,7 +390,7 @@ ingest_batch <- function(
         "x" = "Unknown method: {.val {method_id}}",
         "i" = "Available methods: {.str {available}}"
       ),
-      class = c("batch", "method")
+      class = c("xpipe_batch_method", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -383,6 +405,8 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .get_stream_config <- function(config, stream_id) {
+  rlang::check_string(stream_id)
+
   available <- names(config$streams)
   if (!(stream_id %in% available)) {
     cli::cli_abort(
@@ -391,7 +415,7 @@ ingest_batch <- function(
         "x" = "Unknown stream: {.val {stream_id}}",
         "i" = "Available streams: {.str {available}}"
       ),
-      class = c("batch", "stream")
+      class = c("xpipe_batch_stream", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -408,15 +432,7 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .resolve_inbox_path <- function(config, path) {
-  if (!is.character(path) || length(path) != 1 || !nzchar(path)) {
-    cli::cli_abort(
-      c(
-        "Invalid path",
-        "x" = "{.arg path} must be a non-empty string"
-      ),
-      class = c("batch", "path")
-    )
-  }
+  rlang::check_string(path)
 
   full_path <- fs::path(config$local$paths$inbox, path)
   if (!fs::file_exists(full_path)) {
@@ -426,7 +442,7 @@ ingest_batch <- function(
         "x" = "Path {.file {path}} was not found in inbox",
         "i" = "Inbox: {.file {config$local$paths$inbox}}"
       ),
-      class = c("batch", "path")
+      class = c("xpipe_batch_path", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -448,7 +464,7 @@ ingest_batch <- function(
         "x" = "Selected method requires a file, but a directory was provided.",
         "i" = "Path: {.file {filepath}}"
       ),
-      class = c("batch", "input_type")
+      class = c("xpipe_batch_input_type", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -459,7 +475,7 @@ ingest_batch <- function(
         "x" = "Method {.val {method_config$method_id}} requires a directory, but a file was provided.",
         "i" = "Path: {.file {filepath}}"
       ),
-      class = c("batch", "input_type")
+      class = c("xpipe_batch_input_type", "xpipe_batch_error", "xpipe_error")
     )
   }
 }
@@ -486,7 +502,7 @@ ingest_batch <- function(
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Directory: {.file {dir_path}}"
         ),
-        class = c("batch", "components")
+        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
       )
     }
 
@@ -498,7 +514,7 @@ ingest_batch <- function(
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Found: {.file {basename(matches)}}"
         ),
-        class = c("batch", "components")
+        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
       )
     }
 
@@ -523,22 +539,14 @@ ingest_batch <- function(
 #'
 #' @noRd
 .normalize_or_generate_batch_id <- function(stream_id, method_id, batch_id = NULL) {
+  rlang::check_string(stream_id)
+  rlang::check_string(method_id)
   if (!is.null(batch_id)) {
-    if (!is.character(batch_id) || length(batch_id) != 1 || !nzchar(batch_id)) {
-      cli::cli_abort(
-        c(
-          "Invalid batch_id",
-          "x" = "{.arg batch_id} must be a non-empty string"
-        ),
-        class = c("batch", "batch_id")
-      )
-    }
+    rlang::check_string(batch_id)
     return(batch_id)
   }
-
   ts <- format(Sys.time(), "%Y%m%dT%H%M%OS3")
-
-  paste0(ts, "_" ,stream_id, "_", method_id)
+  paste0(ts, "_", stream_id, "_", method_id)
 }
 
 #' Build Batch Target Directory Path
@@ -553,9 +561,8 @@ ingest_batch <- function(
 #'
 #' @noRd
 .build_batch_target_dir <- function(config, batch_id) {
-  fs::path_norm(
-    fs::path(config$local$paths$batch, batch_id)
-  )
+  rlang::check_string(batch_id)
+  fs::path_norm(fs::path(config$local$paths$batch, batch_id))
 }
 
 
@@ -609,7 +616,7 @@ ingest_batch <- function(
 }
 
 
-## Phase A ----------------------------------------------------------------
+## Phases ----------------------------------------------------------------
 
 #' Assert that batch materialization is safe
 #'
@@ -624,25 +631,8 @@ ingest_batch <- function(
 #' @noRd
 .assert_batch_materializable <- function(ctx, config) {
 
-  if (!is.list(ctx)) {
-    cli::cli_abort(
-      c(
-        "Invalid ingestion context",
-        "x" = "{.arg ctx} must be a list"
-      ),
-      class = c("batch", "materialization")
-    )
-  }
-
-  if (!inherits(config, "xpipe_config")) {
-    cli::cli_abort(
-      c(
-        "Invalid configuration",
-        "x" = "{.arg config} must be an object of class {.cls xpipe_config}"
-      ),
-      class = c("batch", "materialization", "config")
-    )
-  }
+  checkmate::assert_list(ctx, min.len = 1)
+  checkmate::assert_class(config, "xpipe_config")
 
   # A1. Target collision check (batch layer)
   if (fs::dir_exists(ctx$batch_dir)) {
@@ -653,7 +643,7 @@ ingest_batch <- function(
         "i" = "Path: {.file {ctx$batch_dir}}",
         "i" = "Batch id: {.val {ctx$batch_id}}"
       ),
-      class = c("batch", "collision")
+      class = c("xpipe_batch_collision", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -665,7 +655,7 @@ ingest_batch <- function(
         "x" = "Input path does not exist at materialization time",
         "i" = "Expected path: {.file {ctx$filepath}}"
       ),
-      class = c("batch", "input")
+      class = c("xpipe_batch_input", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -678,14 +668,12 @@ ingest_batch <- function(
         "x" = "Input is empty or unreadable",
         "i" = "Path: {.file {ctx$filepath}}"
       ),
-      class = c("batch", "input")
+      class = c("xpipe_batch_input", "xpipe_batch_error", "xpipe_error")
     )
   }
 
   invisible(TRUE)
 }
-
-## Phase B --------------------------------------------------------------
 
 #' Resolve extraction instrument
 #'
@@ -711,7 +699,7 @@ ingest_batch <- function(
         "x" = "No extractor registered for method type {.val {method_type}}",
         "i" = "Registered types: {.val {names(.instrument_registry)}}"
       ),
-      class = c("batch", "instrument")
+      class = c("xpipe_batch_instrument", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -722,14 +710,13 @@ ingest_batch <- function(
         "x" = "Function {.code {fn_name}} is not available in the current environment",
         "i" = "Source the appropriate tool script before calling {.code ingest_batch()}"
       ),
-      class = c("batch", "instrument")
+      class = c("xpipe_batch_instrument", "xpipe_batch_error", "xpipe_error")
     )
   }
 
   get(fn_name, mode = "function")
 }
 
-## Phase C --------------------------------------------------------------
 
 #' Run extraction and load batch data into memory
 #'
@@ -769,13 +756,12 @@ ingest_batch <- function(
         "Invalid extraction result",
         "x" = "Extractor must return a non-empty list of data frames"
       ),
-      class = c("batch", "extraction")
+      class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
     )
   }
   extracted
 }
 
-## Phase D --------------------------------------------------------------
 
 #' Persist extracted data to the Batch layer
 #'
@@ -795,7 +781,7 @@ ingest_batch <- function(
           "x" = "All extracted elements must be data.frames",
           "i" = "Element: {.val {nm}}"
         ),
-        class = c("batch", "materialization")
+        class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
       )
     }
 
