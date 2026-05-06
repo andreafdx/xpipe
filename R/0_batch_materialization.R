@@ -301,7 +301,6 @@ ingest_batch <- function(
     "Method : {.val {ctx$method_id}}"
   ))
 
-
   if (!is.null(ctx$resolved_inputs)) {
     cli::cli_h3("Resolved component inputs")
     cli::cli_bullets(
@@ -311,7 +310,6 @@ ingest_batch <- function(
       )
     )
   }
-
 
   cli::cli_h3("Target")
   cli::cli_bullets(c(
@@ -676,7 +674,6 @@ ingest_batch <- function(
   checkmate::assert_list(ctx, min.len = 1)
   checkmate::assert_class(config, "xpipe_config")
 
-
   # A1. Target collision check (batch layer)
   if (fs::dir_exists(ctx$batch_dir)) {
     cli::cli_abort(
@@ -765,8 +762,6 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .run_extraction <- function(ctx, instrument) {
-  cli::cli_inform("Running extraction instrument...")
-
   extracted <- instrument(ctx)
 
   if (is.data.frame(extracted)) {
@@ -778,6 +773,28 @@ ingest_batch <- function(
       c(
         "Invalid extraction result",
         "x" = "Extractor must return a non-empty list of data frames"
+      ),
+      class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+    )
+  }
+
+  if (is.null(names(extracted)) || any(!nzchar(names(extracted)))) {
+    cli::cli_abort(
+      c(
+        "Invalid extraction result",
+        "x" = "Extracted list must have a valid name for every element"
+      ),
+      class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+    )
+  }
+
+  invalid_elements <- purrr::keep(extracted, ~ !is.data.frame(.x))
+  if (length(invalid_elements) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid extracted object",
+        "x" = "All extracted elements must be data.frames",
+        "i" = "Invalid element(s): {.val {names(invalid_elements)}}"
       ),
       class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
     )
@@ -796,21 +813,6 @@ ingest_batch <- function(
 
   for (nm in names(extracted_data)) {
     tbl <- extracted_data[[nm]]
-
-    if (!is.data.frame(tbl)) {
-      cli::cli_abort(
-        c(
-          "Invalid extracted object",
-          "x" = "All extracted elements must be data.frames",
-          "i" = "Element: {.val {nm}}"
-        ),
-        class = c(
-          "xpipe_batch_materialization",
-          "xpipe_batch_error",
-          "xpipe_error"
-        )
-      )
-    }
 
     arrow::write_parquet(
       tbl,
@@ -849,10 +851,7 @@ ingest_batch <- function(
     meta$resolved_inputs <- lapply(ctx$resolved_inputs, basename)
   }
 
-  if (!is.null(ctx$method_config$components)) {
-    meta$components <- ctx$method_config$components
-  }
-
+  meta$tables <- names(extracted_data)
 
   jsonlite::write_json(
     meta,

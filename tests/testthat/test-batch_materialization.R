@@ -87,35 +87,37 @@ test_that(".run_extraction coerces a bare data.frame return to a named list", {
   expect_s3_class(result$data, "data.frame")
 })
 
-# ---- .persist_to_batch ------------------------------------------------------
+test_that(".run_extraction aborts if an extracted element is not a data.frame", {
+  bad_instrument <- function(ctx) list(good_table = data.frame(x = 1), bad_table = "not a df")
 
-test_that(".persist_to_batch aborts if an extracted element is not a data.frame", {
   ctx <- list(
-    batch_id = "test_batch",
-    batch_dir = tempfile("batch_"),
-    filename = "test.mdb",
-    stream_id = "sdo",
-    method_id = "sdo_quani_mdb",
-    method_config = list(
-      schema_domain = "sdo",
-      type = "access_mdb",
-      input_type = "file"
-    ),
-    stream_config = list(anchor = "start")
+    components = NULL,
+    filepath = tempfile(),
+    method_config = list(type = "access_mdb")
   )
-
-  mock_config <- structure(
-    list(runtime = list(tool = list(name = "xpipe", version = "dev"))),
-    class = "xpipe_config"
-  )
-
-  bad_data <- list(good_table = data.frame(x = 1), bad_table = "not a df")
 
   expect_error(
-    .persist_to_batch(ctx, bad_data, mock_config),
-    class = "xpipe_batch_materialization"
+    .run_extraction(ctx, bad_instrument),
+    class = "xpipe_batch_extraction"
   )
 })
+
+test_that(".run_extraction aborts if extracted list is not fully named", {
+  unnamed_instrument <- function(ctx) list(data.frame(x = 1))
+
+  ctx <- list(
+    components = NULL,
+    filepath = tempfile(),
+    method_config = list(type = "access_mdb")
+  )
+
+  expect_error(
+    .run_extraction(ctx, unnamed_instrument),
+    class = "xpipe_batch_extraction"
+  )
+})
+
+# ---- .persist_to_batch ------------------------------------------------------
 
 test_that(".persist_to_batch wraps filesystem errors as xpipe_batch_materialization", {
   # Point batch_dir at a path that cannot be created (a file used as a dir)
