@@ -26,7 +26,4 @@
   # Optional: Immediately inspect the batch layer to confirm the metadata
   print(inspect_batch_layer(.cfg))
 
-}, error = function(e) {
-  cli::cli_alert_danger("Pipeline failed!")
-  cli::cli_bullets(c("x" = conditionMessage(e)))
-})
+
