@@ -1,7 +1,7 @@
 # DuckDB Migration Plan — Bronze and Silver Layers
 
 **Branch**: `duck`  
-**Status**: Planning (revised)  
+**Status**: Accepted — ready for implementation  
 **Date**: 2026-05-06
 
 ---
@@ -110,9 +110,9 @@ data/silver/
   farmaceutica.duckdb
 ```
 
-Silver is a **multi-table family** per stream, not a single flat table.
-Version selection applies to the anchor table; secondary tables are
-filtered to retain only rows from the selected anchor version.
+Silver is a **multi-table family** per stream. Version selection applies
+to the anchor table; secondary tables are filtered to retain only rows
+belonging to the selected anchor version.
 
 **Table naming convention**: `{phase}__{source_table_name}`
 
@@ -122,13 +122,13 @@ CREATE TABLE current__TblScheda   (...);  -- latest-wins anchor
 CREATE TABLE current__TblDiagnosi (...);  -- filtered to current anchor version
 CREATE TABLE current__TblProcedure (...);
 
-CREATE TABLE harmonized__TblScheda   (...);  -- analytical form
+CREATE TABLE harmonized__TblScheda   (...);
 CREATE TABLE harmonized__TblDiagnosi (...);
 CREATE TABLE harmonized__TblProcedure (...);
 ```
 
-A stream that has only one table will still follow this naming for
-consistency: `current__<table>`, not a bare `current`.
+A stream that has only one table still follows this naming for consistency:
+`current__<table>`, not a bare `current`.
 
 ---
 
@@ -142,7 +142,7 @@ connections) but requires exclusive access for writers.
 > not be attempted.
 
 Analysts may query Bronze or Silver in read-only mode while no promotion
-is running without issue:
+is running:
 
 ```r
 con <- DBI::dbConnect(duckdb::duckdb(), dbdir = "data/bronze/sdo.duckdb",
@@ -158,14 +158,14 @@ undefined behavior and must be prevented at the orchestration level.
 
 ### Phase 1 — Bronze (implement now, on `duck` branch)
 
-**Step 1: Add `duckdb` and `DBI` to `DESCRIPTION` Imports**
+#### Step 1: Add `duckdb` and `DBI` to `DESCRIPTION` Imports
 
-Both are already available in the R ecosystem. `DBI` is the database
-interface abstraction; `duckdb` provides the driver.
+Both are available in the R ecosystem. `DBI` is the database interface
+abstraction; `duckdb` provides the driver.
 
 ---
 
-**Step 2: Create `.open_bronze_conn()` helper**
+#### Step 2: Create `.open_bronze_conn()` helper
 
 Opens (or creates) the stream DuckDB file. Returns a DBI connection.
 Caller is responsible for disconnecting.
@@ -180,26 +180,47 @@ Caller is responsible for disconnecting.
 
 ---
 
-**Step 3: Create `__promotion_log` table (authoritative promotion state)**
+#### Step 3: Identifier quoting — never paste raw names into SQL
 
-This table replaces `layer.json` as the authoritative source of truth for
-promoted batches. It is created on first use and is committed atomically
-with the data inserts.
+Table names like `sdo__sdo_hosp_xml__TblScheda` are mostly safe, but
+source table names from Access MDB or XML may contain spaces, uppercase,
+reserved words, or other characters that break unquoted SQL. Use DBI's
+quoting helper everywhere:
+
+```r
+.quote_ident <- function(con, x) DBI::dbQuoteIdentifier(con, x)
+```
+
+For string values (batch IDs, paths), always use parameterised queries
+(`params = list(...)`) or `DBI::dbQuoteLiteral()`. Never `glue()` raw
+batch IDs or file paths directly into SQL.
+
+---
+
+#### Step 4: Create `__promotion_log` table (authoritative promotion state)
+
+This table is the single source of truth for promoted batches. It
+replaces `layer.json` in that role.
 
 ```sql
 CREATE TABLE IF NOT EXISTS __promotion_log (
   batch_id         TEXT PRIMARY KEY,
   stream_id        TEXT NOT NULL,
   method_id        TEXT NOT NULL,
-  status           TEXT NOT NULL,        -- 'promoted'
   promoted_at      TIMESTAMP NOT NULL,
   batch_created_at TIMESTAMP,
   anchor_source    TEXT,
-  tables           TEXT,                 -- JSON array of table names
+  tables           TEXT,       -- JSON array of promoted table names
   tool             TEXT,
   tool_version     TEXT
 );
 ```
+
+> **No `status` column.** `__promotion_log` records only successful
+> promotions. A batch that is not in this table is not promoted, full
+> stop. Logging failed attempts adds complexity with no benefit; failures
+> are visible in the R error condition and the operator's console. A
+> success-only ledger is simpler and unambiguous.
 
 `layer.json` may be retained as a non-authoritative, human-readable
 summary written after a successful promotion (a convenience cache for
@@ -208,45 +229,59 @@ source of truth for batch state.
 
 ---
 
-**Step 4: Create `.ensure_bronze_table()` helper**
+#### Step 5: Create `.ensure_bronze_table()` helper
 
-Creates the data table if it does not yet exist, using the schema of the
-incoming data frame plus mandatory metadata columns. All domain columns are
-created as `VARCHAR DEFAULT NULL` when type is unknown; see Step 5 for type
-handling.
-
-All domain columns are nullable by default. Only metadata columns have
-constraints.
+Creates the data table on first use. Schema is derived from the Parquet
+source file via DuckDB's native Parquet introspection — see Step 6 on
+type policy.
 
 ---
 
-**Step 5: Create `.reconcile_bronze_schema()` — Schema Evolution Policy**
+#### Step 6: Type inference policy — Parquet types, not VARCHAR by default
 
-This is a critical component with no equivalent in the Parquet design.
+Domain columns are created using the types DuckDB infers directly from
+the Batch Parquet file. Since Batch is already Parquet, DuckDB can read
+the source schema without loading data into R:
 
-DuckDB tables are strictly typed. When a source delivers a new column
-(e.g. the Ministry updates the SDO tracciato), or drops a column, the
-Bronze table must be reconciled before the INSERT. This runs inside the
-same transaction as the INSERT.
+```sql
+DESCRIBE SELECT * FROM read_parquet('path/to/batch/table.parquet')
+```
 
-The policy:
+This gives reliable type information. `VARCHAR` is used only as a safe
+fallback when inference is genuinely unsafe (all-NA columns, inconsistent
+type across row groups).
+
+> **Rule**: preserve source types where stable; fall back to `VARCHAR`
+> only for ambiguous columns. Do not use `VARCHAR` as a default.
+
+Turning everything into `VARCHAR` avoids type conflicts at ingestion but
+forces casts everywhere in Silver, degrades query performance, and
+introduces subtle date/number bugs downstream.
+
+---
+
+#### Step 7: Create `.reconcile_bronze_schema()` — Schema Evolution Policy
+
+This runs **inside the same transaction** as the INSERT. DuckDB tables
+are strictly typed; if the source schema changes between batches, the
+Bronze table must be reconciled before insertion.
 
 | Scenario | Action |
 |---|---|
-| **New column in source, absent from Bronze table** | `ALTER TABLE ADD COLUMN <name> <type> DEFAULT NULL` + `cli_warn()`. Historical rows get NULL. |
-| **Column absent from source, present in Bronze table** | INSERT NULL (naturally handled by name-based INSERT). Log a warning. |
+| **New column in source, absent from Bronze table** | `ALTER TABLE ADD COLUMN <name> <inferred_type> DEFAULT NULL` + `cli_warn()`. Historical rows get NULL. |
+| **Column absent from source, present in Bronze table** | Insert NULL via name-based INSERT. Log warning. |
 | **Type widening** (`INT → BIGINT`, `DATE → TIMESTAMP`) | Allow. `ALTER TABLE ALTER COLUMN TYPE`. |
-| **Incompatible type change** (`DATE → VARCHAR`, `INTEGER → BOOLEAN`) | Hard abort: `xpipe_bronze_schema_evolution`. Manual intervention required. |
-| **Identity key column missing or null** | Hard abort regardless of schema policy. This is a source data failure, not schema evolution. |
-| **Column reordering in source** | Harmless. INSERT is always name-based. |
-| **All-NA column in source** | DuckDB may infer as `INTEGER`. Coerce to `VARCHAR` as a safe default; log a warning. |
+| **Incompatible type change** (`DATE → VARCHAR`, `INT → BOOLEAN`) | Hard abort: `xpipe_bronze_schema_evolution`. Manual migration required. |
+| **Identity key column missing or null in source** | Hard abort regardless of schema policy. This is a source data failure. |
+| **Column reordering in source** | Harmless. INSERT is always name-based, never positional. |
+| **All-NA column in source** | DuckDB may infer as INTEGER. Coerce to VARCHAR; log warning. |
 
 ```r
 .reconcile_bronze_schema <- function(con, table_name, incoming_df, identity_keys) {
-  existing_cols  <- DBI::dbListFields(con, table_name)
-  incoming_cols  <- names(incoming_df)
+  existing_cols <- DBI::dbListFields(con, table_name)
+  incoming_cols <- names(incoming_df)
 
-  # Identity keys must be present
+  # Identity keys must be present and non-null
   missing_keys <- setdiff(identity_keys, incoming_cols)
   if (length(missing_keys) > 0) {
     cli::cli_abort(
@@ -260,18 +295,18 @@ The policy:
   for (col in new_cols) {
     dtype <- .infer_duckdb_type(incoming_df[[col]])
     cli::cli_warn("Schema evolution: adding column '{col}' ({dtype}) to {table_name}")
-    DBI::dbExecute(con,
-      glue::glue("ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS \"{col}\" {dtype} DEFAULT NULL")
-    )
+    DBI::dbExecute(con, glue::glue(
+      "ALTER TABLE {.quote_ident(con, table_name)} ",
+      "ADD COLUMN IF NOT EXISTS {.quote_ident(con, col)} {dtype} DEFAULT NULL"
+    ))
   }
 
-  # Dropped columns: log only (INSERT will handle with NULLs)
-  dropped_cols <- setdiff(
-    setdiff(existing_cols, .bronze_metadata_cols()),
-    incoming_cols
-  )
-  if (length(dropped_cols) > 0) {
-    cli::cli_warn("Column(s) absent from this batch, NULL will be inserted: {.val {dropped_cols}}")
+  # Dropped columns: log only; INSERT handles with NULLs
+  dropped <- setdiff(setdiff(existing_cols, .bronze_metadata_cols()), incoming_cols)
+  if (length(dropped) > 0) {
+    cli::cli_warn(
+      "Column(s) absent from this batch, NULL will be inserted: {.val {dropped}}"
+    )
   }
 
   invisible(NULL)
@@ -280,10 +315,30 @@ The policy:
 
 ---
 
-**Step 6: Refactor `.apply_bronze_promotion()`**
+#### Step 8: Refactor `.apply_bronze_promotion()` — Atomic Transaction
 
-Replace the current `arrow::write_parquet()` approach with a fully atomic
-DuckDB transaction:
+**Authoritative promotion sequence:**
+
+```
+1. BEGIN TRANSACTION
+2. Check __promotion_log for batch_id           ← primary collision check
+   - if present: abort (already promoted)
+3. For each data table:
+   a. .ensure_bronze_table()
+   b. .reconcile_bronze_schema()
+   c. INSERT INTO <table> SELECT ... FROM read_parquet('<batch_path>')
+   d. Check __batch_id presence in data table   ← corruption guard only
+      (data present but log absent = prior failed migration state)
+4. INSERT INTO __promotion_log
+5. COMMIT
+```
+
+Step 2 is the authoritative collision check. If `__promotion_log` says
+the batch exists, the batch is promoted — regardless of what the data
+tables contain. A data table that contains `__batch_id` rows but has no
+corresponding log entry indicates corruption (e.g. a partial promotion
+from before the migration to DuckDB), not a normal duplicate — handle
+separately with a warning, not the standard collision error.
 
 ```r
 # Pseudo-code — actual implementation will handle error classes and CLI output
@@ -295,85 +350,122 @@ DBI::dbBegin(con)
 
 tryCatch({
 
-  for (each enriched data frame) {
-    table_name <- glue("{stream_id}__{method_id}__{source_table}")
+  # 1. Authoritative collision check
+  already_promoted <- DBI::dbGetQuery(
+    con,
+    "SELECT COUNT(*) FROM __promotion_log WHERE batch_id = ?",
+    params = list(batch_id)
+  )[[1]] > 0
 
-    # Create table if it doesn't exist
-    .ensure_bronze_table(con, table_name, df, metadata_cols)
-
-    # Reconcile schema (adds missing columns, detects incompatible types)
-    .reconcile_bronze_schema(con, table_name, df, identity_keys)
-
-    # Collision check: has this batch already been promoted?
-    n <- DBI::dbGetQuery(con,
-      "SELECT COUNT(*) FROM {table_name} WHERE __batch_id = ?",
-      params = list(batch_id)
-    )[[1]]
-    if (n > 0) cli::cli_abort(..., class = "xpipe_bronze_append_only")
-
-    # INSERT from Parquet directly — no R data frame materialization
-    # for large production batches
-    DBI::dbExecute(con, glue("
-      INSERT INTO {table_name}
-      SELECT
-        *,
-        '{batch_id}'   AS __batch_id,
-        '{stream_id}'  AS __stream_id,
-        '{method_id}'  AS __method_id,
-        '{promoted_at}' AS __bronze_promoted_at
-        -- ... other metadata cols
-      FROM read_parquet('{parquet_path}')
-    "))
+  if (already_promoted) {
+    cli::cli_abort(
+      "Batch {.val {batch_id}} is already recorded in the promotion log.",
+      class = c("xpipe_bronze_append_only", "xpipe_bronze_error", "xpipe_error")
+    )
   }
 
-  # Insert promotion event into authoritative log (same transaction)
+  # 2. Insert each data table directly from Batch Parquet
+  for (tbl in batch_tables) {
+    table_name  <- glue("{stream_id}__{method_id}__{tbl$source_name}")
+    parquet_path <- tbl$parquet_path
+
+    .ensure_bronze_table(con, table_name, parquet_path)
+    .reconcile_bronze_schema(con, table_name, tbl$df, identity_keys)
+
+    # INSERT from Parquet directly — no R data frame materialization
+    DBI::dbExecute(con, glue::glue("
+      INSERT INTO {.quote_ident(con, table_name)}
+      SELECT
+        *,
+        ? AS __batch_id,
+        ? AS __stream_id,
+        ? AS __method_id,
+        ? AS __batch_created_at,
+        ? AS __bronze_promoted_at,
+        ? AS __anchor_time,
+        ? AS __anchor_year,
+        ? AS __anchor_source
+      FROM read_parquet(?)
+    "), params = list(
+      batch_id, stream_id, method_id,
+      batch_created_at, promoted_at,
+      tbl$anchor_time, tbl$anchor_year, tbl$anchor_source,
+      parquet_path
+    ))
+  }
+
+  # 3. Insert promotion event into authoritative log (same transaction)
   DBI::dbExecute(con,
-    "INSERT INTO __promotion_log VALUES (?, ?, ?, 'promoted', ?, ?, ?, ?, ?, ?)",
-    params = list(batch_id, stream_id, method_id, promoted_at, ...)
+    "INSERT INTO __promotion_log VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    params = list(
+      batch_id, stream_id, method_id,
+      promoted_at, batch_created_at,
+      anchor_source, jsonlite::toJSON(names(batch_tables)),
+      config$runtime$tool$name, config$runtime$tool$version
+    )
   )
 
   DBI::dbCommit(con)
 
 }, error = function(e) {
   DBI::dbRollback(con)
-  stop(e)
+  cli::cli_abort(
+    "Bronze promotion failed and was rolled back.",
+    parent = e,
+    class = c("xpipe_bronze_error", "xpipe_error")
+  )
 })
 ```
 
-> **Key principle**: `read_parquet()` in DuckDB SQL reads the Batch Parquet
-> file directly from disk. No R data frame materialization is needed for
-> production batches. This keeps memory bounded regardless of batch size.
+> **`INSERT INTO ... SELECT FROM read_parquet()`** reads the Batch Parquet
+> file directly on disk. No R data frame is materialized for large
+> production batches. Memory usage stays bounded regardless of batch size.
 > `dbAppendTable()` with a pre-loaded data frame remains valid for unit
 > tests with small fixtures.
 
 ---
 
-**Step 7: Update `inspect_bronze()` in `layers_inspect.R`**
+#### Step 9: Update `inspect_bronze()` in `layers_inspect.R`
 
 Currently lists `.parquet` files. Must instead:
 
 - List tables in the DuckDB file (`DBI::dbListTables()`)
-- Report row counts per table
-- Report distinct `__batch_id` values present
+- Report row counts per data table
+- Query `__promotion_log` for promotion history (what batches, when)
 - Report anchor year range
-- Optionally: query `__promotion_log` for promotion history
 
 ---
 
-**Step 8: Update tests**
-
-- `test-bronze_helpers.R`: use `withr::with_tempdir()` + a temporary
-  DuckDB file instead of temp Parquet files
-- `test-inspect_layer.R`: update expectations for DuckDB-backed Bronze
-- Add tests specifically for schema evolution: new column, dropped column,
-  incompatible type change, missing identity key
+#### Step 10: Update tests
 
 ```r
 withr::with_tempdir({
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = "test_bronze.duckdb")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-  # ... test promotion, collision, schema evolution ...
+  # Collision via __promotion_log (not data table)
+  DBI::dbExecute(con, "CREATE TABLE __promotion_log (batch_id TEXT PRIMARY KEY, ...)")
+  DBI::dbExecute(con, "INSERT INTO __promotion_log VALUES ('b001', ...)")
+
+  expect_error(
+    .promote_df(con, ..., batch_id = "b001"),
+    class = "xpipe_bronze_append_only"
+  )
+
+  # Schema evolution: new column
+  df_v2 <- data.frame(id = 2L, val = "b", new_col = "x")
+  expect_no_error(.promote_df(con, ..., batch_id = "b002", df = df_v2))
+  expect_true("new_col" %in% DBI::dbListFields(con, "test__method__tbl"))
+
+  # Historical row has NULL for new_col
+  res <- DBI::dbGetQuery(con, "SELECT new_col FROM test__method__tbl WHERE __batch_id = 'b001'")
+  expect_true(is.na(res$new_col))
+
+  # Incompatible type change aborts
+  expect_error(
+    .promote_df(con, ..., batch_id = "b003", df = data.frame(id = "not_an_int")),
+    class = "xpipe_bronze_schema_evolution"
+  )
 })
 ```
 
@@ -381,27 +473,45 @@ withr::with_tempdir({
 
 ### Phase 2 — Silver (implement when Silver layer begins)
 
-Silver compute and storage, to be detailed in a separate plan. Summary:
-
-**Compute**: DuckDB SQL window functions, reading from Bronze DuckDB.
+**Canonical version ordering**:
 
 ```sql
--- Silver-current: anchor table (version selection)
+ROW_NUMBER() OVER (
+  PARTITION BY <identity_keys>
+  ORDER BY __batch_created_at DESC, __batch_id DESC
+)
+```
+
+`__batch_created_at` is when the Batch artifact was created — it
+represents the source delivery time and is stable regardless of when
+Bronze promotion happens. `__batch_id` provides a deterministic tie-breaker
+when two batches were created at the same millisecond.
+
+`__bronze_promoted_at` must **not** be used as the version ordering column
+for Silver. It reflects when Bronze promotion ran, which could vary if Bronze
+is rebuilt from Batch. The Silver contract should state "batch creation time"
+(`__batch_created_at`) as the canonical version marker.
+
+**Compute example** (anchor table):
+
+```sql
 CREATE OR REPLACE TABLE current__TblScheda AS
 SELECT * EXCLUDE (rn)
 FROM (
   SELECT *,
     ROW_NUMBER() OVER (
       PARTITION BY id_nosologico
-      ORDER BY __batch_created_at DESC
+      ORDER BY __batch_created_at DESC, __batch_id DESC
     ) AS rn
   FROM sdo__sdo_hosp_xml__TblScheda
   WHERE __anchor_year >= year(current_date) - 2
 )
 WHERE rn = 1;
+```
 
--- Silver-current: secondary tables
--- Filtered to retain only rows belonging to the selected anchor version
+**Secondary tables** (filtered to anchor version):
+
+```sql
 CREATE OR REPLACE TABLE current__TblDiagnosi AS
 SELECT d.*
 FROM sdo__sdo_hosp_xml__TblDiagnosi d
@@ -409,10 +519,7 @@ INNER JOIN current__TblScheda s
   USING (id_nosologico, __batch_id);
 ```
 
-**Storage**: `data/silver/{stream_id}.duckdb`, tables named
-`current__<table>` and `harmonized__<table>`.
-
-**Export**: On-demand Parquet export if external consumers require it:
+**Export on demand** (if external consumers require Parquet):
 
 ```r
 DBI::dbExecute(con,
@@ -426,102 +533,81 @@ DBI::dbExecute(con,
 
 ### ✅ Batch Contract — No changes needed
 
-Batch stays Parquet. The contract is accurate.
-
 ### ⚠️ Bronze Contract — Significant update needed
 
 | Section | Required change |
 |---|---|
-| **Physical Layout** | Replace `bronze/stream__method/year=YYYY/` with `bronze/{stream_id}.duckdb` layout and table naming convention |
-| **Promotion Semantics** | Replace Parquet write steps with DuckDB `BEGIN TRANSACTION ... INSERT INTO ... COMMIT` |
-| **Append-Only Guarantee** | Collision detection moves from "file exists on disk" to "`__batch_id` present in `__promotion_log`" |
-| **State Tracking** | Replace `layer.json` as authoritative source with `__promotion_log` table inside DuckDB; `layer.json` demoted to non-authoritative cache |
-| **New section: Transaction Boundary** | "A Bronze promotion is committed atomically. All table inserts and the promotion log entry must succeed in the same DuckDB transaction. If any operation fails, the entire transaction is rolled back and the batch remains unpromoted." |
-| **New section: Schema Evolution** | Document the column-level evolution policy (new columns → ALTER TABLE; dropped columns → NULL; incompatible types → abort; identity key absence → abort) |
-| **New section: Writer Model** | "Bronze promotion assumes a single writer per stream database. Concurrent writes are not supported." |
+| **Physical Layout** | Replace `bronze/stream__method/year=YYYY/` with `bronze/{stream_id}.duckdb` and table naming convention |
+| **Promotion Semantics** | Replace Parquet write steps with transaction sequence (BEGIN → check log → INSERT data → INSERT log → COMMIT) |
+| **Append-Only Guarantee** | Collision detection moves from "file exists" to "`batch_id` present in `__promotion_log`" |
+| **State Tracking** | `__promotion_log` inside DuckDB is authoritative. `layer.json` is a non-authoritative convenience cache. |
+| **New: Transaction Boundary** | "A Bronze promotion is committed atomically. All data inserts and the `__promotion_log` entry succeed in the same transaction or the entire operation rolls back." |
+| **New: Schema Evolution** | Document the column-level policy table from Step 7. |
+| **New: Writer Model** | "Bronze promotion assumes a single writer per stream database." |
 
-Core semantic invariants (append-only, immutable batches, domain-time
-first, self-describing rows) are **unchanged**. The mandatory metadata
-columns table is **unchanged**.
+Semantic invariants (append-only, immutable batches, domain-time first,
+self-describing rows) and mandatory column definitions are **unchanged**.
 
 ### ⚠️ Silver Contract — Wording update needed
 
-The Silver contract is largely storage-format neutral, which is good.
-One section needs updating:
+**Replace** the physical partitioning sentence with:
 
-**Current** (`§Silver-current, Persistence and physical layout`):
-> "Silver-current may be physically partitioned by year according to the
-> stream configuration..."
-
-**Replace with**:
 > "Silver-current may maintain physical or logical optimization structures
 > based on stream anchor time, such as filtering on `__anchor_year`, to
-> support incremental rebuilds and bounded recomputation. These structures
-> are implementation details and do not alter dataset semantics."
+> support incremental rebuilds and bounded recomputation. These are
+> implementation details and do not alter dataset semantics."
 
-Also add a note on multi-table structure:
-> "For multi-table streams, Silver-current is a consistent table family,
-> not a single table. Version selection is applied to the anchor table;
-> all secondary tables retain only rows belonging to the selected anchor
-> version."
+**Add** a note on multi-table structure:
+
+> "For multi-table streams, Silver-current is a consistent table family.
+> Version selection is applied to the anchor table; secondary tables retain
+> only rows belonging to the selected anchor version."
+
+**Add** a note on canonical version ordering:
+
+> "The canonical version marker for determining 'current' is batch creation
+> time (`__batch_created_at`), with `__batch_id` as the deterministic
+> tie-breaker. Bronze promotion time (`__bronze_promoted_at`) must not be
+> used as the version marker."
 
 ### ✅ Privacy Contract — No changes needed
 
-Pseudonymization happens in the Batch phase, in memory, before any write.
-Storage format is irrelevant.
-
 ### ✅ Configuration Contract — No changes needed
 
-`local.json`'s `paths.bronze` and `paths.silver` remain directory paths.
-DuckDB files live inside those directories.
-
-### ✅ Error Taxonomy — Additions only
-
-One new error class is needed:
+### ⚠️ Error Taxonomy — One addition
 
 ```
-xpipe_bronze_schema_evolution    # incompatible type change detected during
-                                  # schema reconciliation; manual migration required
+xpipe_bronze_schema_evolution    # incompatible type change during schema
+                                  # reconciliation; manual migration required
 ```
 
 Fits under `xpipe_bronze_error → xpipe_error`.
 
 ---
 
-## Test Strategy
+## Implementation Order
 
-```r
-withr::with_tempdir({
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = "test_bronze.duckdb")
-  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+Do not implement all phases in one pass. The risk is not conceptual anymore;
+it is implementing too much at once and mixing three distinct hard problems:
+storage migration, schema evolution, and Silver logic.
 
-  # --- schema evolution tests ---
+**Recommended sequence:**
 
-  # New column added to source
-  df_v1 <- data.frame(id = 1L, val = "a")
-  df_v2 <- data.frame(id = 2L, val = "b", new_col = "x")  # new column
-
-  # First promotion creates the table
-  .promote_df(con, "test__method__tbl", df_v1, batch_id = "b001", ...)
-
-  # Second promotion should ALTER TABLE and succeed
-  expect_no_error(
-    .promote_df(con, "test__method__tbl", df_v2, batch_id = "b002", ...)
-  )
-  expect_true("new_col" %in% DBI::dbListFields(con, "test__method__tbl"))
-
-  # Historical row should have NULL for new_col
-  res <- DBI::dbGetQuery(con, "SELECT new_col FROM test__method__tbl WHERE __batch_id = 'b001'")
-  expect_true(is.na(res$new_col))
-
-  # Incompatible type change should abort
-  df_v3 <- data.frame(id = "not_an_integer", val = "c")  # type conflict
-  expect_error(
-    .promote_df(con, "test__method__tbl", df_v3, batch_id = "b003", ...),
-    class = "xpipe_bronze_schema_evolution"
-  )
-})
-```
+1. Update `docs/contracts/bronze contract.Rmd` to reflect DuckDB semantics
+2. Update `docs/contracts/silver_contract.Rmd` with storage-neutral wording
+   and multi-table clarification
+3. Add `duckdb` and `DBI` to `DESCRIPTION`
+4. Implement scaffolding only:
+   - `.open_bronze_conn()`
+   - `__promotion_log` creation
+   - `BEGIN` / `COMMIT` / `ROLLBACK` wrappers
+   - Collision check against `__promotion_log`
+5. Implement single-table promotion for a simple fixture (SDO anchor table)
+   — with tests passing
+6. Add `.reconcile_bronze_schema()` and schema evolution tests
+7. Add secondary-table promotion with anchor join
+8. Update `inspect_bronze()`
+9. Silver planning and implementation is a separate branch/plan
 
 ---
 
