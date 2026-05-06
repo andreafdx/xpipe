@@ -62,16 +62,17 @@
 #' @param path Path to .mdb file.
 #' @return A named list of data frames.
 #' @export
-extract_access_db <- function(job, path) {
+extract_access_db <- function(ctx) {
   is_windows <- .Platform$OS.type == "windows"
 
-  target_tables <- job$method_config$components
+  target_tables <- ctx$method_config$components
+  path <- ctx$filepath
 
   if (is.null(target_tables) || length(target_tables) == 0) {
     cli::cli_abort(
       c(
         "No tables defined for extraction",
-        "x" = "Method {.val {job$method_id}} is missing the {.field components} list."
+        "x" = "Method {.val {ctx$method_id}} is missing the {.field components} list."
       ),
       class = c("batch_job", "config")
     )

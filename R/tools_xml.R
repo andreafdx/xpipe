@@ -26,27 +26,40 @@
 #' Extract XML Data (Main Dispatcher)
 #' @export
 #' @keywords internal
-extract_xml <- function(ctx, path) {
+extract_xml <- function(ctx) {
   checkmate::assert_list(ctx)
-  checkmate::assert_string(path)
 
-  cli::cli_inform("Reading XML document: {.file {basename(path)}}")
-
-  doc <- xml2::read_xml(path)
-  root_name <- xml2::xml_name(xml2::xml_root(doc))
-  domain    <- ctx$method_config$schema_domain
-
-  if (domain == "sdo") {
-    return(.extract_xml_sdo(doc, root_name, path))
+  domain <- ctx$method_config$schema_domain
+  if (domain != "sdo") {
+    cli::cli_abort(
+      c(
+        "Unsupported schema domain",
+        "x" = "The XML extractor does not support the domain: {.val {domain}}"
+      ),
+      class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+    )
   }
 
-  cli::cli_abort(
-    c(
-      "Unsupported schema domain",
-      "x" = "The XML extractor does not support the domain: {.val {domain}}"
-    ),
-    class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
-  )
+  paths <- unique(as.character(unlist(ctx$resolved_inputs)))
+  if (length(paths) == 0) {
+    paths <- ctx$filepath
+  }
+
+  extracted_all <- list()
+
+  for (path in paths) {
+    cli::cli_inform("Reading XML document: {.file {basename(path)}}")
+    doc <- xml2::read_xml(path)
+    root_name <- xml2::xml_name(xml2::xml_root(doc))
+
+    res <- .extract_xml_sdo(doc, root_name, path)
+    
+    for (nm in names(res)) {
+      extracted_all[[nm]] <- res[[nm]]
+    }
+  }
+
+  extracted_all
 }
 
 
