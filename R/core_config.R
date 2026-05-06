@@ -450,10 +450,10 @@ get_xpipe_config <- function() {
 #' @return Invisibly TRUE if valid.
 #' @noRd
 .validate_json_schema <- function(json_path, schema_name, error_title, error_class) {
-  rlang::check_string(json_path)
-  rlang::check_string(schema_name)
-  rlang::check_string(error_title)
-  rlang::check_string(error_class)
+  checkmate::assert_string(json_path)
+  checkmate::assert_string(schema_name)
+  checkmate::assert_string(error_title)
+  checkmate::assert_string(error_class)
 
 
   if (!fs::file_exists(json_path)) {
@@ -495,9 +495,9 @@ get_xpipe_config <- function() {
 #' @return Parsed JSON as list.
 #' @noRd
 .read_json_safe <- function(path, error_title, error_class) {
-  rlang::check_string(path)
-  rlang::check_string(error_title)
-  rlang::check_string(error_class)
+  checkmate::assert_string(path)
+  checkmate::assert_string(error_title)
+  checkmate::assert_string(error_class)
 
   if (!fs::file_exists(path)) {
     cli::cli_abort(

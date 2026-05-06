@@ -12,13 +12,16 @@ test_that(".normalize_or_generate_batch_id generates predictable format", {
   expect_true(grepl("_stream_a_method_b$", gen_id))
 })
 
-test_that(".normalize_or_generate_batch_id catches invalid explicit ids", {
+test_that(".normalize_or_generate_batch_id rejects an empty explicit batch_id", {
   expect_error(
     .normalize_or_generate_batch_id("s", "m", ""),
-    class = "batch"
+    class = "xpipe_batch_id"
   )
+})
+
+test_that(".normalize_or_generate_batch_id rejects a non-string explicit batch_id", {
+  # character(0) fails the rlang::check_string guard before reaching nzchar
   expect_error(
-    .normalize_or_generate_batch_id("s", "m", character(0)),
-    class = "batch"
+    .normalize_or_generate_batch_id("s", "m", character(0))
   )
 })

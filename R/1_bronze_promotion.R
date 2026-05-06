@@ -301,7 +301,7 @@ promote_to_bronze <- function(
 #' @noRd
 .validate_anchor_definitions <- function(config, method_ids = NULL) {
   checkmate::assert_class(config, "xpipe_config")
-  if (!is.null(method_ids)) rlang::check_character(method_ids)
+  if (!is.null(method_ids)) checkmate::assert_character(method_ids, min.len = 1)
 
   methods_to_check <- if (!is.null(method_ids)) {
     intersect(method_ids, names(config$methods))
@@ -494,6 +494,8 @@ promote_to_bronze <- function(
     )
   }
 
+  promoted_at <- .now_iso()
+
   for (pq in fs::dir_ls(batch_dir, glob = "*.parquet")) {
 
     table_name <- fs::path_ext_remove(fs::path_file(pq))
@@ -529,7 +531,7 @@ promote_to_bronze <- function(
     df$`__method_id`        <- preview$method_id
     df$`__anchor_source`    <- preview$anchor_source
     df$`__batch_created_at` <- preview$created_at
-    df$`__ingested_at`      <- .now_iso()
+    df$`__bronze_promoted_at` <- promoted_at
     df$`__anchor_year`      <- as.integer(format(as.Date(df$`__anchor_time`), "%Y"))
 
     if (granularity == "year") {
@@ -601,7 +603,7 @@ promote_to_bronze <- function(
 #' @noRd
 .make_key <- function(df, keys) {
   rlang::check_required(df)
-  rlang::check_character(keys)
+  checkmate::assert_character(keys, min.len = 1)
   do.call(paste, c(df[keys], sep = "\r"))
 }
 
@@ -634,7 +636,7 @@ promote_to_bronze <- function(
 #' @noRd
 .make_promotion_event <- function(preview, config, status = "success") {
   rlang::check_required(preview)
-  rlang::check_string(status)
+  checkmate::assert_string(status)
 
   user <- Sys.getenv("USERNAME")
   if (!nzchar(user)) user <- Sys.getenv("USER")

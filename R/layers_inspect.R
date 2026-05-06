@@ -49,8 +49,10 @@
 #' @export
 inspect_batch_layer <- function(config = get_xpipe_config()) {
   if (!inherits(config, "xpipe_config")) {
-    cli::cli_abort("{.arg config} must be a valid xpipe_config",
-                   class = c("batch_layer", "config"))
+    cli::cli_abort(
+      "{.arg config} must be a valid {.cls xpipe_config}",
+      class = c("xpipe_batch_config", "xpipe_batch_error", "xpipe_error")
+    )
   }
 
   batch_root <- config$local$paths$batch
@@ -58,7 +60,7 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
   if (!fs::dir_exists(batch_root)) {
     cli::cli_abort(
       "Batch layer directory does not exist: {.file {batch_root}}",
-      class = c("batch_layer", "paths")
+      class = c("xpipe_batch_paths", "xpipe_batch_error", "xpipe_error")
     )
   }
 

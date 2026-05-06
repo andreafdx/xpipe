@@ -40,7 +40,6 @@
 #       ├── xpipe_batch_materialization # ctx or config invalid at materialization
 #       └── xpipe_batch_abort         # user declined confirmation prompt
 
-
 # Public API --------------------------------------------------------------
 
 #' Ingest a Data Batch
@@ -93,13 +92,13 @@
 #'
 #' @export
 ingest_batch <- function(
-    filename,
-    stream,
-    method,
-    config = get_xpipe_config(),
-    batch_id = NULL,
-    confirm = interactive(),
-    dry_run = FALSE
+  filename,
+  stream,
+  method,
+  config = get_xpipe_config(),
+  batch_id = NULL,
+  confirm = interactive(),
+  dry_run = FALSE
 ) {
   checkmate::assert_string(filename)
   checkmate::assert_string(stream)
@@ -111,9 +110,9 @@ ingest_batch <- function(
 
   ctx <- .prepare_batch_ingestion(
     filename = filename,
-    stream   = stream,
-    method   = method,
-    config   = config,
+    stream = stream,
+    method = method,
+    config = config,
     batch_id = batch_id
   )
 
@@ -171,17 +170,17 @@ ingest_batch <- function(
 #'
 #' @keywords internal
 .prepare_batch_ingestion <- function(
-    filename,
-    stream,
-    method,
-    config,
-    batch_id = NULL
-){
+  filename,
+  stream,
+  method,
+  config,
+  batch_id = NULL
+) {
   .assert_config_for_batch(config)
 
   method_config <- .get_method_config(config, method)
   stream_config <- .get_stream_config(config, stream)
-  stream_id     <- stream
+  stream_id <- stream
 
   if (method_config$schema_domain != stream_config$schema_domain) {
     cli::cli_abort(
@@ -195,7 +194,7 @@ ingest_batch <- function(
     )
   }
 
-  filepath  <- .resolve_inbox_path(config, filename)
+  filepath <- .resolve_inbox_path(config, filename)
 
   # Validation against method requirement
   .validate_input_type(filepath, method_config)
@@ -207,19 +206,19 @@ ingest_batch <- function(
     NULL
   }
 
-  batch_id  <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
+  batch_id <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
   batch_dir <- .build_batch_target_dir(config, batch_id)
 
   list(
-    batch_id      = batch_id,
-    filename      = filename,
-    filepath      = filepath,
-    method_id     = method,
+    batch_id = batch_id,
+    filename = filename,
+    filepath = filepath,
+    method_id = method,
     method_config = method_config,
-    stream_id     = stream_id,
+    stream_id = stream_id,
     stream_config = stream_config,
-    batch_dir     = batch_dir,
-    components    = components
+    batch_dir = batch_dir,
+    components = components
   )
 }
 
@@ -238,8 +237,10 @@ ingest_batch <- function(
 .assert_config_for_batch <- function(config) {
   if (!inherits(config, "xpipe_config")) {
     cli::cli_abort(
-      c("Invalid configuration",
-        "x" = "Expected an {.cls xpipe_config} object from {.code load_xpipe_config()}"),
+      c(
+        "Invalid configuration",
+        "x" = "Expected an {.cls xpipe_config} object from {.code load_xpipe_config()}"
+      ),
       class = c("xpipe_batch_config", "xpipe_batch_error", "xpipe_error")
     )
   }
@@ -282,7 +283,6 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .print_ingestion_recap <- function(ctx, action = "Ingestion") {
-
   cli::cli_h2("{action} recap")
 
   cli::cli_text(
@@ -328,14 +328,12 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .confirm_ingestion <- function(confirm = TRUE) {
-
   if (!isTRUE(confirm)) {
     return(invisible(TRUE))
   }
 
   # Try climenu first, fall back cleanly if unsupported
   if (requireNamespace("climenu", quietly = TRUE)) {
-
     choice <- tryCatch(
       climenu::select(
         c("Yes, continue", "No, abort"),
@@ -369,7 +367,6 @@ ingest_batch <- function(
 }
 
 
-
 ## Method and Stream validation --------------------------------------------
 
 #' Retrieve method configuration
@@ -380,7 +377,7 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .get_method_config <- function(config, method_id) {
-  rlang::check_string(method_id)
+  checkmate::assert_string(method_id)
 
   available <- names(config$methods)
   if (!(method_id %in% available)) {
@@ -405,7 +402,7 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .get_stream_config <- function(config, stream_id) {
-  rlang::check_string(stream_id)
+  checkmate::assert_string(stream_id)
 
   available <- names(config$streams)
   if (!(stream_id %in% available)) {
@@ -432,7 +429,7 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .resolve_inbox_path <- function(config, path) {
-  rlang::check_string(path)
+  checkmate::assert_string(path)
 
   full_path <- fs::path(config$local$paths$inbox, path)
   if (!fs::file_exists(full_path)) {
@@ -486,7 +483,9 @@ ingest_batch <- function(
 #' @noRd
 .discover_components <- function(dir_path, method_config) {
   components <- method_config$components
-  if (is.null(components)) return(NULL)
+  if (is.null(components)) {
+    return(NULL)
+  }
 
   resolved <- list()
 
@@ -538,11 +537,24 @@ ingest_batch <- function(
 #' @return Character scalar batch identifier.
 #'
 #' @noRd
-.normalize_or_generate_batch_id <- function(stream_id, method_id, batch_id = NULL) {
-  rlang::check_string(stream_id)
-  rlang::check_string(method_id)
+.normalize_or_generate_batch_id <- function(
+  stream_id,
+  method_id,
+  batch_id = NULL
+) {
+  checkmate::assert_string(stream_id)
+  checkmate::assert_string(method_id)
   if (!is.null(batch_id)) {
-    rlang::check_string(batch_id)
+    checkmate::assert_string(batch_id)
+    if (!nzchar(batch_id)) {
+      cli::cli_abort(
+        c(
+          "Invalid batch identifier",
+          "x" = "{.arg batch_id} must be a non-empty string"
+        ),
+        class = c("xpipe_batch_id", "xpipe_batch_error", "xpipe_error")
+      )
+    }
     return(batch_id)
   }
   ts <- format(Sys.time(), "%Y%m%dT%H%M%OS3")
@@ -561,7 +573,7 @@ ingest_batch <- function(
 #'
 #' @noRd
 .build_batch_target_dir <- function(config, batch_id) {
-  rlang::check_string(batch_id)
+  checkmate::assert_string(batch_id)
   fs::path_norm(fs::path(config$local$paths$batch, batch_id))
 }
 
@@ -590,27 +602,48 @@ ingest_batch <- function(
 #' @return Invisibly TRUE on success.
 #' @keywords internal
 .materialize_batch <- function(ctx, config) {
-
   .assert_batch_materializable(ctx, config)
 
-  instrument     <- .resolve_extraction_instrument(ctx, config)
+  instrument <- .resolve_extraction_instrument(ctx, config)
 
   cli::cli_alert_info("Running extraction")
 
-  extracted_data <- .run_extraction(ctx, instrument)
+  extracted_data <- rlang::try_fetch(
+    .run_extraction(ctx, instrument),
+    error = function(e) {
+      cli::cli_abort(
+        "Data extraction failed for method type {.val {ctx$method_config$type}}",
+        parent = e,
+        class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+      )
+    }
+  )
 
-  # Apply privacy rules to each extracted table
   cli::cli_alert_info("Applying privacy rules")
 
   for (nm in names(extracted_data)) {
     extracted_data[[nm]] <- apply_privacy_rules(
-      df            = extracted_data[[nm]],
-      table_name    = nm,
+      df = extracted_data[[nm]],
+      table_name = nm,
       method_config = ctx$method_config,
-      pepper        = config$runtime$pepper
+      pepper = config$runtime$pepper
     )
   }
-  .persist_to_batch(ctx, extracted_data, config)
+
+  rlang::try_fetch(
+    .persist_to_batch(ctx, extracted_data, config),
+    error = function(e) {
+      cli::cli_abort(
+        "Failed to persist batch data to {.file {ctx$batch_dir}}",
+        parent = e,
+        class = c(
+          "xpipe_batch_materialization",
+          "xpipe_batch_error",
+          "xpipe_error"
+        )
+      )
+    }
+  )
 
   invisible(TRUE)
 }
@@ -630,7 +663,6 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .assert_batch_materializable <- function(ctx, config) {
-
   checkmate::assert_list(ctx, min.len = 1)
   checkmate::assert_class(config, "xpipe_config")
 
@@ -680,12 +712,11 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .resolve_extraction_instrument <- function(ctx, config) {
-
   # Registry: method type -> extractor function name (string)
   # Add new extractors here; the function must be loaded before ingest_batch() is called.
   .instrument_registry <- c(
     "access_mdb" = "extract_access_db",
-    "xml"        = "extract_xml"
+    "xml" = "extract_xml"
   )
 
   method_type <- ctx$method_config$type
@@ -723,7 +754,6 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .run_extraction <- function(ctx, instrument) {
-
   if (!is.null(ctx$components)) {
     cli::cli_inform("Extracting {length(ctx$components)} components")
     extracted <- list()
@@ -768,7 +798,6 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .persist_to_batch <- function(ctx, extracted_data, config) {
-
   fs::dir_create(ctx$batch_dir, recurse = TRUE)
 
   for (nm in names(extracted_data)) {
@@ -781,7 +810,11 @@ ingest_batch <- function(
           "x" = "All extracted elements must be data.frames",
           "i" = "Element: {.val {nm}}"
         ),
-        class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
+        class = c(
+          "xpipe_batch_materialization",
+          "xpipe_batch_error",
+          "xpipe_error"
+        )
       )
     }
 
@@ -796,29 +829,29 @@ ingest_batch <- function(
     batch_id = ctx$batch_id,
 
     stream = list(
-      id            = ctx$stream_id,
+      id = ctx$stream_id,
       schema_domain = ctx$method_config$schema_domain,
-      anchor        = ctx$stream_config$anchor
+      anchor = ctx$stream_config$anchor
     ),
 
     method = list(
-      id   = ctx$method_id,
+      id = ctx$method_id,
       type = ctx$method_config$type
     ),
 
     input = list(
-      path       = ctx$filename,
+      path = as.character(ctx$filepath),
       input_type = ctx$method_config$input_type
     ),
 
     execution = list(
-      created_at  = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
-      tool       = config$runtime$tool$name,
+      created_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
+      tool = config$runtime$tool$name,
       tool_version = config$runtime$tool$version
     )
   )
-  if (!is.null(ctx$method_config$components)) {
-    meta$components <- ctx$method_config$components
+  if (!is.null(ctx$components)) {
+    meta$components <- lapply(ctx$components, basename)
   }
 
   jsonlite::write_json(
@@ -832,4 +865,3 @@ ingest_batch <- function(
 
   invisible(TRUE)
 }
-

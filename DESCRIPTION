@@ -17,6 +17,7 @@ Suggests:
 Config/testthat/edition: 3
 Imports: 
     arrow,
+    checkmate,
     cli,
     climenu,
     data.table,
@@ -28,5 +29,6 @@ Imports:
     odbc,
     openssl,
     purrr,
+    rlang,
     tibble,
     xml2

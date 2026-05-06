@@ -14,12 +14,19 @@ test_that("hash_phi handles NAs and empty strings", {
   expect_equal(hash_phi(NA_character_, pepper), NA_character_)
   expect_equal(hash_phi("", pepper), NA_character_)
 
-  # Test vectorized NA handling
+  # Vectorized NA handling
   res <- hash_phi(c("A", NA, ""), pepper)
   expect_equal(is.na(res), c(FALSE, TRUE, TRUE))
 })
 
-test_that("hash_phi aborts on missing pepper", {
-  expect_error(hash_phi("John Doe", ""), "Missing key")
-  expect_error(hash_phi("John Doe"), "Missing key")
+test_that("hash_phi aborts on missing or empty pepper", {
+  expect_error(
+    hash_phi("John Doe", ""),
+    class = "xpipe_runtime_pepper"
+  )
+  # Missing argument also fails the same guard
+  expect_error(
+    hash_phi("John Doe", NA_character_),
+    class = "xpipe_runtime_pepper"
+  )
 })

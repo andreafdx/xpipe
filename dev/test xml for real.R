@@ -3,14 +3,7 @@
 # Test multi-component XML ingestion using the official xpipe control plane.
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# 1. Load Core Functions
-source("dev/zload all.R")
 
-tryCatch({
-  cli::cli_h1("XML Data Test: Multi-component SDO")
-
-  # Load actual configuration
-  .cfg <- load_xpipe_config()
 
   # For the xml_campania_2026 method, the input is a directory.
   # This folder must exist inside your configured inbox path.

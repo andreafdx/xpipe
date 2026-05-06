@@ -21,8 +21,6 @@ Auditability - Replayability - Clear physical organization on disk
 Bronze does **not** decide which record version is current. That
 responsibility is explicitly deferred to the Silver layer.
 
-------------------------------------------------------------------------
-
 ## Core Invariants (Non‑Negotiable)
 
 1.  **Append‑only**
@@ -42,13 +40,11 @@ responsibility is explicitly deferred to the Silver layer.
         -   when it was ingested
         -   how its time should be interpreted
 
-------------------------------------------------------------------------
-
 ## Physical Layout
 
 ```         
 bronze/
-stream_method/
+stream__method/
 year=YYYY/
 {.parquet}
 ```
@@ -60,8 +56,6 @@ year=YYYY/
     -   It preserves method‑level incompatibility by design
 -   `year=<YYYY>` is derived from the **domain anchor**
 -   Files are append‑targets, never rewritten
-
-------------------------------------------------------------------------
 
 ## Partitioning Rules
 
@@ -78,35 +72,28 @@ year=YYYY/
 Examples: - A 2026 batch containing 2024 SDOs → `year=2024` - Late
 arrivals append to historical partitions
 
-------------------------------------------------------------------------
-
 ## Metadata Model
 
 ### Mandatory Columns (All Bronze Tables)
 
 Each Bronze table **must** include the following columns:
 
-| Column               | Meaning                             |
-|----------------------|-------------------------------------|
-| `__batch_id`         | Unique batch identifier             |
-| `__stream_id`        | Stream that produced the record     |
-| `__method_id`        | Method that produced the record     |
-| `__anchor_time`      | Actual domain time stamp of the row |
-| `__anchor_year`      | Derived from `__anchor_time` (for partitioning) |
-| `__anchor_source`    | Table.column used to derive anchor time   |
-| `__batch_created_at` | When the batch was materialized     |
-| `__ingested_at`      | When the row was promoted to Bronze |
-
-
-__batch_idUnique batch identifier__stream_idStream provenance__method_idMethod provenance__anchor_timeActual domain timestamp assigned to the row__anchor_yearDerived from __anchor_time (for partitioning)__batch_created_atWhen the batch was produced__ingested_atWhen the row was promoted to Bronze
+| Column                 | Meaning                                         |
+|------------------------|-------------------------------------------------|
+| `__batch_id`           | Unique batch identifier                         |
+| `__stream_id`          | Stream that produced the record                 |
+| `__method_id`          | Method that produced the record                 |
+| `__anchor_time`        | Actual domain time stamp of the row             |
+| `__anchor_year`        | Derived from `__anchor_time` (for partitioning) |
+| `__anchor_source`      | Table.column used to derive anchor time         |
+| `__batch_created_at`   | When the batch was materialized                 |
+| `__bronze_promoted_at` | When the row was promoted to Bronze             |
 
 ### Additional Notes
 
 -   Domain columns remain untouched
 -   Bronze metadata columns are **namespaced (`__`)** to avoid collision
 -   No identity resolution columns are enforced at this layer
-
-------------------------------------------------------------------------
 
 ## Stream vs Method Responsibilities
 
@@ -127,8 +114,6 @@ __batch_idUnique batch identifier__stream_idStream provenance__method_idMethod p
 Anchor and partition column are intentionally **not the same
 concept**: - Anchor = meaning - Partition column = implementation
 
-------------------------------------------------------------------------
-
 ## Promotion Semantics
 
 Bronze promotion follows this algorithm:
@@ -140,7 +125,7 @@ Bronze promotion follows this algorithm:
 5.  Append rows to:
 
 ```         
-bronze/stream_method/year=YYYY/{.parquet}
+bronze/stream__method/year=YYYY/{.parquet}
 ```
 
 ### Prohibited Operations
@@ -151,8 +136,6 @@ bronze/stream_method/year=YYYY/{.parquet}
 -   Table‑wide rewrites
 -   Cross‑batch deletes
 
-------------------------------------------------------------------------
-
 ## State Tracking
 
 Bronze maintains a minimal state file (`layer.json`) tracking:
@@ -161,8 +144,6 @@ Bronze maintains a minimal state file (`layer.json`) tracking:
 -   `last_promotion_at`
 
 The state records **what was promoted**, not **what changed**.
-
-------------------------------------------------------------------------
 
 ## What Bronze Explicitly Does NOT Do
 
@@ -173,40 +154,10 @@ The state records **what was promoted**, not **what changed**.
 
 These are **Silver layer responsibilities** by design.
 
-------------------------------------------------------------------------
-
 ## Guarantees for Downstream Layers
 
 Bronze guarantees: - Complete history - Deterministic replay - Stable
 lineage - Time‑consistent partitioning
 
 Silver is free to: - Deduplicate - Resolve identity - Apply anchor
-semantics - Define “current state”
-
-------------------------------------------------------------------------
-
-## TODO — Next Steps
-
-### Immediate (Bronze)
-
--   [ ] Refactor `promote_to_bronze()` to remove all DELETE / PURGE
-    logic
--   [ ] Implement pure append‑only promotion
--   [ ] Enrich rows with mandatory Bronze metadata columns
--   [ ] Derive partition year from anchor column only
--   [ ] Validate late‑arriving data behavior (append to historical year)
-
-### Short‑Term Validation
-
--   [ ] Promote multiple batches affecting the same year
--   [ ] Promote late data into past partitions
--   [ ] Inspect on disk for correctness and clarity
--   [ ] Verify promotion idempotency
-
-### Later (Out of Scope for Bronze)
-
--   [ ] Define Silver resolution logic
--   [ ] Specify identity conflict rules
--   [ ] Formalize stream start/end semantics in Silver metadata
-
-------------------------------------------------------------------------
+semantics - Define “current state”.

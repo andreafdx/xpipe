@@ -125,8 +125,8 @@ hash_phi <- function(text, pepper) {
 #' @noRd
 .pseudonymize_cols <- function(df, cols, pepper) {
   rlang::check_required(df)
-  rlang::check_character(cols)
-  rlang::check_string(pepper)
+  checkmate::assert_character(cols, min.len = 1)
+  checkmate::assert_string(pepper)
 
   existing <- intersect(cols, names(df))
   if (length(existing) == 0) return(df)

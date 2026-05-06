@@ -11,7 +11,7 @@ r_files <- unlist(lapply(dirs, function(d) {
 }))
 
 # Output file
-out_file <- "all_R_files.txt"
+out_file <- "dev/all_R_files.txt"
 
 con <- file(out_file, open = "w", encoding = "UTF-8")
 
