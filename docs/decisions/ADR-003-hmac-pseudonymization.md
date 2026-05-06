@@ -33,13 +33,6 @@ Use HMAC-SHA256 keyed by a runtime-only secret (`XNE_PEPPER_KEY`):
 - **SHA-256 without a key (plain hash)**: deterministic but vulnerable
   to dictionary attacks over the known identifier space (e.g. all valid
   Italian fiscal codes can be pre-computed). Not chosen.
-- **Random pseudonym table**: assigns random tokens to identifiers and
-  stores the mapping. Truly unlinkable without the table, but requires
-  persistent secure storage of the mapping — a harder operational
-  problem than managing a pepper key. Not chosen.
-- **Argon2 / bcrypt**: designed to be slow (brute-force resistance), but
-  breaks the performance requirements for vectorized column hashing.
-  Not chosen.
 
 ## Consequences
 

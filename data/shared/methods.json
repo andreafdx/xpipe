@@ -3,13 +3,12 @@
     "schema_domain": "sdo",
     "type": "access_mdb",
     "input_type": "file",
-    "input_map": {"quanivb" : "*.mdb"},
-    "components": {
-      "TblScheda" : "quanivb",
-      "TblSchedaDiagnosi": "quanivb",
-      "TblSchedaProcedure": "quanivb",
-      "TblSchedaTrasferimenti": "quanivb"
-    },
+    "components": [
+      "TblScheda",
+      "TblSchedaDiagnosi",
+      "TblSchedaProcedure",
+      "TblSchedaTrasferimenti"
+    ],
     "anchor_table": "TblScheda",
     "identity_keys": ["i_IDScheda"],
     "partition_column": "d_DataDimissione",
@@ -21,17 +20,13 @@
     "schema_domain": "sdo",
     "type": "xml",
     "input_type": "directory",
-    "input_map": {
-      "tracciato_a": "*_A.xml",
-      "tracciato_b": "*_B.xml"
-    },
     "components": {
-      "anagrafica": "tracciato_a",
-      "ricovero": "tracciato_b",
-      "diagnosi": "tracciato_b",
-      "procedure": "tracciato_b",
-      "trasferimenti": "tracciato_b",
-      "accessi_dh": "tracciato_b"
+      "anagrafica": "*_A.xml",
+      "ricovero": "*_B.xml",
+      "diagnosi": "*_B.xml",
+      "procedure": "*_B.xml",
+      "trasferimenti": "*_B.xml",
+      "accessi_dh": "*_B.xml"
     },
     "anchor_table": "ricovero",
     "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"],

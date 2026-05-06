@@ -199,11 +199,16 @@ ingest_batch <- function(
   # Validation against method requirement
   .validate_input_type(filepath, method_config)
 
-  # Discover components if it's a directory
-  components_inputs <- if (fs::is_dir(filepath)) {
-    .resolve_component_inputs(filepath, method_config)
+  # Discover and resolve component inputs
+  resolved_inputs <- if (fs::is_dir(filepath)) {
+    .resolve_inputs(filepath, method_config)
   } else {
-    NULL
+    components <- method_config$components
+    if (!is.null(components)) {
+      setNames(rep(list(filepath), length(components)), components)
+    } else {
+      list(data = filepath)
+    }
   }
 
   batch_id <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
@@ -218,7 +223,7 @@ ingest_batch <- function(
     stream_id = stream_id,
     stream_config = stream_config,
     batch_dir = batch_dir,
-    components_inputs = components_inputs
+    resolved_inputs = resolved_inputs
   )
 }
 
@@ -297,11 +302,11 @@ ingest_batch <- function(
   ))
 
 
-  if (!is.null(ctx$component_inputs)) {
+  if (!is.null(ctx$resolved_inputs)) {
     cli::cli_h3("Resolved component inputs")
     cli::cli_bullets(
       purrr::imap_chr(
-        ctx$component_inputs,
+        ctx$resolved_inputs,
         ~ paste0("{.strong ", .y, "} : {.file ", basename(.x), "}")
       )
     )
@@ -479,45 +484,30 @@ ingest_batch <- function(
   }
 }
 
-#' Discover and resolve components according to input_map + components DSL
+#' Discover and resolve components
 #'
 #' Resolves logical components into concrete file paths.
 #'
-#' Semantics:
-#' - input_map: role -> glob
-#' - components:
-#'     * NULL        -> no component fan-out (single input)
-#'     * character[] -> implicit mapping: all components map to the only role
-#'     * named list  -> explicit mapping: component -> role
-#'
 #' @keywords internal
 #' @noRd
-.resolve_components_inputs <- function(dir_path, method_config) {
-  input_map  <- method_config$input_map
+.resolve_inputs <- function(dir_path, method_config) {
   components <- method_config$components
 
-  if (is.null(input_map) || length(input_map) == 0) {
-    cli::cli_abort(
-      c(
-        "Invalid method configuration",
-        "x" = "{.field input_map} is required for directory-based ingestion"
-      ),
-      class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
-    )
+  if (is.null(components)) {
+    return(NULL)
   }
 
-  ## Step 1 — resolve input roles to concrete paths
-  resolved_inputs <- list()
+  resolved <- list()
 
-  for (role in names(input_map)) {
-    pattern <- input_map[[role]]
+  for (nm in names(components)) {
+    pattern <- components[[nm]]
     matches <- fs::dir_ls(dir_path, glob = pattern)
 
     if (length(matches) == 0) {
       cli::cli_abort(
         c(
           "Missing input",
-          "x" = "No files found for input role {.val {role}}",
+          "x" = "No files found for component {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Directory: {.file {dir_path}}"
         ),
@@ -529,7 +519,7 @@ ingest_batch <- function(
       cli::cli_abort(
         c(
           "Ambiguous input",
-          "x" = "Multiple files found for input role {.val {role}}",
+          "x" = "Multiple files found for component {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Found: {.file {basename(matches)}}"
         ),
@@ -537,63 +527,10 @@ ingest_batch <- function(
       )
     }
 
-    resolved_inputs[[role]] <- as.character(matches[[1]])
+    resolved[[nm]] <- as.character(matches[[1]])
   }
 
-  ## Step 2 — no components: single-input extraction
-  if (is.null(components)) {
-    return(NULL)
-  }
-
-  ## Step 3a — components as array (implicit mapping)
-  if (is.character(components) && is.null(names(components))) {
-    if (length(resolved_inputs) != 1) {
-      cli::cli_abort(
-        c(
-          "Invalid component mapping",
-          "x" = "Implicit component mapping requires exactly one input role",
-          "i" = "Found roles: {.str {names(resolved_inputs)}}"
-        ),
-        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
-      )
-    }
-
-    path <- resolved_inputs[[1]]
-    return(setNames(rep(list(path), length(components)), components))
-  }
-
-  ## Step 3b — components as map (explicit mapping)
-  if (is.list(components) && !is.null(names(components))) {
-    resolved <- list()
-
-    for (comp in names(components)) {
-      role <- components[[comp]]
-
-      if (!role %in% names(resolved_inputs)) {
-        cli::cli_abort(
-          c(
-            "Invalid component mapping",
-            "x" = "Component {.val {comp}} references unknown input role {.val {role}}",
-            "i" = "Available roles: {.str {names(resolved_inputs)}}"
-          ),
-          class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
-        )
-      }
-
-      resolved[[comp]] <- resolved_inputs[[role]]
-    }
-
-    return(resolved)
-  }
-
-  ## Defensive fallback (should never happen if schema is enforced)
-  cli::cli_abort(
-    c(
-      "Invalid components definition",
-      "x" = "{.field components} must be NULL, a character vector, or a named list"
-    ),
-    class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
-  )
+  resolved
 }
 
 ### Batch id & storage -----------------------------------------------------
@@ -740,19 +677,6 @@ ingest_batch <- function(
   checkmate::assert_class(config, "xpipe_config")
 
 
-  if (ctx$method_config$input_type == "file" &&
-      !is.null(ctx$component_inputs)) {
-    cli::cli_abort(
-      c(
-        "Invalid ingestion configuration",
-        "x" = "Component fan-out is not allowed for file-based methods",
-        "i" = "Method input_type: {.val {ctx$method_config$input_type}}",
-        "i" = "Resolved components: {.str {names(ctx$component_inputs)}}"
-      ),
-      class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
-    )
-  }
-
   # A1. Target collision check (batch layer)
   if (fs::dir_exists(ctx$batch_dir)) {
     cli::cli_abort(
@@ -841,27 +765,9 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .run_extraction <- function(ctx, instrument) {
-  if (!is.null(ctx$components_inputs)) {
-    cli::cli_inform("Extracting {length(ctx$components)} components")
-    extracted <- list()
-    for (nm in names(ctx$components_inputs)) {
-      path <- ctx$components_inputs[[nm]]
-      res <- instrument(ctx, path)
-      .log_debug("Parsed component {.val {nm}}")
+  cli::cli_inform("Running extraction instrument...")
 
-      # If instrument returns a list (unlikely for single component but possible), merge
-      if (is.data.frame(res)) {
-        extracted[[nm]] <- res
-      } else if (is.list(res)) {
-        # Prefix keys to avoid name collisions if multiple files return same table names
-        names(res) <- paste0(nm, "_", names(res))
-        extracted <- c(extracted, res)
-      }
-    }
-  } else {
-    # Single-file extraction
-    extracted <- instrument(ctx, ctx$filepath)
-  }
+  extracted <- instrument(ctx)
 
   if (is.data.frame(extracted)) {
     extracted <- list(data = extracted)
@@ -876,6 +782,7 @@ ingest_batch <- function(
       class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
     )
   }
+  
   extracted
 }
 
@@ -937,8 +844,8 @@ ingest_batch <- function(
       tool_version = config$runtime$tool$version
     )
   )
-  if (!is.null(ctx$components_inputs)) {
-    meta$components <- lapply(ctx$components_inputs, basename)
+  if (!is.null(ctx$resolved_inputs)) {
+    meta$components <- lapply(ctx$resolved_inputs, basename)
   }
 
   jsonlite::write_json(
