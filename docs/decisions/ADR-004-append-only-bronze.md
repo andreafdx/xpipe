@@ -1,6 +1,6 @@
-# ADR-004: Append-Only Bronze Layer with Immutable Shards
+# ADR-004: Append-Only Bronze Layer using DuckDB Native Format
 
-**Date**: 2026-04-15 (approx.)
+**Date**: 2026-05-06
 **Status**: Accepted
 **Decider**: Andrea Fidecicchi
 
@@ -11,38 +11,46 @@ possible to replay the full history of ingested batches for any entity.
 The design must prevent accidental overwrite of historical facts and make
 the promotion operation safe and auditable.
 
+The original design used Hive-partitioned Parquet shards, but this led to
+a "small files problem" (one file per batch per month/year) and lacked
+ACID atomicity during promotion (partial failures could leave orphan
+shards).
+
 ## Decision
 
-Bronze writes one Parquet file per batch per table per partition
-(`table__batch_id.parquet`). Promotion refuses to overwrite an existing
-shard (`xpipe_bronze_append_only` error). The state log (`layer.json`)
-records only successful promotions and is never used to record partial
-or failed states.
+Use DuckDB native database files (`.duckdb`) as the storage format for
+the Bronze layer, with one database file per stream (e.g., `bronze_sdo.duckdb`,
+`bronze_farmaceutica.duckdb`).
+
+- Promotion uses `INSERT INTO` operations which are true ACID transactions.
+- The layer remains append-only by policy; batches are identified by a
+  mandatory `__batch_id` column.
+- Data is still logically partitioned by domain time within the table.
 
 ## Alternatives Considered
 
-- **Upsert into a single Parquet file per partition**: technically
-  possible with DuckDB or Arrow, but loses the ability to identify which
-  batch each row came from without explicit metadata columns. Also makes
-  the append-only invariant difficult to enforce without reading existing
-  data. Not chosen.
-- **Partition per batch (not per time)**: would make time-range queries
-  across batches very expensive. Not chosen.
-- **A database (DuckDB/SQLite) as the Bronze store**: good query
-  performance but makes the layer opaque and harder to inspect, back up,
-  or replicate. The Parquet-on-filesystem approach is portable and
-  transparent. Not chosen.
+- **Hive-partitioned Parquet shards**: Portable and transparent, but
+  suffers from shard proliferation and lacks transaction safety. If a
+  promotion fails halfway, the filesystem is left in an inconsistent
+  state.
+- **Upsert into a single Parquet file per partition**: Impossible to do
+  safely without a full rewrite of the file on every batch, which is
+  slow and risky.
+- **SQLite**: Supports ACID appends but lacks the columnar analytical
+  performance required for Silver-layer window functions and Parquet
+  interoperability.
 
 ## Consequences
 
-- The collision guard makes double-promotion impossible without manual
-  intervention.
-- If a promotion fails mid-way, only successfully written shards exist.
-  The batch remains "pending" in the state log and can be re-promoted
-  safely (any already-written shards will trigger the collision guard
-  and abort — a known limitation).
-- Bronze is not queryable efficiently as a single table; it is a
-  collection of shards. DuckDB or Arrow Dataset is required for
-  multi-shard queries.
-- Historical partitions can grow unboundedly; there is no current
-  mechanism to prune or archive old shards.
+- **ACID Safety**: Promotions are now atomic. A batch either lands
+  completely or not at all. No more partial shards on disk.
+- **Performance**: Querying the full history is significantly faster
+  within DuckDB than scanning hundreds of small Parquet shards.
+- **Simplified Layout**: One file per stream instead of thousands of
+  nested directories and files.
+- **Tooling dependency**: Reading Bronze now requires the `duckdb`
+  package (already a dependency for Silver compute).
+- **Interoperability**: While the native format is specific to DuckDB,
+  it can export back to Parquet in a single command if external
+  interoperability is required.
+

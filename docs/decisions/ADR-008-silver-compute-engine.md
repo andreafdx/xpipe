@@ -1,74 +1,54 @@
-# ADR-008: Silver Compute Engine
+# ADR-008: Silver Compute and Storage Engine
 
 **Date**: 2026-05-06
-**Status**: Open — decision required before Silver implementation begins
+**Status**: Accepted
+**Decider**: Andrea Fidecicchi
 
 ## Context
 
 Silver-current must perform identity resolution and "latest wins"
-version selection over the Bronze layer. The Bronze layer is a
-collection of Parquet shards, potentially spanning multiple years and
-batches. The computation involves:
+version selection over the Bronze layer. For high-volume streams like
+"File C" (5M+ rows/year), this involves processing 25M+ rows for a
+3-year window. The computation requires:
 
-1. Reading all relevant Bronze shards for a stream
-2. Grouping by `identity_keys`
-3. Selecting the row (or set of rows) with the maximum version marker
-   per entity
+1. Efficiently reading millions of rows from Bronze.
+2. Grouping by `identity_keys`.
+3. Applying window functions (e.g., `row_number()`) to select the most
+   recent record per entity.
 
-The question is which compute engine to use for this operation and
-whether Silver is materialized or computed on-demand.
+## Decision
 
-## Options Under Consideration
+Use **DuckDB** as both the compute engine and the storage format for the
+Silver layer.
 
-### Option A: DuckDB over Parquet files
+- **Storage**: Silver is stored in DuckDB native files (`.duckdb`), one per
+  stream. Each file contains multiple tables (e.g., `current`, `harmonized`).
+- **Compute**: Transformation logic is expressed in DuckDB SQL, executing
+  directly over the Bronze DuckDB files.
+- **Window**: A sliding window of the latest 2-3 years is typically used
+  for active analysis, though full-history rebuilds are supported.
 
-Use DuckDB (via `DBI` + `duckdb` package) to execute SQL window
-functions over the Bronze Parquet shards using a glob path.
+## Alternatives Considered
 
-```sql
-SELECT * FROM read_parquet('bronze/sdo__method/year=*/*.parquet')
-WHERE __batch_id = last_value(__batch_id) OVER (
-  PARTITION BY id_nosologico
-  ORDER BY __batch_created_at
-)
-```
+- **Arrow Dataset + dplyr**: A strong contender that avoids new
+  dependencies, but lacks the native window function performance of
+  DuckDB and would struggle with memory limits at the projected 25M+ row
+  scale.
+- **Parquet for Silver storage**: Offers universal interoperability, but
+  since all analysis currently happens in R (using either `arrow` or
+  `duckdb` packages), the native DuckDB format provides better query
+  performance and the ability to bundle multiple related tables in one
+  file.
 
-**Pros**: scales beyond R memory; native Parquet support; no data
-copying; exploits partition pruning.
-**Cons**: adds `duckdb` as a dependency; SQL embedded in R is less
-readable; error messages from DuckDB can be opaque.
+## Consequences
 
-### Option B: Arrow Dataset + dplyr
+- **Performance**: Vectorized SQL window functions provide sub-second
+  identity resolution even for the multi-million row File C stream.
+- **Dependency**: The `duckdb` package is now a core requirement for
+  both the Silver and Bronze layers.
+- **Analytical Power**: Users can query Silver using either `dplyr`
+  (via `dbplyr`) or raw SQL, providing maximum flexibility for complex
+  epidemiological questions.
+- **Exportability**: If data needs to be shared with Python or BI tools,
+  DuckDB can export any Silver table to Parquet with a single `COPY` command.
 
-Use `arrow::open_dataset()` to create a lazy dataset over the Bronze
-shards, then apply `dplyr` verbs with `slice_max()` for version selection.
-
-**Pros**: stays within the existing dependency set (arrow + dplyr already
-in Imports); familiar R idiom; type-safe.
-**Cons**: large multi-year datasets may not fit in memory; Arrow's
-`slice_max` over groups with collect() may be slow for very large
-Bronze layers.
-
-### Option C: Incremental R (partition-by-partition)
-
-Process Bronze one year-partition at a time in R memory, build Silver
-incrementally.
-
-**Pros**: predictable memory usage; no new dependencies.
-**Cons**: cross-partition entities (multi-year hospitalisations) require
-special handling; complex to implement correctly; re-running the full
-history is slow.
-
-## Open Questions
-
-- What is the expected size of the Bronze layer at steady state (rows per year)?
-- Are there entities that legitimately span multiple year-partitions?
-- Is Silver expected to be rebuilt from scratch on each run, or updated incrementally?
-- Is Python interoperability at the Silver level a requirement?
-
-## Recommendation (tentative)
-
-DuckDB (Option A) is the most robust choice for a growing historical
-ledger. The dependency is lightweight and the query model maps cleanly
-to the version-selection problem. Worth evaluating Option B first given
-zero new dependencies.
