@@ -4,7 +4,8 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-
+source("dev/zload all.R")
+.cfg <- load_xpipe_config()
   # For the xml_campania_2026 method, the input is a directory.
   # This folder must exist inside your configured inbox path.
   target_folder <- "xml"

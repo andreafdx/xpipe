@@ -1,0 +1,29 @@
+{
+  "batch_id": "20260507T000311.006_sdo_xml_campania_2026",
+  "stream": {
+    "id": "sdo",
+    "schema_domain": "sdo",
+    "anchor": "end"
+  },
+  "method": {
+    "id": "xml_campania_2026",
+    "type": "xml"
+  },
+  "input": {
+    "path": "/home/andrea/R projects/xpipe/inbox/xml",
+    "input_type": "directory"
+  },
+  "execution": {
+    "created_at": "2026-05-07T00:04:48+0200",
+    "tool": "xpipe",
+    "tool_version": "dev"
+  },
+  "components": {
+    "anagrafica": "2025_A.xml",
+    "ricovero": "2025_B.xml",
+    "diagnosi": "2025_B.xml",
+    "procedure": "2025_B.xml",
+    "trasferimenti": "2025_B.xml",
+    "accessi_dh": "2025_B.xml"
+  }
+}

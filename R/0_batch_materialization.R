@@ -11,7 +11,7 @@
 # Internals:   .assert_config_for_batch(), .print_ingestion_recap(),
 #              .confirm_ingestion(), .get_method_config(), .get_stream_config(),
 #              .resolve_inbox_path(), .validate_input_type(),
-#              .resolve_component_inputs(), .normalize_or_generate_batch_id(),
+#              .resolve_inputs(), .normalize_or_generate_batch_id(),
 #              .build_batch_target_dir(), .prepare_batch_ingestion(),
 #              .assert_batch_materializable(), .resolve_extraction_instrument(),
 #              .run_extraction(), .persist_to_batch(), .materialize_batch()
@@ -782,7 +782,7 @@ ingest_batch <- function(
       class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
     )
   }
-  
+
   extracted
 }
 
@@ -844,9 +844,15 @@ ingest_batch <- function(
       tool_version = config$runtime$tool$version
     )
   )
+
   if (!is.null(ctx$resolved_inputs)) {
-    meta$components <- lapply(ctx$resolved_inputs, basename)
+    meta$resolved_inputs <- lapply(ctx$resolved_inputs, basename)
   }
+
+  if (!is.null(ctx$method_config$components)) {
+    meta$components <- ctx$method_config$components
+  }
+
 
   jsonlite::write_json(
     meta,
