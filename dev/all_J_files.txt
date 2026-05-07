@@ -1,0 +1,347 @@
+inst/_xne/local.json
+'''
+{
+  "paths": {
+    "shared":"data/shared",
+    "inbox": "inbox",
+    "raw": "data/raw",
+    "batch": "data/batch",
+    "bronze": "data/bronze"
+  },
+  "logging": {
+    "level": "info",
+    "path": "logs/xpipe.log"
+  }
+}
+'''
+inst/schema/batch_layer.schema.json
+'''
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Batch Layer Metadata Schema",
+  "type": "object",
+  "required": ["layer", "expected_hash"],
+
+  "properties": {
+    "layer": {
+      "type": "string",
+      "const": "batch"
+    },
+
+    "role": {
+      "type": "string",
+      "const": "immutable_event_log"
+    },
+
+    "expected_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+
+    "created_at": {
+      "type": "string",
+      "format": "date"
+    },
+
+    "description": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+
+  "additionalProperties": false
+}
+'''
+inst/schema/batch_metadata.schema.json
+'''
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Batch Event Metadata",
+  "type": "object",
+
+  "required": ["batch_id", "stream", "method", "input", "execution"],
+
+  "properties": {
+    "batch_id": {
+      "type": "string",
+      "minLength": 1
+    },
+
+    "stream": {
+      "type": "object",
+      "required": ["id", "schema_domain", "anchor"],
+      "properties": {
+        "id": { "type": "string" },
+        "schema_domain": { "type": "string" },
+        "anchor": { "enum": ["start", "end"] }
+      },
+      "additionalProperties": false
+    },
+
+    "method": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+
+    "input": {
+      "type": "object",
+      "required": ["path", "input_type"],
+      "properties": {
+        "path": { "type": "string" },
+        "input_type": { "enum": ["file", "directory"] }
+      },
+      "additionalProperties": false
+    },
+
+    "components": {
+      "type": "object",
+      "description": "Logical input components declared by the ingestion method",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+
+    "execution": {
+      "type": "object",
+      "required": ["created_at", "tool"],
+      "properties": {
+        "created_at": { "type": "string", "format": "date-time" },
+        "tool": { "type": "string" },
+        "tool_version": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+
+  "additionalProperties": false
+}
+'''
+inst/schema/local.schema.json
+'''
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["paths"],
+  "properties": {
+    "paths": {
+      "type": "object",
+      "required": [
+        "shared",
+        "batch",
+        "bronze"
+      ],
+      "properties": {
+        "shared": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inbox": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw": {
+          "type": "string",
+          "minLength": 1
+        },
+        "batch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bronze": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    },
+    "logging": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "fatal"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
+'''
+inst/schema/methods.schema.json
+'''
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+
+  "additionalProperties": {
+    "type": "object",
+    "required": [
+      "schema_domain",
+      "type",
+      "input_type",
+      "identity_keys",
+      "partition_column"
+    ],
+
+    "properties": {
+      "schema_domain": {
+        "type": "string",
+        "minLength": 1
+      },
+
+      "type": {
+        "type": "string",
+        "enum": ["access_mdb", "xml", "csv"]
+      },
+
+      "input_type": {
+        "type": "string",
+        "enum": ["file", "directory"]
+      },
+
+      "input_map": {
+        "type": "object",
+        "minProperties": 1,
+        "additionalProperties": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+
+      "components": {
+        "oneOf": [
+          {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ]
+      },
+
+      "anchor_table": {
+        "type": "string",
+        "minLength": 1
+      },
+
+      "identity_keys": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+
+      "partition_column": {
+        "type": "string",
+        "minLength": 1
+      },
+
+      "pseudonymize": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+
+      "skip": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+
+    "additionalProperties": false
+  }
+}
+'''
+inst/schema/streams.schema.json
+'''
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["_meta"],
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "required": ["type", "version"],
+      "properties": {
+        "type": { "const": "streams_contract" },
+        "version": { "type": "string" },
+        "created_at": { "type": "string", "format": "date" },
+        "last_updated": { "type": "string", "format": "date" },
+        "maintainer": { "type": "string" },
+        "change_policy": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": {
+    "$ref": "#/definitions/stream"
+  },
+  "definitions": {
+    "stream": {
+      "type": "object",
+      "required": ["label", "schema_domain", "partition_granularity", "anchor", "valid_from"],
+      "properties": {
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "schema_domain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "partition_granularity": {
+          "type": "string",
+          "enum": ["year", "month"]
+        },
+        "anchor": {
+          "type": "string",
+          "enum": ["start", "end"]
+        },
+        "valid_from": {
+          "type": "string",
+          "format": "date"
+        },
+        "valid_to": {
+          "type": ["string", "null"],
+          "format": "date"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+'''
