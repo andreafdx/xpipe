@@ -135,7 +135,6 @@ ingest_batch <- function(
 
 # Batch initialization scripts --------------------------------------------
 
-## Internal API -------------------------------------------------------------
 
 #' Prepare Batch Ingestion Context
 #'
@@ -228,7 +227,7 @@ ingest_batch <- function(
 }
 
 
-## Helper functions --------------------------------------------------------
+## Init helpers --------------------------------------------------------
 
 #' Assert configuration validity for batch creation
 #'
@@ -276,103 +275,6 @@ ingest_batch <- function(
   invisible(TRUE)
 }
 
-
-#' Print ingestion recap
-#'
-#' Prints a standardized recap of an ingestion intent before
-#' an irreversible operation is performed.
-#'
-#' @param ctx Ingestion context list.
-#' @param action Character scalar describing the action (e.g. "Batch ingestion").
-#'
-#' @keywords internal
-#' @noRd
-.print_ingestion_recap <- function(ctx, action = "Ingestion") {
-  cli::cli_h2("{action} recap")
-
-  cli::cli_text(
-    "The following input will be processed and materialized as an immutable artifact."
-  )
-
-  cli::cli_h3("Input")
-  cli::cli_bullets(c(
-    "Path   : {.file {ctx$filepath}}",
-    "Stream : {.val {ctx$stream_id}}",
-    "Method : {.val {ctx$method_id}}"
-  ))
-
-  if (!is.null(ctx$resolved_inputs)) {
-    cli::cli_h3("Resolved component inputs")
-    cli::cli_bullets(
-      purrr::imap_chr(
-        ctx$resolved_inputs,
-        ~ paste0("{.strong ", .y, "} : {.file ", basename(.x), "}")
-      )
-    )
-  }
-
-  cli::cli_h3("Target")
-  cli::cli_bullets(c(
-    "Batch ID        : {.val {ctx$batch_id}}",
-    "Batch directory : {.file {ctx$batch_dir}}"
-  ))
-
-  cli::cli_alert_warning(
-    "This operation is irreversible once materialization starts."
-  )
-
-  invisible(TRUE)
-}
-
-#' Confirm irreversible ingestion
-#'
-#' @param confirm Logical; whether confirmation is required.
-#'
-#' @return Invisibly TRUE if confirmed, otherwise aborts.
-#'
-#' @keywords internal
-#' @noRd
-.confirm_ingestion <- function(confirm = TRUE) {
-  if (!isTRUE(confirm)) {
-    return(invisible(TRUE))
-  }
-
-  # Try climenu first, fall back cleanly if unsupported
-  if (requireNamespace("climenu", quietly = TRUE)) {
-    choice <- tryCatch(
-      climenu::select(
-        c("Yes, continue", "No, abort"),
-        prompt = "Proceed with materialization?"
-      ),
-      error = function(e) NULL
-    )
-
-    if (!is.null(choice)) {
-      if (choice != "Yes, continue") {
-        cli::cli_abort(
-          "Batch ingestion aborted by user.",
-          class = c("xpipe_batch_abort", "xpipe_batch_error", "xpipe_error")
-        )
-      }
-      return(invisible(TRUE))
-    }
-  }
-
-  # Fallback: readline (always works)
-  answer <- readline("Proceed with materialization? [y/N]: ")
-
-  if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
-    cli::cli_abort(
-      "Batch ingestion aborted by user.",
-      class = c("xpipe_batch_abort", "xpipe_batch_error", "xpipe_error")
-    )
-  }
-
-  invisible(TRUE)
-}
-
-
-## Method and Stream validation --------------------------------------------
 
 #' Retrieve method configuration
 #'
@@ -424,7 +326,6 @@ ingest_batch <- function(
   config$streams[[stream_id]]
 }
 
-### Inbox ------------------------------------------------------------------
 
 #' Resolve input path from inbox
 #'
@@ -531,7 +432,6 @@ ingest_batch <- function(
   resolved
 }
 
-### Batch id & storage -----------------------------------------------------
 
 #' Normalize or Generate Batch Identifier
 #'
@@ -586,6 +486,100 @@ ingest_batch <- function(
 }
 
 
+#' Print ingestion recap
+#'
+#' Prints a standardized recap of an ingestion intent before
+#' an irreversible operation is performed.
+#'
+#' @param ctx Ingestion context list.
+#' @param action Character scalar describing the action (e.g. "Batch ingestion").
+#'
+#' @keywords internal
+#' @noRd
+.print_ingestion_recap <- function(ctx, action = "Ingestion") {
+  cli::cli_h2("{action} recap")
+
+  cli::cli_text(
+    "The following input will be processed and materialized as an immutable artifact."
+  )
+
+  cli::cli_h3("Input")
+  cli::cli_bullets(c(
+    "Path   : {.file {ctx$filepath}}",
+    "Stream : {.val {ctx$stream_id}}",
+    "Method : {.val {ctx$method_id}}"
+  ))
+
+  if (!is.null(ctx$resolved_inputs)) {
+    cli::cli_h3("Resolved component inputs")
+    cli::cli_bullets(
+      purrr::imap_chr(
+        ctx$resolved_inputs,
+        ~ paste0("{.strong ", .y, "} : {.file ", basename(.x), "}")
+      )
+    )
+  }
+
+  cli::cli_h3("Target")
+  cli::cli_bullets(c(
+    "Batch ID        : {.val {ctx$batch_id}}",
+    "Batch directory : {.file {ctx$batch_dir}}"
+  ))
+
+  cli::cli_alert_warning(
+    "This operation is irreversible once materialization starts."
+  )
+
+  invisible(TRUE)
+}
+
+#' Confirm irreversible ingestion
+#'
+#' @param confirm Logical; whether confirmation is required.
+#'
+#' @return Invisibly TRUE if confirmed, otherwise aborts.
+#'
+#' @keywords internal
+#' @noRd
+.confirm_ingestion <- function(confirm = TRUE) {
+  if (!isTRUE(confirm)) {
+    return(invisible(TRUE))
+  }
+
+  # Try climenu first, fall back cleanly if unsupported
+  if (requireNamespace("climenu", quietly = TRUE)) {
+    choice <- tryCatch(
+      climenu::select(
+        c("Yes, continue", "No, abort"),
+        prompt = "Proceed with materialization?"
+      ),
+      error = function(e) NULL
+    )
+
+    if (!is.null(choice)) {
+      if (choice != "Yes, continue") {
+        cli::cli_abort(
+          "Batch ingestion aborted by user.",
+          class = c("xpipe_batch_abort", "xpipe_batch_error", "xpipe_error")
+        )
+      }
+      return(invisible(TRUE))
+    }
+  }
+
+  # Fallback: readline (always works)
+  answer <- readline("Proceed with materialization? [y/N]: ")
+
+  if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
+    cli::cli_abort(
+      "Batch ingestion aborted by user.",
+      class = c("xpipe_batch_abort", "xpipe_batch_error", "xpipe_error")
+    )
+  }
+
+  invisible(TRUE)
+}
+
 # Batch materialization pipeline ------------------------------------------
 #
 # Conceptual phases:
@@ -597,8 +591,6 @@ ingest_batch <- function(
 # Only Phase A is implemented as a standalone conceptual function.
 # Phases B-D are sequential pipeline steps used exclusively by
 # `materialize_batch()`.
-
-## Internal API -------------------------------------------------------------
 
 #' Materialize Batch Ingestion Context
 #'
