@@ -1,0 +1,523 @@
+---
+title: "next steps batch types inspection"
+output: html_document
+---
+
+# Next Steps — Batch Type Contracts, Inspection, and Silver Configuration
+
+## Status
+
+The DuckDB migration has been merged into `main`.
+
+Bronze now uses one DuckDB database per stream, with one table per
+`stream_id + method_id + source_table` and an authoritative
+`__promotion_log` inside the same database. This implements the core
+migration goal: atomic Bronze promotion with no split-brain between data
+files and promotion state.
+
+Silver-current has also been implemented as a DuckDB-native table family
+inside `data/silver/<stream_id>.duckdb`.
+
+Currentness is defined by ingestion order:
+
+```sql
+ORDER BY __batch_created_at DESC, __batch_id DESC
+```
+
+Secondary Silver-current tables are filtered by joining to the current
+anchor table using:
+
+```text
+identity_keys + __batch_id
+```
+
+This reflects the actual source semantics: the latest valid version of an
+entity is the latest imported batch containing that entity. Domain anchor
+time is not used to determine currentness.
+
+## Scope of this branch
+
+This branch focuses on making the existing Batch → Bronze → Silver-current
+pipeline stricter, more inspectable, and easier to operate.
+
+In scope:
+
+- Batch column type enforcement
+- Batch inspection improvements
+- Bronze inspection helper
+- Silver-current inspection polish
+- Silver configuration contract for canonical method selection
+- Public Silver-current promotion wrapper
+
+Out of scope:
+
+- Harmonized Silver
+- Fiscal/year semantic enrichment
+- Export formats for external consumers
+- Advanced schema migration tooling
+- Incremental Silver rebuilds
+
+Harmonization will be designed in a later branch.
+
+## Why this branch is needed
+
+The DuckDB migration solved the storage and transaction problem, but real
+batches exposed a separate class of issues:
+
+1. Some semantically coded fields can be parsed or written as numeric
+   values, destroying leading-zero information.
+2. Batch may produce technically invalid artifacts, such as zero-column
+   Parquet files.
+3. Bronze now has real state and therefore needs a proper inspection
+   helper.
+4. Silver-current currently accepts `stream_id` and `method_id` directly,
+   but production usage needs a declarative canonical method per stream.
+5. Adding another method for the same stream should not silently affect
+   Silver-current.
+
+The original migration plan correctly targeted DuckDB-native Bronze and
+Silver storage, transaction-safe Bronze promotion, and Silver table
+families inside one DuckDB file per stream. This branch builds on that
+foundation without starting harmonization. The plan also explicitly
+identified Bronze schema evolution and DuckDB-based inspection as required
+follow-up work.
+
+## Design decisions
+
+### 1. Batch is responsible for semantic column types
+
+Bronze should preserve the schema it receives from Batch. It should not be
+responsible for repairing semantically wrong types.
+
+If a code such as `075` becomes numeric `75`, the information has already
+been lost before Bronze. The fix belongs at extraction time or immediately
+before writing Batch Parquet.
+
+Rule:
+
+> If formatting carries meaning, the column is character, not numeric.
+
+Examples:
+
+- DRG codes
+- ICD diagnosis codes
+- procedure/intervention codes
+- ward or administrative codes that may contain leading zeros
+- identifiers that look numeric but are not measures
+
+### 2. Bronze handles schema evolution, not semantic correction
+
+Bronze should continue to handle additive schema evolution:
+
+- New incoming columns are added to the Bronze table.
+- Missing incoming columns are inserted as `NULL` using name-based insert.
+- Column order changes are harmless.
+
+Bronze should not silently coerce semantic code columns after they were
+written incorrectly to Parquet.
+
+### 3. Silver-current uses a canonical method per stream
+
+Bronze may contain multiple methods for the same stream because different
+methods may have incompatible schemas. This is already encoded in the
+Bronze table naming convention:
+
+```text
+{stream_id}__{method_id}__{source_table_name}
+```
+
+Silver-current must not automatically merge or choose among methods.
+
+Each stream should declare one canonical method for Silver-current. If
+multiple methods exist and no canonical method is declared, Silver
+promotion should abort rather than guessing.
+
+### 4. Silver-current rebuilds the table family
+
+Silver-current should be rebuilt as a full table family for the selected
+stream and canonical method.
+
+That means:
+
+```text
+current__anchor_table
+current__secondary_table_1
+current__secondary_table_2
+...
+```
+
+are created or replaced together.
+
+Silver-current should not append and should not mix methods.
+
+### 5. Harmonized Silver stays in the same DuckDB file later
+
+When harmonization is implemented, it should live in the same stream
+DuckDB file as Silver-current:
+
+```text
+data/silver/sdo.duckdb
+  current__ricovero
+  current__diagnosi
+  current__procedure
+  harmonized__ricovero
+  harmonized__diagnosi
+  harmonized__procedure
+```
+
+This matches the DuckDB migration plan’s Silver layout and keeps one
+inspection surface per stream. Parquet export, if needed, should be an
+external export step, not the canonical Silver storage.
+
+Harmonization itself is out of scope for this branch.
+
+## Work package 1 — Batch type contract
+
+### Goal
+
+Prevent semantic information loss before Parquet is written.
+
+### Proposed contract extension
+
+Add method-level type rules to `methods.json`.
+
+Preferred shape:
+
+```json
+{
+  "xml_campania_2026": {
+    "schema_domain": "sdo",
+    "type": "xml",
+    "input_type": "directory",
+    "anchor_table": "ricovero",
+    "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"],
+    "partition_column": "dataDimissione",
+    "column_types": {
+      "ricovero": {
+        "codiceDRG": "character"
+      },
+      "diagnosi": {
+        "codiceDiagnosi": "character"
+      },
+      "procedure": {
+        "codiceInterventoPrincipale": "character",
+        "codiceInterventoSecondario": "character"
+      }
+    }
+  }
+}
+```
+
+The exact column names should be aligned with the actual extractor output.
+
+### Implementation tasks
+
+Call the helper inside Batch materialization after privacy rules and
+before Parquet writing.
+
+Ensure character coercion preserves leading zeros when the source value
+was parsed as character.
+
+For columns already parsed as numeric, document that leading zeros cannot
+be recovered and the extractor must be corrected upstream.
+
+### Acceptance checks
+
+- A code value `"075"` remains `"075"` in Batch Parquet.
+- DuckDB reads the column as `VARCHAR`.
+- Bronze preserves the column as text.
+- Silver-current preserves the value unchanged.
+
+## Work package 2 — Batch artifact validation
+
+### Goal
+
+Prevent invalid Batch artifacts from entering Bronze.
+
+### Rules
+
+Batch should not write Parquet files with zero columns.
+
+A table with zero rows but a valid schema is acceptable.
+
+A table with zero columns is not a dataset and should either:
+
+- not be written at all; or
+- cause Batch materialization to abort if the table is required.
+
+### Implementation tasks
+
+In `.persist_to_batch()`, skip zero-column optional tables.
+
+Add a clear warning:
+
+```text
+Not writing "<table>": extracted table has zero columns.
+```
+
+Define required tables:
+
+- The method `anchor_table` is always required.
+- Optional secondary tables may be absent.
+
+Abort Batch or Bronze promotion if the anchor table is absent.
+
+Ensure `_batch_metadata.json` reflects only tables actually written, or
+clearly separates configured components from materialized tables.
+
+### Acceptance checks
+
+- Mini-batches without optional `accessi_dh` do not write invalid
+  `accessi_dh.parquet`.
+- Bronze promotion succeeds without optional tables.
+- Bronze promotion aborts if the anchor table is missing.
+
+## Work package 3 — Inspect Batch layer
+
+### Goal
+
+Upgrade `inspect_batch_layer()` so it detects common artifact problems
+before Bronze promotion.
+
+### Inspection should report
+
+For each batch:
+
+- batch id
+- stream id
+- method id
+- creation time
+- input path
+- materialized Parquet tables
+- metadata-listed components
+- missing expected anchor table
+- zero-column Parquet files
+- row counts per Parquet table
+- column counts per Parquet table
+- suspicious types for declared code columns
+
+### Suggested public API
+
+```r
+inspect_batch_layer(config = get_xpipe_config())
+```
+
+Keep the existing function name and improve the returned object and print
+method.
+
+### Acceptance checks
+
+- Incomplete batches are clearly reported.
+- Zero-column Parquet files are flagged.
+- Missing anchor table is flagged.
+- Row counts and table schemas are visible from console output.
+
+## Work package 4 — Inspect Bronze layer
+
+### Goal
+
+Create a DuckDB-native Bronze inspection helper.
+
+The migration plan explicitly required replacing filesystem-based Bronze
+inspection with DuckDB table inspection, row counts, and promotion log
+queries.
+
+### Proposed public API
+
+```r
+inspect_bronze <- function(
+  stream_id,
+  config = get_xpipe_config(),
+  read_only = TRUE
+)
+```
+
+### Inspection should report
+
+- Bronze DuckDB path
+- all tables
+- data tables only
+- row count per data table
+- `__promotion_log` entries
+- latest promoted batch
+- promoted batches per method
+- tables listed in `__promotion_log`
+- physical tables not referenced by the log
+- log-referenced tables missing physically
+- schema summaries per table
+
+### Acceptance checks
+
+- Inspection opens `data/bronze/<stream_id>.duckdb`.
+- It shows promoted batches from `__promotion_log`.
+- It shows row counts for each Bronze data table.
+- It detects log/data inconsistencies.
+
+## Work package 5 — Silver configuration contract
+
+### Goal
+
+Move canonical Silver-current method selection out of function arguments
+and into a declarative contract.
+
+### Proposed file
+
+```text
+data/shared/silver.json
+```
+
+or package asset equivalent, depending on how other contracts are stored.
+
+### Proposed structure
+
+```json
+{
+  "_meta": {
+    "type": "silver_contract",
+    "version": "0.1.0"
+  },
+  "streams": {
+    "sdo": {
+      "canonical_method": "xml_campania_2026",
+      "current": {
+        "enabled": true
+      },
+      "harmonized": {
+        "enabled": false
+      }
+    }
+  }
+}
+```
+
+Harmonized settings are included only as placeholders for future work.
+
+No harmonization logic should be implemented in this branch.
+
+### Implementation tasks
+
+- Add `silver.schema.json`.
+- Add `.load_silver_contract()` to configuration loading.
+- Store the parsed contract in `config$silver`.
+- Validate that each `canonical_method` exists in `config$methods`.
+- Validate that canonical method schema domain matches the stream.
+- Make Silver-current promotion resolve `method_id` from `config$silver`
+  by default.
+
+### Acceptance checks
+
+- `load_xpipe_config()` loads and validates `silver.json`.
+- Missing canonical method aborts during config load.
+- Invalid stream/method pairing aborts during config load.
+- Silver-current can be promoted by stream alone.
+
+## Work package 6 — Public Silver promotion API
+
+### Goal
+
+Add a public wrapper around the internal Silver-current function.
+
+### Proposed API
+
+```r
+promote_to_silver <- function(
+  config = get_xpipe_config(),
+  stream = NULL,
+  phase = "current",
+  dry_run = FALSE,
+  confirm = interactive()
+)
+```
+
+### Behavior
+
+For this branch:
+
+- only `phase = "current"` is supported
+- `phase = "harmonized"` aborts with a clear message
+- if `stream` is `NULL`, promote all enabled streams in `silver.json`
+- resolve canonical method from `config$silver`
+- rebuild current table family using `CREATE OR REPLACE TABLE`
+- optionally show dry-run preview
+
+### Acceptance checks
+
+- `promote_to_silver(stream = "sdo")` works without passing method id.
+- If no canonical method is configured, promotion aborts.
+- If multiple Bronze methods exist, Silver still uses only the canonical
+  method.
+- `phase = "harmonized"` aborts as not implemented.
+
+## Work package 7 — Polish Silver-current inspection
+
+### Goal
+
+Keep `inspect_silver_current()` as the operational check for
+Silver-current.
+
+### Improvements
+
+- Use boxed console output consistently.
+- Report canonical method from `silver.json` once implemented.
+- Include Silver build metadata if `__silver_log` is added.
+- Keep returning structured data frames for programmatic use.
+
+### Optional internal metadata table
+
+Consider adding:
+
+```sql
+CREATE TABLE IF NOT EXISTS __silver_log (
+  phase TEXT,
+  stream_id TEXT,
+  method_id TEXT,
+  built_at TIMESTAMP,
+  source_bronze_db TEXT,
+  tables TEXT
+);
+```
+
+This is optional for this branch but useful.
+
+## Not doing in this branch
+
+Do not implement:
+
+- harmonized tables
+- mapping from local codes to standard vocabularies
+- fiscal year enrichment
+- derived epidemiological indicators
+- Parquet export
+- dashboard-facing marts
+- retention/pruning policies
+
+Those belong after Batch typing, inspection, and canonical Silver-current
+configuration are stable.
+
+## Recommended implementation order
+
+1. Batch type contract
+2. Batch artifact validation
+3. Inspect Batch layer upgrade
+4. Inspect Bronze layer
+5. Silver contract loader
+6. Public `promote_to_silver()` wrapper
+7. Silver inspection polish
+
+This order is intentional. Type correctness comes before more Silver
+features because downstream layers cannot recover information lost during
+Batch creation.
+
+## Definition of done
+
+This branch is complete when:
+
+- Batch can enforce declared character/code columns before Parquet writing.
+- Batch no longer writes zero-column Parquet files.
+- Batch inspection clearly reports artifact validity.
+- Bronze inspection clearly reports DuckDB state and promotion history.
+- Silver-current method selection is driven by `silver.json`.
+- `promote_to_silver(stream = "sdo")` works without a method argument.
+- `inspect_silver_current()` remains usable and shows canonical method
+  state.
+- No harmonization logic has been added.
