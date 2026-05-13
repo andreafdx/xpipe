@@ -69,7 +69,7 @@ SQL query from one DuckDB file to another — no format translation, no
 ## What Changes and What Stays
 
 | Layer | Current | Target | Reason |
-|------------------|------------------|------------------|------------------|
+|----|----|----|----|
 | **Batch** | Parquet + JSON | Parquet + JSON | No change. Isolated events, no accumulation, no ACID requirement. |
 | **Bronze** | Hive-partitioned Parquet shards | DuckDB native (`.duckdb` per stream) | ACID appends, no shard proliferation, atomic promotion log. |
 | **Silver** | Not yet implemented | DuckDB native (`.duckdb` per stream) | Window functions at 25M+ rows, multi-table family per stream. |
@@ -278,7 +278,7 @@ are strictly typed; if the source schema changes between batches, the
 Bronze table must be reconciled before insertion.
 
 | Scenario | Action |
-|------------------------------------|------------------------------------|
+|----|----|
 | **New column in source, absent from Bronze table** | `ALTER TABLE ADD COLUMN <name> <inferred_type> DEFAULT NULL` + `cli_warn()`. Historical rows get NULL. |
 | **Column absent from source, present in Bronze table** | Insert NULL via name-based INSERT. Log warning. |
 | **Type widening** (`INT → BIGINT`, `DATE → TIMESTAMP`) | Allow. `ALTER TABLE ALTER COLUMN TYPE`. |
@@ -548,7 +548,7 @@ DBI::dbExecute(con,
 ### ⚠️ Bronze Contract — Significant update needed
 
 | Section | Required change |
-|------------------------------------|------------------------------------|
+|----|----|
 | **Physical Layout** | Replace `bronze/stream__method/year=YYYY/` with `bronze/{stream_id}.duckdb` and table naming convention |
 | **Promotion Semantics** | Replace Parquet write steps with transaction sequence (BEGIN → check log → INSERT data → INSERT log → COMMIT) |
 | **Append-Only Guarantee** | Collision detection moves from "file exists" to "`batch_id` present in `__promotion_log`" |

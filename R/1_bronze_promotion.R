@@ -96,10 +96,99 @@ promote_to_bronze <- function(
   checkmate::assert_flag(dry_run)
   checkmate::assert_flag(confirm)
 
+  batch_root <- config$local$paths$batch
+  checkmate::assert_string(batch_root)
 
+  batch_dirs <- fs::dir_ls(batch_root, type = "directory", recurse = FALSE)
+  if (length(batch_dirs) == 0) return(invisible(TRUE))
+
+  # filtra batch validi (con metadata) e, se richiesto, per stream
+  candidates <- character(0)
+  metas <- list()
+
+  for (bd in batch_dirs) {
+    meta_path <- fs::path(bd, "_batch_metadata.json")
+    if (!fs::file_exists(meta_path)) next
+
+    meta <- rlang::try_fetch(jsonlite::fromJSON(meta_path, simplifyVector = FALSE),
+                             error = function(e) NULL)
+    if (is.null(meta)) next
+    if (!is.null(stream) && !identical(meta$stream$id, stream)) next
+
+    candidates <- c(candidates, bd)
+    metas[[bd]] <- meta
+  }
+
+  if (length(candidates) == 0) return(invisible(TRUE))
+
+  if (isTRUE(dry_run)) {
+    for (bd in candidates) {
+      cli::cli_inform("Would promote batch {.val {metas[[bd]]$batch_id}}")
+    }
+    return(invisible(TRUE))
+  }
+
+  # conferma una sola volta
+  .confirm_bronze_promotion(confirm)
+
+  for (bd in candidates) {
+    meta <- metas[[bd]]
+
+    tryCatch(
+      .promote_batch_to_bronze(batch_dir = bd, config = config),
+      xpipe_bronze_append_only = function(e) {
+        cli::cli_inform("Skipping already promoted batch {.val {meta$batch_id}}")
+        invisible(NULL)
+      }
+    )
+  }
+
+  invisible(TRUE)
 }
 
+
 # Helpers -----------------------------------------------------------------
+#' Execute a statement and always clear the DBI result
+#' @keywords internal
+.db_exec <- function(con, sql, params = NULL) {
+  res <- NULL
+  on.exit({
+    if (!is.null(res)) try(DBI::dbClearResult(res), silent = TRUE)
+  }, add = TRUE)
+
+  res <- DBI::dbSendStatement(con, sql, params = params)
+  invisible(DBI::dbGetRowsAffected(res))
+}
+
+#' Fetch a query and always clear the DBI result
+#' @keywords internal
+.db_query <- function(con, sql, params = NULL) {
+  res <- NULL
+  on.exit({
+    if (!is.null(res)) try(DBI::dbClearResult(res), silent = TRUE)
+  }, add = TRUE)
+
+  res <- DBI::dbSendQuery(con, sql, params = params)
+  DBI::dbFetch(res)
+}
+
+#' Fetch a single scalar (first row/col) and clear the result
+#' @keywords internal
+.db_scalar <- function(con, sql, params = NULL) {
+  out <- .db_query(con, sql, params = params)
+  if (nrow(out) == 0 || ncol(out) == 0) return(NA)
+  out[[1]][[1]]
+}
+
+#' Return TRUE if a Parquet file has at least one column
+#' @keywords internal
+.parquet_has_columns <- function(con, parquet_path) {
+  pq_lit <- DBI::dbQuoteLiteral(con, as.character(parquet_path))
+  n_cols <- .db_scalar(con,
+                       paste0("SELECT COUNT(*) FROM parquet_schema(", pq_lit, ")")
+  )
+  isTRUE(!is.na(n_cols) && n_cols > 0)
+}
 
 ## Pipeline ---------------------------------------------------------------
 
@@ -418,6 +507,32 @@ promote_to_bronze <- function(
     )
   }
 
+
+  method_cfg <- config$methods[[method_id]]
+
+  if (is.null(method_cfg)) {
+    cli::cli_abort(
+      c(
+        "Unknown method in batch metadata",
+        "x" = "Method {.val {method_id}} not found in methods contract"
+      ),
+      class = c("xpipe_methods_error", "xpipe_error")
+    )
+  }
+
+  anchor_tbl <- method_cfg$anchor_table %||% NA_character_
+
+  if (!checkmate::test_string(anchor_tbl, min.chars = 1)) {
+    cli::cli_abort(
+      c(
+        "Invalid method configuration",
+        "x" = "Method {.val {method_id}} must define anchor_table"
+      ),
+      class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
+    )
+  }
+
+
   parquet_files <- fs::dir_ls(batch_dir, glob = "*.parquet")
   if (length(parquet_files) == 0) {
     cli::cli_abort(
@@ -428,6 +543,17 @@ promote_to_bronze <- function(
   }
 
   source_tables <- fs::path_ext_remove(fs::path_file(parquet_files))
+  # anchor table must exist in batch
+  if (!(anchor_tbl %in% source_tables)) {
+    cli::cli_abort(
+      c(
+        "Invalid batch for Bronze promotion",
+        "x" = "Anchor table {.val {anchor_tbl}} is missing in batch {.val {batch_id}}"
+      ),
+      class = c("xpipe_bronze_anchor", "xpipe_bronze_error", "xpipe_error")
+    )
+  }
+
 
   bronze_root <- config$local$paths$bronze
   if (!checkmate::test_string(bronze_root, min.chars = 1)) {
@@ -450,11 +576,11 @@ promote_to_bronze <- function(
 
   rlang::try_fetch(
     {
-      exists_in_log <- DBI::dbGetQuery(
+      exists_in_log <- .db_scalar(
         con,
         "SELECT COUNT(*) AS n FROM __promotion_log WHERE batch_id = ?",
         params = list(batch_id)
-      )$n[[1]] > 0
+      ) > 0
 
       if (isTRUE(exists_in_log)) {
         cli::cli_abort(
@@ -466,55 +592,63 @@ promote_to_bronze <- function(
 
       for (tbl in source_tables) {
         parquet_path <- fs::path(batch_dir, paste0(tbl, ".parquet"))
+
+        if (!fs::file_exists(parquet_path)) {
+          cli::cli_warn("Skipping missing parquet for table {.val {tbl}} in batch {.val {batch_id}}")
+          next
+        }
+
+        if (!.parquet_has_columns(con, parquet_path)) {
+          cli::cli_warn("Skipping {.file {basename(parquet_path)}}: Parquet has zero columns.")
+          next
+        }
+
         pq_lit <- DBI::dbQuoteLiteral(con, as.character(parquet_path))
 
         bronze_table <- paste0(stream_id, "__", method_id, "__", tbl)
         tbl_ident <- DBI::dbQuoteIdentifier(con, bronze_table)
 
-        DBI::dbExecute(
+        .db_exec(
           con,
           paste0(
             "CREATE TABLE IF NOT EXISTS ", tbl_ident, " AS
-             SELECT
-               t.*,
-               CAST(NULL AS TEXT)      AS __batch_id,
-               CAST(NULL AS TEXT)      AS __stream_id,
-               CAST(NULL AS TEXT)      AS __method_id,
-               CAST(NULL AS TIMESTAMP) AS __batch_created_at,
-               CAST(NULL AS TIMESTAMP) AS __bronze_promoted_at
-             FROM read_parquet(", pq_lit, ") t
-             WHERE 1=0"
+           SELECT
+             t.*,
+             CAST(NULL AS TEXT)      AS __batch_id,
+             CAST(NULL AS TEXT)      AS __stream_id,
+             CAST(NULL AS TEXT)      AS __method_id,
+             CAST(NULL AS TIMESTAMP) AS __batch_created_at,
+             CAST(NULL AS TIMESTAMP) AS __bronze_promoted_at
+           FROM read_parquet(", pq_lit, ") t
+           WHERE 1=0"
           )
         )
 
-        DBI::dbExecute(
+        .db_exec(
           con,
           paste0(
             "INSERT INTO ", tbl_ident, "
-             SELECT
-               t.*,
-               ? AS __batch_id,
-               ? AS __stream_id,
-               ? AS __method_id,
-               CAST(? AS TIMESTAMP) AS __batch_created_at,
-               CAST(? AS TIMESTAMP) AS __bronze_promoted_at
-             FROM read_parquet(", pq_lit, ") t"
+           SELECT
+             t.*,
+             ? AS __batch_id,
+             ? AS __stream_id,
+             ? AS __method_id,
+             CAST(? AS TIMESTAMP) AS __batch_created_at,
+             CAST(? AS TIMESTAMP) AS __bronze_promoted_at
+           FROM read_parquet(", pq_lit, ") t"
           ),
-          params = list(
-            batch_id, stream_id, method_id,
-            batch_created_at, promoted_at
-          )
+          params = list(batch_id, stream_id, method_id, batch_created_at, promoted_at)
         )
 
         promoted_tables <- c(promoted_tables, bronze_table)
       }
 
-      DBI::dbExecute(
+      .db_exec(
         con,
         "INSERT INTO __promotion_log
-         (batch_id, stream_id, method_id, promoted_at, batch_created_at,
-          anchor_source, tables, tool, tool_version)
-         VALUES (?, ?, ?, CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP), ?, ?, ?, ?)",
+       (batch_id, stream_id, method_id, promoted_at, batch_created_at,
+        anchor_source, tables, tool, tool_version)
+       VALUES (?, ?, ?, CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP), ?, ?, ?, ?)",
         params = list(
           batch_id, stream_id, method_id,
           promoted_at, batch_created_at,
@@ -528,11 +662,11 @@ promote_to_bronze <- function(
       invisible(TRUE)
     },
     error = function(e) {
-      DBI::dbRollback(con)
+      try(.db_exec(con, "ROLLBACK"), silent = TRUE)
       if (inherits(e, "xpipe_bronze_append_only")) stop(e)
       cli::cli_abort(
-        c("Bronze batch promotion failed and was rolled back",
-          "x" = "No partial data should remain for batch {.val {batch_id}}"),
+        c("Bronze batch promotion failed",
+          "x" = "Promotion did not complete; no partial state should remain."),
         parent = e,
         class = c("xpipe_bronze_error", "xpipe_error")
       )

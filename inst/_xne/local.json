@@ -4,7 +4,8 @@
     "inbox": "inbox",
     "raw": "data/raw",
     "batch": "data/batch",
-    "bronze": "data/bronze"
+    "bronze": "data/bronze",
+    "silver": "data/silver"
   },
   "logging": {
     "level": "info",

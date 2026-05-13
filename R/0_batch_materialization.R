@@ -806,6 +806,11 @@ ingest_batch <- function(
   for (nm in names(extracted_data)) {
     tbl <- extracted_data[[nm]]
 
+    if (!is.data.frame(tbl) || ncol(tbl) == 0) {
+      cli::cli_alert_warning("Not writing {.val {nm}}: extracted table has zero columns.")
+      next
+    }
+
     arrow::write_parquet(
       tbl,
       fs::path(ctx$batch_dir, paste0(nm, ".parquet"))
