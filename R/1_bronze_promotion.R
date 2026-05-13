@@ -190,6 +190,64 @@ promote_to_bronze <- function(
   isTRUE(!is.na(n_cols) && n_cols > 0)
 }
 
+#' Reconcile Bronze table columns with incoming Parquet schema
+#'
+#' Adds new source columns found in the incoming Parquet file to an existing
+#' Bronze table. Existing rows receive NULL for the new columns.
+#'
+#' This helper only handles additive schema evolution. Incompatible type changes
+#' are intentionally not handled here.
+#'
+#' @param con DBI connection.
+#' @param table_name Character scalar. Bronze table name.
+#' @param parquet_path Character scalar. Path to incoming Parquet file.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
+.reconcile_bronze_columns_from_parquet <- function(con, table_name, parquet_path) {
+  checkmate::assert_class(con, "DBIConnection")
+  checkmate::assert_string(table_name)
+  checkmate::assert_string(parquet_path)
+
+  pq_lit <- DBI::dbQuoteLiteral(con, as.character(parquet_path))
+
+  incoming_schema <- .db_query(
+    con,
+    paste0("DESCRIBE SELECT * FROM read_parquet(", pq_lit, ")")
+  )
+
+  incoming_cols <- incoming_schema$column_name
+  existing_cols <- DBI::dbListFields(con, table_name)
+
+  new_cols <- setdiff(incoming_cols, existing_cols)
+
+  if (length(new_cols) == 0) {
+    return(invisible(TRUE))
+  }
+
+  for (col in new_cols) {
+    dtype <- incoming_schema$column_type[incoming_schema$column_name == col][[1]]
+
+    cli::cli_warn(
+      "Schema evolution: adding column {.val {col}} ({dtype}) to {.val {table_name}}"
+    )
+
+    .db_exec(
+      con,
+      paste0(
+        "ALTER TABLE ",
+        DBI::dbQuoteIdentifier(con, table_name),
+        " ADD COLUMN ",
+        DBI::dbQuoteIdentifier(con, col),
+        " ",
+        dtype
+      )
+    )
+  }
+
+  invisible(TRUE)
+}
+
 ## Pipeline ---------------------------------------------------------------
 
 
@@ -405,7 +463,7 @@ promote_to_bronze <- function(
       DBI::dbExecute(
         con,
         paste0(
-          "INSERT INTO ", tbl_ident, "
+          "INSERT INTO ", tbl_ident, " BY NAME
            SELECT
              t.*,
              ? AS __batch_id,
@@ -624,10 +682,16 @@ promote_to_bronze <- function(
           )
         )
 
+        .reconcile_bronze_columns_from_parquet(
+          con = con,
+          table_name = bronze_table,
+          parquet_path = parquet_path
+        )
+
         .db_exec(
           con,
           paste0(
-            "INSERT INTO ", tbl_ident, "
+            "INSERT INTO ", tbl_ident, " BY NAME
            SELECT
              t.*,
              ? AS __batch_id,

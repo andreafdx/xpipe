@@ -4,7 +4,7 @@ load_xpipe_config()
 
 # First ensure the target folder exists
 
-target_folder <- "xml test"
+target_folder <- "xml 3-4-1"
 .cfg <- get_xpipe_config()
 inbox_path <- fs::path(.cfg$local$paths$inbox, target_folder)
 if (!fs::dir_exists(inbox_path)) {
