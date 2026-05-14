@@ -34,16 +34,16 @@
     "pseudonymize": ["identificativoPaziente", "codiceFiscale"],
     "skip": ["cognome", "nome"],
     "column_types": {
-  "ricovero": {
-    "codiceDRG": "character"
-  },
-  "diagnosi": {
-    "codiceDiagnosi": "character"
-  },
-  "procedure": {
-    "codiceInterventoPrincipale": "character",
-    "codiceInterventoSecondario": "character"
-  }
+      "ricovero": {
+        "codiceDRG": "character"
+      },
+      "diagnosi": {
+        "codiceDiagnosi": "character"
+      },
+      "procedure": {
+        "codiceInterventoPrincipale": "character",
+        "codiceInterventoSecondario": "character"
+      }
 }
   },
 
