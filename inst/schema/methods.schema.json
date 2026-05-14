@@ -91,6 +91,18 @@
           "type": "string",
           "minLength": 1
         }
+      },
+
+      "column_types": {
+        "type": "object",
+        "description": "Per-table column type enforcement rules applied at Batch materialization time",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["character"]
+          }
+        }
       }
     },
 

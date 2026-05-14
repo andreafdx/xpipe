@@ -876,6 +876,7 @@ ingest_batch <- function(
     )
   }
 
+
   if (is.null(names(extracted)) || any(!nzchar(names(extracted)))) {
     cli::cli_abort(
       c(

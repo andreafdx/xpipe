@@ -35,14 +35,21 @@
     "skip": ["cognome", "nome"],
     "column_types": {
       "ricovero": {
-        "codiceDRG": "character"
+        "codiceIstitutoDiCura": "character",
+        "progressivoSDO": "character",
+        "unitaOperativaAmmissione": "character",
+        "dim_unitaOperativaDimissione": "character",
+        "DRG": "character"
       },
       "diagnosi": {
-        "codiceDiagnosi": "character"
+        "codiceIstitutoDiCura": "character",
+        "progressivoSDO": "character",
+        "diagnosiDimissione": "character"
       },
       "procedure": {
-        "codiceInterventoPrincipale": "character",
-        "codiceInterventoSecondario": "character"
+        "codiceIstitutoDiCura": "character",
+        "progressivoSDO": "character",
+        "intervento": "character"
       }
 }
   },

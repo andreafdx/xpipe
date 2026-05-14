@@ -53,7 +53,7 @@ extract_xml <- function(ctx) {
     root_name <- xml2::xml_name(xml2::xml_root(doc))
 
     res <- .extract_xml_sdo(doc, root_name, path)
-    
+
     for (nm in names(res)) {
       extracted_all[[nm]] <- res[[nm]]
     }
@@ -259,6 +259,15 @@ extract_xml <- function(ctx) {
   codice <- ctx$codice
   prog   <- ctx$prog
 
+  .normalize_diagnosi_cols <- function(nm) {
+    nm <- sub("^diagnosiPrincipaleDimissione$", "diagnosiDimissione", nm)
+    nm <- sub("^diagnosiSecondarieDimissione$", "diagnosiDimissione", nm)
+    nm <- sub("^diagnosiPrincipaleDimissioneAlRicovero$", "presenteAlRicovero", nm)
+    nm <- sub("^diagnosiSecondarieDimissioneAlRicovero$", "presenteAlRicovero", nm)
+    nm
+  }
+
+
   dp <- ctx$info_children[ctx$info_names == "diagnosiPrincipale"]
   if (length(dp) == 1) {
     ch <- xml2::xml_children(dp[[1]])
@@ -270,7 +279,9 @@ extract_xml <- function(ctx) {
         tipoDiagnosi         = "principale",
         numDiagnosi          = 0L
       )
-      row[xml2::xml_name(ch[is_scalar])] <- as.list(xml2::xml_text(ch[is_scalar]))
+      nms <- xml2::xml_name(ch[is_scalar])
+      nms <- vapply(nms, .normalize_diagnosi_cols, character(1))
+      row[nms] <- as.list(xml2::xml_text(ch[is_scalar]))
       out[[length(out) + 1]] <- row
     }
   }
@@ -289,7 +300,9 @@ extract_xml <- function(ctx) {
           tipoDiagnosi         = "secondaria",
           numDiagnosi          = num
         )
-        row[xml2::xml_name(ch[is_scalar])] <- as.list(xml2::xml_text(ch[is_scalar]))
+        nms <- xml2::xml_name(ch[is_scalar])
+        nms <- vapply(nms, .normalize_diagnosi_cols, character(1))
+        row[nms] <- as.list(xml2::xml_text(ch[is_scalar]))
         out[[length(out) + 1]] <- row
       }
     }
@@ -309,6 +322,22 @@ extract_xml <- function(ctx) {
   codice <- ctx$codice
   prog   <- ctx$prog
 
+  .normalize_proc_cols <- function(nm) {
+    nm <- sub("^interventoPrincipale", "intervento", nm)
+    nm <- sub("^interventiSecondari", "intervento", nm)
+    nm <- sub("^dataInterventoPrincipale", "dataIntervento", nm)
+    nm <- sub("^dataInterventoSecondario", "dataIntervento", nm)
+    nm <- sub("^oraInterventoPrincipale", "oraIntervento", nm)
+    nm <- sub("^oraInizioInterventoSecondario", "oraIntervento", nm)
+    nm <- sub("^chirurgoInterventoPrincipale", "chirurgoIntervento", nm)
+    nm <- sub("^chirurgoInterventoSecondario", "chirurgoIntervento", nm)
+    nm <- sub("^anestesistaInterventoPrincipale", "anestesistaIntervento", nm)
+    nm <- sub("^anestesistaInterventoSecondario", "anestesistaIntervento", nm)
+    nm <- sub("^ckListSalaOperatoriaInterventoPrincipale", "ckListSalaOperatoriaIntervento", nm)
+    nm <- sub("^ckListSalaOperatoriaInterventoSecondario", "ckListSalaOperatoriaIntervento", nm)
+    nm
+  }
+
   ip <- ctx$info_children[ctx$info_names == "interventoPrincipale"]
   if (length(ip) == 1) {
 
@@ -324,7 +353,11 @@ extract_xml <- function(ctx) {
     )
 
     if (any(is_scalar)) {
-      row[xml2::xml_name(ch[is_scalar])] <- as.list(xml2::xml_text(ch[is_scalar]))
+      vals <- xml2::xml_text(ch[is_scalar])
+      nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
+
+      for (nm in unique(nms)) {
+        row[[nm]] <- list(vals[nms == nm])      }
     }
 
     out[[length(out) + 1]] <- row
@@ -348,7 +381,11 @@ extract_xml <- function(ctx) {
       )
 
       if (any(is_scalar)) {
-        row[xml2::xml_name(ch[is_scalar])] <- as.list(xml2::xml_text(ch[is_scalar]))
+        vals <- xml2::xml_text(ch[is_scalar])
+        nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
+
+        for (nm in unique(nms)) {
+          row[[nm]] <- list(vals[nms == nm])        }
       }
 
       out[[length(out) + 1]] <- row
