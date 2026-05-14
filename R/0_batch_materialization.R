@@ -592,6 +592,101 @@ ingest_batch <- function(
 # Phases B-D are sequential pipeline steps used exclusively by
 # `materialize_batch()`.
 
+
+#' Enforce method-declared column types on extracted Batch tables
+#'
+#' Applies hard type enforcement according to method_config$column_types.
+#' Aborts if coercion would cause semantic loss or is not possible.
+#'
+#' @param extracted_data Named list of data.frames
+#' @param method_config Method configuration list
+#'
+#' @return Modified extracted_data
+#' @keywords internal
+.apply_batch_column_types <- function(extracted_data, method_config) {
+
+  column_types <- method_config$column_types %||% NULL
+  if (is.null(column_types)) {
+    return(extracted_data)
+  }
+
+  for (table_name in names(column_types)) {
+
+    if (!(table_name %in% names(extracted_data))) {
+      cli::cli_warn(
+        "Declared column_types for table {.val {table_name}}, but table was not extracted."
+      )
+      next
+    }
+
+    df <- extracted_data[[table_name]]
+    spec <- column_types[[table_name]]
+
+    for (col in names(spec)) {
+
+      target_type <- spec[[col]]
+
+      if (!(col %in% names(df))) {
+        cli::cli_warn(
+          "Declared column type for {.val {table_name}.{col}}, but column is absent."
+        )
+        next
+      }
+
+      x <- df[[col]]
+
+      if (target_type == "character") {
+
+        # If already character, ok
+        if (is.character(x)) {
+          next
+        }
+
+        # If numeric or integer, coercion would lose leading zeros → abort
+        if (is.numeric(x)) {
+          cli::cli_abort(
+            c(
+              "Batch type enforcement failed",
+              "x" = "Column {.val {table_name}.{col}} is numeric but declared as character",
+              "i" = "This may indicate loss of semantic information (e.g. leading zeros)",
+              "i" = "Fix the extractor or upstream parsing logic"
+            ),
+            class = c(
+              "xpipe_batch_type_enforcement",
+              "xpipe_batch_materialization",
+              "xpipe_batch_error",
+              "xpipe_error"
+            )
+          )
+        }
+
+        # Fallback: attempt safe as.character
+        df[[col]] <- as.character(x)
+        next
+      }
+
+      # Unsupported target types (for now)
+      cli::cli_abort(
+        c(
+          "Batch type enforcement failed",
+          "x" = "Unsupported target type {.val {target_type}} for {.val {table_name}.{col}}"
+        ),
+        class = c(
+          "xpipe_batch_type_enforcement",
+          "xpipe_batch_materialization",
+          "xpipe_batch_error",
+          "xpipe_error"
+        )
+      )
+    }
+
+    extracted_data[[table_name]] <- df
+  }
+
+  extracted_data
+}
+
+
 #' Materialize Batch Ingestion Context
 #'
 #' Transforms a validated ingestion context into an immutable, on-disk
@@ -617,6 +712,13 @@ ingest_batch <- function(
         class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
       )
     }
+  )
+
+  cli::cli_alert_info("Enforcing batch column types")
+
+  extracted_data <- .apply_batch_column_types(
+    extracted_data = extracted_data,
+    method_config  = ctx$method_config
   )
 
   cli::cli_alert_info("Applying privacy rules")
