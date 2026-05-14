@@ -422,6 +422,43 @@ extract_xml <- function(ctx) {
   out
 }
 
+#' Parse transfer rows (0–N)
+#'
+#' @param ctx Record context
+#' @return list of named lists
+#' @noRd
+.parse_b_trasferimenti <- function(ctx) {
+
+  out <- list()
+  codice <- ctx$codice
+  prog   <- ctx$prog
+
+  trs <- ctx$info_children[ctx$info_names == "Trasferimenti"]
+  if (length(trs) == 0) return(out)
+
+  for (node in trs) {
+    num <- xml2::xml_attr(node, "numTrasferimento")
+    num <- if (!is.na(num)) as.integer(num) else NA_integer_
+
+    ch <- xml2::xml_children(node)
+    is_scalar <- xml2::xml_length(ch) == 0
+    if (!any(is_scalar)) next
+
+    row <- list(
+      codiceIstitutoDiCura = codice,
+      progressivoSDO       = prog,
+      numTrasferimento     = num
+    )
+
+    row[xml2::xml_name(ch[is_scalar])] <-
+      as.list(xml2::xml_text(ch[is_scalar]))
+
+    out[[length(out) + 1]] <- row
+  }
+
+  out
+}
+
 #' Parse Tracciato B XML document
 #'
 #' Top-level dispatcher for Tracciato B batch extraction.
@@ -438,8 +475,9 @@ extract_xml <- function(ctx) {
   rows_diagnosi   <- vector("list", n * 3)
   rows_procedure  <- vector("list", n * 2)
   rows_accessi_dh <- vector("list", n)
+  rows_trasferimenti <- vector("list", n * 2)
 
-  kr <- kd <- kp <- kdh <- 0
+  kr <- kd <- kp <- kdh <- kt <- 0
 
   for (rec in records) {
     tryCatch({
@@ -449,6 +487,7 @@ extract_xml <- function(ctx) {
       diagnosi_rows <- .parse_b_diagnosi(ctx)
       procedure_rows <- .parse_b_procedure(ctx)
       accessi_rows <- .parse_b_accessi_dh(ctx)
+      trasf_rows <- .parse_b_trasferimenti(ctx)
 
       kr <- kr + 1
       rows_ricovero[[kr]] <- ricovero_row
@@ -456,6 +495,7 @@ extract_xml <- function(ctx) {
       for (row in diagnosi_rows)  { kd  <- kd  + 1; rows_diagnosi[[kd]]   <- row }
       for (row in procedure_rows) { kp  <- kp  + 1; rows_procedure[[kp]]  <- row }
       for (row in accessi_rows)   { kdh <- kdh + 1; rows_accessi_dh[[kdh]] <- row }
+      for (row in trasf_rows)     { kt  <- kt  + 1; rows_trasferimenti[[kt]] <- row}
 
     }, error = function(e) {
       cli::cli_warn("Skipping malformed record: {conditionMessage(e)}")
@@ -466,6 +506,7 @@ extract_xml <- function(ctx) {
     ricovero   = .bind_rows_fast(rows_ricovero[seq_len(kr)]),
     diagnosi   = .bind_rows_fast(rows_diagnosi[seq_len(kd)]),
     procedure  = .bind_rows_fast(rows_procedure[seq_len(kp)]),
-    accessi_dh = .bind_rows_fast(rows_accessi_dh[seq_len(kdh)])
+    accessi_dh = .bind_rows_fast(rows_accessi_dh[seq_len(kdh)]),
+    trasferimenti = .bind_rows_fast(rows_trasferimenti[seq_len(kt)])
   )
 }
