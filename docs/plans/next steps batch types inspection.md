@@ -704,14 +704,12 @@ during Batch creation.
 
 Batch and Bronze inspection are considered mandatory operational steps.
 
-Before promoting:
-- Batch → Bronze: inspect_batch_layer() must show no structural errors.
-- Bronze → Silver: inspect_bronze() must show no log/data inconsistencies.
+Before promoting: - Batch → Bronze: inspect_batch_layer() must show no
+structural errors. - Bronze → Silver: inspect_bronze() must show no
+log/data inconsistencies.
 
 Skipping inspection is acceptable only in automated pipelines that
 perform equivalent validation programmatically.
-
-
 
 ## Definition of done
 
@@ -728,6 +726,6 @@ This branch is complete when:
 -   `inspect_silver_current()` remains usable and shows canonical method
     state.
 -   No harmonization logic has been added.
-- Batch aborts on unenforceable type declarations.
-- Inspection helpers are sufficient to detect all previously observed
-  real-world failure modes without manual DuckDB queries.
+-   Batch aborts on unenforceable type declarations.
+-   Inspection helpers are sufficient to detect all previously observed
+    real-world failure modes without manual DuckDB queries.

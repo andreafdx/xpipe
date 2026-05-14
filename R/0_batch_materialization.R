@@ -630,6 +630,10 @@ ingest_batch <- function(
     )
   }
 
+
+  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
   rlang::try_fetch(
     .persist_to_batch(ctx, extracted_data, config),
     error = function(e) {

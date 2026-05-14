@@ -32,7 +32,19 @@
     "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"],
     "partition_column": "dim_dataDimissioneMorte",
     "pseudonymize": ["identificativoPaziente", "codiceFiscale"],
-    "skip": ["cognome", "nome"]
+    "skip": ["cognome", "nome"],
+    "column_types": {
+  "ricovero": {
+    "codiceDRG": "character"
+  },
+  "diagnosi": {
+    "codiceDiagnosi": "character"
+  },
+  "procedure": {
+    "codiceInterventoPrincipale": "character",
+    "codiceInterventoSecondario": "character"
+  }
+}
   },
 
   "ps_csv": {
