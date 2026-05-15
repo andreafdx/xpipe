@@ -49,6 +49,7 @@ In scope:
 -   Silver-current inspection polish
 -   Silver configuration contract for canonical method selection
 -   Public Silver-current promotion wrapper
+-   XML extractor profile refactor for SDO and future XML families
 
 Out of scope:
 
@@ -57,6 +58,7 @@ Out of scope:
 -   Export formats for external consumers
 -   Advanced schema migration tooling
 -   Incremental Silver rebuilds
+-   Full contract cleanup of the legacy `components` field
 
 Harmonization will be designed in a later branch.
 
@@ -216,19 +218,34 @@ Preferred shape:
     "partition_column": "dataDimissione",
     "column_types": {
       "ricovero": {
-        "codiceDRG": "character"
+        "DRG": "character"
       },
       "diagnosi": {
-        "codiceDiagnosi": "character"
+        "diagnosiDimissione": "character",
+        "presenteAlRicovero": "character"
       },
       "procedure": {
-        "codiceInterventoPrincipale": "character",
-        "codiceInterventoSecondario": "character"
+        "intervento": "character",
+        "interventoEsterno": "character",
+        "UDI": "character"
+      },
+      "trasferimenti": {
+        "unitaTrasferimento": "character"
+      },
+      "accessi_dh": {
+        "codiceIstitutoDiCura": "character",
+        "progressivoSDO": "character"
       }
     }
   }
 }
 ```
+List-columns are not currently handled by `column_types`.
+
+For example, repeated surgeon or anesthetist values inside procedure
+rows are preserved as list-columns by the XML parser and must not be
+declared as `"character"` until list-column type enforcement is
+explicitly supported.
 
 The exact column names should be aligned with the actual extractor
 output.
@@ -289,7 +306,7 @@ An XML profile is a named parsing strategy implemented in code,
 responsible for extracting one XML family into a set of batch‑ready
 tables. Examples of profiles:
 
--   sdo_tracciato_ab
+-   sdo_tracciato_abcd
 -   emur_v1
 -   filecint_v1
 
@@ -305,7 +322,7 @@ Example:
 "xml_campania_2026": {
   "schema_domain": "sdo",
   "type": "xml",
-  "xml_profile": "sdo_tracciato_ab",
+  "xml_profile": "sdo_tracciato_abcd",
   "anchor_table": "ricovero",
   "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"]
 }
@@ -332,7 +349,7 @@ functions:
 
 ``` r
 .xml_profile_registry <- list(
-  sdo_tracciato_ab = .xml_profile_sdo_tracciato_ab,
+  sdo_tracciato_abcd = .xml_profile_sdo_tracciato_abcd,
   emur_v1          = .xml_profile_emur_v1,
   filecint_v1      = .xml_profile_filecint_v1
 )
@@ -351,12 +368,20 @@ Each XML profile:
 -   owns all XML‑specific parsing logic for its schema family
 -   may define helper functions internally (e.g. per‑record context
     builders)
--   returns flat, relational tables only
+-   returns flat, relational tables
+-   may preserve multi-valued scalar nodes as list-columns when they are
+    attributes of the same logical row
 -   does not perform:
     -   type coercion
     -   enrichment
     -   validation beyond minimal structural safety
     -   cross‑table joins
+
+
+For example, repeated surgeon or anesthetist nodes inside one procedure
+row are stored as list-columns, not as separate tables. In contrast,
+`Trasferimenti` is a true 1-N event structure and is extracted as a
+separate table.
 
 Shared helpers must be strictly mechanical; any domain-specific logic
 must remain profile-local to avoid hidden coupling between XML families.
@@ -393,8 +418,14 @@ materialization.
 
 ### Acceptance checks
 
--   Existing SDO extraction is migrated unchanged into sdo_tracciato_ab
+-   Existing SDO extraction is migrated into the `sdo_tracciato_abcd`
     profile.
+-   SDO Tracciato B produces the expected table family:
+    `ricovero`, `diagnosi`, `procedure`, `trasferimenti`, and
+    `accessi_dh` when present.
+-   The `trasferimenti` table is extracted as a true 1-N table with
+    `codiceIstitutoDiCura`, `progressivoSDO`, `numTrasferimento`,
+    `dataTrasferimento`, `oraTrasferimento`, and `unitaTrasferimento`.
 -   extract_xml() no longer contains SDO‑specific logic.
 -   Adding EMUR or FileCInt extraction requires:
     -   implementing a new profile function
@@ -415,6 +446,30 @@ This work package does not implement:
 -   cross‑profile unification
 
 Those belong to later Silver harmonization work.
+
+
+### Note on legacy components field 
+
+The `components` field is currently overloaded.
+
+For XML directory methods, it is used to resolve physical input files into
+`ctx$resolved_inputs`.
+
+For Access/MDB methods, it is used as the list of source tables to
+extract.
+
+This branch does not refactor `components`. The field is retained for
+compatibility. A future contract cleanup may split it into:
+
+- `input_components`
+- `source_tables`
+- `output_tables`
+
+No current implementation should assume that `components` means output
+tables for all method types.
+
+During this branch, `components` must be treated as a legacy compatibility
+field. New XML profile work should not add new semantic meaning to it.
 
 ## Work package 2 — Batch artifact validation
 
@@ -689,24 +744,27 @@ Silver-current configuration are stable.
 ## Recommended implementation order
 
 1.  Batch type contract
-2.  Batch artifact validation
-3.  Inspect Batch layer upgrade
-4.  Inspect Bronze layer
-5.  Silver contract loader
-6.  Public `promote_to_silver()` wrapper
-7.  Silver inspection polish
+2.  XML extractor profiles and SDO parser normalization
+3.  Batch artifact validation
+4.  Inspect Batch layer upgrade
+5.  Inspect Bronze layer
+6.  Silver contract loader
+7.  Public `promote_to_silver()` wrapper
+8.  Silver inspection polish
 
-This order is intentional. Type correctness comes before more Silver
-features because downstream layers cannot recover information lost
-during Batch creation.
+This order is intentional. Type correctness and extractor structure come
+before artifact validation because downstream validation must operate on
+stable, profile-driven Batch outputs.
 
 ## Operational rule: inspection before promotion
 
 Batch and Bronze inspection are considered mandatory operational steps.
 
-Before promoting: - Batch → Bronze: inspect_batch_layer() must show no
-structural errors. - Bronze → Silver: inspect_bronze() must show no
-log/data inconsistencies.
+Before promoting: 
+
+- Batch → Bronze: `inspect_batch_layer()` must show no structural errors.
+- Bronze → Silver: `inspect_bronze()` must show no log/data inconsistencies.
+
 
 Skipping inspection is acceptable only in automated pipelines that
 perform equivalent validation programmatically.
@@ -729,3 +787,203 @@ This branch is complete when:
 -   Batch aborts on unenforceable type declarations.
 -   Inspection helpers are sufficient to detect all previously observed
     real-world failure modes without manual DuckDB queries.
+-   XML extraction is profile-driven through `xml_profile`.
+-   `extract_xml()` no longer contains SDO-specific branching logic.
+-   The SDO XML profile produces the complete expected SDO table family,
+    including `trasferimenti`.
+-   Repeated surgeon/anesthetist nodes in procedure rows are preserved
+    without data loss.
+
+---
+
+## Backlog for future plans
+
+This section records relevant design notes and implementation ideas that
+emerged during this branch but are explicitly out of scope for the
+current plan.
+
+Items listed here are **not acceptance criteria** for this branch. They
+are candidates for future planning documents.
+
+---
+
+### Contract cleanup
+
+The `components` field is currently overloaded and should eventually be
+split into clearer contract fields.
+
+Potential future structure:
+
+```json
+{
+  "input_components": {
+    "A": "*_A.xml",
+    "B": "*_B.xml"
+  },
+  "source_tables": ["..."],
+  "output_tables": ["..."]
+}
+```
+
+Possible meanings:
+
+- **input_components**  
+  Physical input files or file patterns to resolve before extraction.
+
+- **source_tables**  
+  Source tables to extract from database-like inputs such as Access/MDB.
+
+- **output_tables**  
+  Logical tables expected from the extractor.
+
+This cleanup should be handled in a dedicated contract-refactor branch
+because it affects Batch preparation, XML extraction, Access extraction,
+metadata, recap output, and inspection.
+
+---
+
+### XML extractor expansion
+
+Future XML profiles should be added without changing `extract_xml()`.
+
+Planned or likely profiles include:
+
+- `emur_v1`
+- `filecint_v1`
+- future extensions of `sdo_tracciato_abcd`
+
+Each new profile should:
+
+- be implemented as a separate code-driven parser function
+- be registered in `.xml_profile_registry`
+- be selected via `xml_profile` in `methods.json`
+- return a named list of flat, batch-ready `data.frame`s
+- avoid XPath, enrichment, harmonization, and cross-table semantic joins
+
+---
+
+### EMUR extraction
+
+EMUR will likely require its own XML profile.
+
+Known expected characteristics:
+
+- input may be split into anagrafica and sanitary components
+- some structures may resemble SDO, including repeated procedure-like
+  sections
+- profile-local parsing logic should be preferred over shared
+  domain-specific helpers
+
+Shared helpers may be used only when they are purely mechanical.
+
+---
+
+### FileCInt extraction
+
+FileCInt should be handled as a separate XML profile if XML-based, or as a
+separate extractor type if the format requires different mechanics.
+
+The decision should be made only after inspecting real input structure.
+
+Expected concerns:
+
+- high row volume
+- strict type preservation
+- avoiding unnecessary R materialization where possible
+- clear distinction between source records and derived analytical tables
+
+---
+
+### Harmonized Silver
+
+Harmonized Silver is intentionally out of scope for this branch.
+
+Future harmonization work may include:
+
+- standardizing column names across methods
+- parsing and validating dates
+- deriving fiscal or reporting years
+- mapping local codes to controlled vocabularies
+- producing epidemiology-ready semantic tables
+- deciding whether list-columns should be exploded or preserved
+- creating export views or Parquet exports for external consumers
+
+Harmonized tables should initially live in the same stream DuckDB file as
+Silver-current:
+
+```text
+data/silver/<stream_id>.duckdb
+  current__*
+  harmonized__*
+```
+
+Parquet should remain an export format, not the canonical Silver storage.
+
+---
+
+### Date parsing and temporal semantics
+
+Dates currently remain strings in Batch, Bronze, and Silver-current when
+source formats are not guaranteed to be clean and stable.
+
+Future harmonization may parse dates into typed date/timestamp columns.
+
+Parsing should be explicit and audited. Silent conversion to `NA` must be
+avoided.
+
+---
+
+### Privacy rule expansion
+
+Some additional fields may require pseudonymization or removal, such as
+surgeon or anesthetist identifiers.
+
+This should be handled through the privacy contract, not through Batch
+type enforcement or XML parsing.
+
+Future work should review:
+
+- `chirurgoIntervento`
+- `anestesistaIntervento`
+- any other operator/person identifiers introduced by new profiles
+
+---
+
+### Bronze schema evolution hardening
+
+Current Bronze schema evolution handles additive schema changes.
+
+Future work may extend this to:
+
+- type widening
+- explicit incompatible type-change aborts
+- schema evolution reporting in `inspect_bronze()`
+- manual migration utilities for rare incompatible changes
+
+---
+
+### Layer metadata
+
+Bronze and Silver may receive descriptive `layer.json` files similar to
+Batch, but without `expected_hash`.
+
+These files should be descriptive only.
+
+Authoritative state remains:
+
+- **Batch**: immutable batch directories and metadata
+- **Bronze**: `__promotion_log` inside DuckDB
+- **Silver**: Silver contract plus generated DuckDB tables
+
+---
+
+### Retention and pruning
+
+Retention policies are not needed now.
+
+Future work may define pruning or archival rules, for example keeping only
+recent years in Bronze while preserving rebuildability from Batch.
+
+Retention must be treated as a deliberate operational policy, not as a
+hidden side effect of promotion.
+

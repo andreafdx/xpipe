@@ -19,22 +19,64 @@
 # Any enrichment belongs downstream.
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Profile registry --------------------------------------------------------
+
+# Profile: SDO Tracciato A+B (+C+D)
+.xml_profile_sdo_tracciato_abcd <- function(doc, path, ctx) {
+  root_name <- xml2::xml_name(xml2::xml_root(doc))
+
+  if (root_name == "flsaInformazioniAnagrafiche") {
+    .log_debug("Detected Tracciato A schema.")
+    return(list(anagrafica = .parse_tracciato_a(doc)))
+  }
+
+  if (root_name == "flsbInformazioniRicovero") {
+    .log_debug("Detected Tracciato B schema.")
+    return(.parse_tracciato_b(doc))
+  }
+
+  cli::cli_abort(
+    c(
+      "Unrecognized SDO XML schema",
+      "x" = "File {.file {basename(path)}} has unknown root node: {.val {root_name}}"
+    ),
+    class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+  )
+}
+
+
+# XML profile registry (code-driven)
+.xml_profile_registry <- list(
+  sdo_tracciato_abcd = .xml_profile_sdo_tracciato_abcd
+)
 
 # Internal API ------------------------------------------------------------
 
 
-#' Extract XML Data (Main Dispatcher)
+#' Extract XML Data (Profile Dispatcher)
 #' @export
 #' @keywords internal
 extract_xml <- function(ctx) {
   checkmate::assert_list(ctx)
 
-  domain <- ctx$method_config$schema_domain
-  if (domain != "sdo") {
+  profile <- ctx$method_config$xml_profile %||% NA_character_
+  if (!checkmate::test_string(profile, min.chars = 1)) {
     cli::cli_abort(
       c(
-        "Unsupported schema domain",
-        "x" = "The XML extractor does not support the domain: {.val {domain}}"
+        "Invalid method configuration",
+        "x" = "Missing {.field xml_profile} for XML method {.val {ctx$method_id}}"
+      ),
+      class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+    )
+  }
+
+  parser <- .xml_profile_registry[[profile]] %||% NULL
+  if (is.null(parser) || !is.function(parser)) {
+    cli::cli_abort(
+      c(
+        "Unknown XML profile",
+        "x" = "No parser registered for profile {.val {profile}}",
+        "i" = "Registered profiles: {.val {names(.xml_profile_registry)}}"
       ),
       class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
     )
@@ -45,23 +87,26 @@ extract_xml <- function(ctx) {
     paths <- ctx$filepath
   }
 
-  extracted_all <- list()
+  # accumulate per-table outputs across multiple XML files
+  acc <- list()
 
   for (path in paths) {
     cli::cli_inform("Reading XML document: {.file {basename(path)}}")
     doc <- xml2::read_xml(path)
-    root_name <- xml2::xml_name(xml2::xml_root(doc))
 
-    res <- .extract_xml_sdo(doc, root_name, path)
+    res <- parser(doc, path, ctx)
 
     for (nm in names(res)) {
-      extracted_all[[nm]] <- res[[nm]]
+      if (is.null(acc[[nm]])) {
+        acc[[nm]] <- res[[nm]]
+      } else {
+        acc[[nm]] <- .rbind_fill_dfs(list(acc[[nm]], res[[nm]]))
+      }
     }
   }
 
-  extracted_all
+  acc
 }
-
 
 
 
@@ -131,31 +176,28 @@ extract_xml <- function(ctx) {
   )
 }
 
+# Bind data.frames preserving list-columns, aligning missing columns
+.rbind_fill_dfs <- function(dfs) {
+  dfs <- dfs[!vapply(dfs, is.null, logical(1))]
+  if (length(dfs) == 0) return(NULL)
+  if (length(dfs) == 1) return(dfs[[1]])
+
+  all_cols <- unique(unlist(lapply(dfs, names)))
+  dfs2 <- lapply(dfs, function(d) {
+    missing <- setdiff(all_cols, names(d))
+    if (length(missing) > 0) {
+      for (m in missing) d[[m]] <- NA
+    }
+    d[all_cols]
+  })
+  do.call(rbind, dfs2)
+}
+
 
 
 # SDO ---------------------------------------------------------------------
 
-#' SDO Domain Helper
-#' @noRd
-.extract_xml_sdo <- function(doc, root_name, path) {
-  if (root_name == "flsaInformazioniAnagrafiche") {
-  .log_debug("Detected Tracciato A schema.")
-  return(list(anagrafica = .parse_tracciato_a(doc)))
-  }
 
-  if (root_name == "flsbInformazioniRicovero") {
-    .log_debug("Detected Tracciato B schema.")
-    return(.parse_tracciato_b(doc))
-  }
-
-  cli::cli_abort(
-    c(
-      "Unrecognized SDO XML schema",
-      "x" = "File {.file {basename(path)}} has unknown root node: {.val {root_name}}"
-    ),
-    class =  c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
-  )
-}
 
 ## Tracciato A -------------------------------------------------------------
 

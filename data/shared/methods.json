@@ -20,6 +20,7 @@
     "schema_domain": "sdo",
     "type": "xml",
     "input_type": "directory",
+    "xml_profile": "sdo_tracciato_abcd",
     "components": {
       "anagrafica": "*_A.xml",
       "ricovero": "*_B.xml",

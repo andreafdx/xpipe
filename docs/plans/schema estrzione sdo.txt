@@ -1,0 +1,121 @@
+schema
+                                 table                              column_name column_type	desired
+1                      __promotion_log                                 batch_id     VARCHAR
+2                      __promotion_log                                stream_id     VARCHAR
+3                      __promotion_log                                method_id     VARCHAR
+4                      __promotion_log                              promoted_at   TIMESTAMP
+5                      __promotion_log                         batch_created_at   TIMESTAMP
+6                      __promotion_log                            anchor_source     VARCHAR
+7                      __promotion_log                                   tables     VARCHAR
+8                      __promotion_log                                     tool     VARCHAR
+9                      __promotion_log                             tool_version     VARCHAR
+10  sdo__xml_campania_2026__accessi_dh                     codiceIstitutoDiCura     VARCHAR 	string
+11  sdo__xml_campania_2026__accessi_dh                           progressivoSDO     VARCHAR	string
+12  sdo__xml_campania_2026__accessi_dh                               numAccesso     INTEGER	integer
+13  sdo__xml_campania_2026__accessi_dh                              dataAccesso     VARCHAR	date but im afraid of it. maybe string is ok and then we interpretate it? 
+14  sdo__xml_campania_2026__accessi_dh                               __batch_id     VARCHAR
+15  sdo__xml_campania_2026__accessi_dh                              __stream_id     VARCHAR
+16  sdo__xml_campania_2026__accessi_dh                              __method_id     VARCHAR
+17  sdo__xml_campania_2026__accessi_dh                       __batch_created_at   TIMESTAMP
+18  sdo__xml_campania_2026__accessi_dh                     __bronze_promoted_at   TIMESTAMP
+19  sdo__xml_campania_2026__anagrafica                        trasmissione_tipo     VARCHAR	char
+20  sdo__xml_campania_2026__anagrafica                     codiceIstitutoDiCura     VARCHAR	string
+21  sdo__xml_campania_2026__anagrafica                           progressivoSDO     VARCHAR	string
+22  sdo__xml_campania_2026__anagrafica                                    sesso     VARCHAR	
+23  sdo__xml_campania_2026__anagrafica                              dataNascita     VARCHAR	same as other dates
+24  sdo__xml_campania_2026__anagrafica                        livelloIstruzione     VARCHAR	
+25  sdo__xml_campania_2026__anagrafica                              statoCivile     VARCHAR	string
+26  sdo__xml_campania_2026__anagrafica                          comuneResidenza     VARCHAR	string
+27  sdo__xml_campania_2026__anagrafica                             cittadinanza     VARCHAR	string
+28  sdo__xml_campania_2026__anagrafica                   identificativoPaziente     VARCHAR	this should be the hash, be careful
+29  sdo__xml_campania_2026__anagrafica                    tipIdPazienteInVerVal     VARCHAR	dont know this
+30  sdo__xml_campania_2026__anagrafica                         regioneResidenza     VARCHAR	string
+31  sdo__xml_campania_2026__anagrafica                             aslResidenza     VARCHAR	string
+32  sdo__xml_campania_2026__anagrafica                            comuneNascita     VARCHAR	string
+33  sdo__xml_campania_2026__anagrafica                                quartiere     VARCHAR	string
+34  sdo__xml_campania_2026__anagrafica                        numeroSDOpuerpera     VARCHAR	string
+35  sdo__xml_campania_2026__anagrafica                               __batch_id     VARCHAR	
+36  sdo__xml_campania_2026__anagrafica                              __stream_id     VARCHAR
+37  sdo__xml_campania_2026__anagrafica                              __method_id     VARCHAR
+38  sdo__xml_campania_2026__anagrafica                       __batch_created_at   TIMESTAMP
+39  sdo__xml_campania_2026__anagrafica                     __bronze_promoted_at   TIMESTAMP
+40  sdo__xml_campania_2026__anagrafica                     numIdIstituzioneTEAM     VARCHAR	string
+41    sdo__xml_campania_2026__diagnosi                     codiceIstitutoDiCura     VARCHAR	string
+42    sdo__xml_campania_2026__diagnosi                           progressivoSDO     VARCHAR	string
+43    sdo__xml_campania_2026__diagnosi                             tipoDiagnosi     VARCHAR	string
+44    sdo__xml_campania_2026__diagnosi                              numDiagnosi     INTEGER	number
+45    sdo__xml_campania_2026__diagnosi             diagnosiPrincipaleDimissione     VARCHAR	string
+46    sdo__xml_campania_2026__diagnosi   diagnosiPrincipaleDimissioneAlRicovero     VARCHAR	string
+47    sdo__xml_campania_2026__diagnosi                    stadiazioneCondensata     VARCHAR	string
+48    sdo__xml_campania_2026__diagnosi             diagnosiSecondarieDimissione     VARCHAR	string
+49    sdo__xml_campania_2026__diagnosi   diagnosiSecondarieDimissioneAlRicovero     VARCHAR	string
+50    sdo__xml_campania_2026__diagnosi                               Lateralita     VARCHAR	string
+# something is happening here that has to be fixed. since we identify diagnosi principale with tipodiagnosi (principale vs secondaria) and numdiagnosi (0 vs 1+) the diagnosi diagnosiPrincipaleDimissione and diagnosiSecondarieDimissione should be merged into a single diagnosiDimissione. same thing with diagnosiPrincipaleDimissioneAlRicovero and diagnosiSecondarieDimissioneAlRicovero. i think this should happen at parser level? 
+51    sdo__xml_campania_2026__diagnosi                               __batch_id     VARCHAR
+52    sdo__xml_campania_2026__diagnosi                              __stream_id     VARCHAR
+53    sdo__xml_campania_2026__diagnosi                              __method_id     VARCHAR
+54    sdo__xml_campania_2026__diagnosi                       __batch_created_at   TIMESTAMP
+55    sdo__xml_campania_2026__diagnosi                     __bronze_promoted_at   TIMESTAMP
+56   sdo__xml_campania_2026__procedure                     codiceIstitutoDiCura     VARCHAR 	string
+57   sdo__xml_campania_2026__procedure                           progressivoSDO     VARCHAR	string
+58   sdo__xml_campania_2026__procedure                           tipoIntervento     VARCHAR	string
+59   sdo__xml_campania_2026__procedure                            numIntervento     INTEGER	number
+60   sdo__xml_campania_2026__procedure                     interventoPrincipale     VARCHAR	string
+61   sdo__xml_campania_2026__procedure              interventoPrincipaleEsterno     VARCHAR	string
+62   sdo__xml_campania_2026__procedure                 dataInterventoPrincipale     VARCHAR	same concerns for date
+63   sdo__xml_campania_2026__procedure                  oraInterventoPrincipale     VARCHAR	same concern for date
+64   sdo__xml_campania_2026__procedure             chirurgoInterventoPrincipale     VARCHAR	string. this will have to be encrypted too!
+65   sdo__xml_campania_2026__procedure          anestesistaInterventoPrincipale     VARCHAR	string. this will have to be encrypted too!
+66   sdo__xml_campania_2026__procedure ckListSalaOperatoriaInterventoPrincipale     VARCHAR	string
+67   sdo__xml_campania_2026__procedure                      interventiSecondari     VARCHAR	string
+68   sdo__xml_campania_2026__procedure               interventiSecondariEsterni     VARCHAR	string
+69   sdo__xml_campania_2026__procedure                 dataInterventoSecondario     VARCHAR	string
+70   sdo__xml_campania_2026__procedure            oraInizioInterventoSecondario     VARCHAR	string	
+71   sdo__xml_campania_2026__procedure             chirurgoInterventoSecondario     VARCHAR	string. this will have to be encrypted too!
+72   sdo__xml_campania_2026__procedure          anestesistaInterventoSecondario     VARCHAR	string. this will have to be encrypted too!
+73   sdo__xml_campania_2026__procedure ckListSalaOperatoriaInterventoSecondario     VARCHAR	string
+74   sdo__xml_campania_2026__procedure                                flagRobot     VARCHAR	string
+75   sdo__xml_campania_2026__procedure                               Lateralita     VARCHAR	string
+76   sdo__xml_campania_2026__procedure                               __batch_id     VARCHAR
+77   sdo__xml_campania_2026__procedure                              __stream_id     VARCHAR
+78   sdo__xml_campania_2026__procedure                              __method_id     VARCHAR
+79   sdo__xml_campania_2026__procedure                       __batch_created_at   TIMESTAMP
+80   sdo__xml_campania_2026__procedure                     __bronze_promoted_at   TIMESTAMP
+81   sdo__xml_campania_2026__procedure                                      UDI     VARCHAR	string
+# a similar thing is happening here like in diagnosi table
+82    sdo__xml_campania_2026__ricovero                        trasmissione_tipo     VARCHAR
+83    sdo__xml_campania_2026__ricovero                     codiceIstitutoDiCura     VARCHAR
+84    sdo__xml_campania_2026__ricovero                           progressivoSDO     VARCHAR
+85    sdo__xml_campania_2026__ricovero                           regimeRicovero     VARCHAR
+86    sdo__xml_campania_2026__ricovero                         dataPrenotazione     VARCHAR
+87    sdo__xml_campania_2026__ricovero                           classePriorita     VARCHAR
+88    sdo__xml_campania_2026__ricovero                             dataRicovero     VARCHAR
+89    sdo__xml_campania_2026__ricovero                              oraRicovero     VARCHAR
+90    sdo__xml_campania_2026__ricovero                 unitaOperativaAmmissione     VARCHAR
+91    sdo__xml_campania_2026__ricovero                             onereDegenza     VARCHAR
+92    sdo__xml_campania_2026__ricovero                      provenienzaPaziente     VARCHAR
+93    sdo__xml_campania_2026__ricovero                             tipoRicovero     VARCHAR
+94    sdo__xml_campania_2026__ricovero                        rilevazioneDolore     VARCHAR
+95    sdo__xml_campania_2026__ricovero                                      DRG     VARCHAR
+96    sdo__xml_campania_2026__ricovero                                  tariffa     VARCHAR
+97    sdo__xml_campania_2026__ricovero             dim_unitaOperativaDimissione     VARCHAR
+98    sdo__xml_campania_2026__ricovero                  dim_dataDimissioneMorte     VARCHAR
+99    sdo__xml_campania_2026__ricovero                   dim_oraDimissioneMorte     VARCHAR
+100   sdo__xml_campania_2026__ricovero                   dim_modalitaDimissione     VARCHAR
+101   sdo__xml_campania_2026__ricovero                       dim_FlagICicloCura     VARCHAR
+102   sdo__xml_campania_2026__ricovero                       riscontroAutoptico     VARCHAR
+103   sdo__xml_campania_2026__ricovero                                 espianto     VARCHAR
+104   sdo__xml_campania_2026__ricovero                              pesoNascita     VARCHAR	number
+105   sdo__xml_campania_2026__ricovero                          etaGestazionale     VARCHAR	
+106   sdo__xml_campania_2026__ricovero                               __batch_id     VARCHAR
+107   sdo__xml_campania_2026__ricovero                              __stream_id     VARCHAR
+108   sdo__xml_campania_2026__ricovero                              __method_id     VARCHAR
+109   sdo__xml_campania_2026__ricovero                       __batch_created_at   TIMESTAMP
+110   sdo__xml_campania_2026__ricovero                     __bronze_promoted_at   TIMESTAMP
+111   sdo__xml_campania_2026__ricovero                traumatismiIntossicazioni     VARCHAR
+112   sdo__xml_campania_2026__ricovero                       codiceCausaEsterna     VARCHAR
+113   sdo__xml_campania_2026__ricovero              pressioneArteriosaSistolica     VARCHAR
+114   sdo__xml_campania_2026__ricovero               motivoRicoveroRegimeDiurno     VARCHAR
+115   sdo__xml_campania_2026__ricovero                numGiornateRicoveroDiurno     VARCHAR
+116   sdo__xml_campania_2026__ricovero                         creatininaSerica     VARCHAR
+# basically all string for ricovero and similar consideration as other tables

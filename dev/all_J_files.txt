@@ -6,7 +6,8 @@ inst/_xne/local.json
     "inbox": "inbox",
     "raw": "data/raw",
     "batch": "data/batch",
-    "bronze": "data/bronze"
+    "bronze": "data/bronze",
+    "silver": "data/silver"
   },
   "logging": {
     "level": "info",
@@ -122,6 +123,9 @@ inst/schema/batch_metadata.schema.json
 
   "additionalProperties": false
 }
+'''
+inst/schema/bronze_layer.schema.json
+'''
 '''
 inst/schema/local.schema.json
 '''
@@ -281,12 +285,27 @@ inst/schema/methods.schema.json
           "type": "string",
           "minLength": 1
         }
+      },
+
+      "column_types": {
+        "type": "object",
+        "description": "Per-table column type enforcement rules applied at Batch materialization time",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["character"]
+          }
+        }
       }
     },
 
     "additionalProperties": false
   }
 }
+'''
+inst/schema/silver_layer.schema.json
+'''
 '''
 inst/schema/streams.schema.json
 '''

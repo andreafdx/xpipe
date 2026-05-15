@@ -1,6 +1,6 @@
 
 # Directories to scan
-dirs <- c("inst", "tests")
+dirs <- c("R") #"tests"
 jdirs <- c("inst")
 
 # Collect existing directories only
