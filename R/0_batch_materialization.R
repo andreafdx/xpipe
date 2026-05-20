@@ -910,17 +910,46 @@ ingest_batch <- function(
 .persist_to_batch <- function(ctx, extracted_data, config) {
   fs::dir_create(ctx$batch_dir, recurse = TRUE)
 
+  anchor <- ctx$method_config$anchor_table
+  written_tables <- character(0)
+
   for (nm in names(extracted_data)) {
     tbl <- extracted_data[[nm]]
 
+    # zero-column guard
     if (!is.data.frame(tbl) || ncol(tbl) == 0) {
-      cli::cli_alert_warning("Not writing {.val {nm}}: extracted table has zero columns.")
+      if (identical(nm, anchor)) {
+        cli::cli_abort(
+          c(
+            "Invalid batch artifact",
+            "x" = "Anchor table {.val {nm}} has zero columns and cannot be materialized"
+          ),
+          class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
+        )
+      }
+
+      cli::cli_alert_warning(
+        "Not writing {.val {nm}}: extracted table has zero columns."
+      )
       next
     }
 
     arrow::write_parquet(
       tbl,
       fs::path(ctx$batch_dir, paste0(nm, ".parquet"))
+    )
+
+    written_tables <- c(written_tables, nm)
+  }
+
+  # anchor must have been materialized
+  if (!(anchor %in% written_tables)) {
+    cli::cli_abort(
+      c(
+        "Invalid batch artifact",
+        "x" = "Anchor table {.val {anchor}} was not materialized"
+      ),
+      class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -955,7 +984,7 @@ ingest_batch <- function(
     meta$resolved_inputs <- lapply(ctx$resolved_inputs, basename)
   }
 
-  meta$tables <- names(extracted_data)
+  meta$tables <- written_tables
 
   jsonlite::write_json(
     meta,
