@@ -240,6 +240,7 @@ Preferred shape:
   }
 }
 ```
+
 List-columns are not currently handled by `column_types`.
 
 For example, repeated surgeon or anesthetist values inside procedure
@@ -377,7 +378,6 @@ Each XML profile:
     -   validation beyond minimal structural safety
     -   cross‑table joins
 
-
 For example, repeated surgeon or anesthetist nodes inside one procedure
 row are stored as list-columns, not as separate tables. In contrast,
 `Trasferimenti` is a true 1-N event structure and is extracted as a
@@ -420,9 +420,9 @@ materialization.
 
 -   Existing SDO extraction is migrated into the `sdo_tracciato_abcd`
     profile.
--   SDO Tracciato B produces the expected table family:
-    `ricovero`, `diagnosi`, `procedure`, `trasferimenti`, and
-    `accessi_dh` when present.
+-   SDO Tracciato B produces the expected table family: `ricovero`,
+    `diagnosi`, `procedure`, `trasferimenti`, and `accessi_dh` when
+    present.
 -   The `trasferimenti` table is extracted as a true 1-N table with
     `codiceIstitutoDiCura`, `progressivoSDO`, `numTrasferimento`,
     `dataTrasferimento`, `oraTrasferimento`, and `unitaTrasferimento`.
@@ -447,13 +447,12 @@ This work package does not implement:
 
 Those belong to later Silver harmonization work.
 
-
-### Note on legacy components field 
+### Note on legacy components field
 
 The `components` field is currently overloaded.
 
-For XML directory methods, it is used to resolve physical input files into
-`ctx$resolved_inputs`.
+For XML directory methods, it is used to resolve physical input files
+into `ctx$resolved_inputs`.
 
 For Access/MDB methods, it is used as the list of source tables to
 extract.
@@ -461,15 +460,16 @@ extract.
 This branch does not refactor `components`. The field is retained for
 compatibility. A future contract cleanup may split it into:
 
-- `input_components`
-- `source_tables`
-- `output_tables`
+-   `input_components`
+-   `source_tables`
+-   `output_tables`
 
 No current implementation should assume that `components` means output
 tables for all method types.
 
-During this branch, `components` must be treated as a legacy compatibility
-field. New XML profile work should not add new semantic meaning to it.
+During this branch, `components` must be treated as a legacy
+compatibility field. New XML profile work should not add new semantic
+meaning to it.
 
 ## Work package 2 — Batch artifact validation
 
@@ -572,32 +572,57 @@ queries.
 
 ``` r
 inspect_bronze <- function(
-  stream_id,
+  stream_id = NULL,
   config = get_xpipe_config(),
   read_only = TRUE
 )
 ```
+If stream_id is NULL, the function prompts the user to select a Bronze stream interactively based on available DuckDB files.
 
 ### Inspection should report
 
 -   Bronze DuckDB path
--   all tables
--   data tables only
+-   list of physical tables
+-   data tables (excluding internal tables)
 -   row count per data table
--   `__promotion_log` entries
--   latest promoted batch
--   promoted batches per method
+-   `__promotion_log` promotion history (ordered by `promoted_at DESC`)
+-   tabular sanity checks (OK / WARN / FAIL)
 -   tables listed in `__promotion_log`
--   physical tables not referenced by the log
 -   log-referenced tables missing physically
--   schema summaries per table
+-   physical tables not referenced by the log
+
 
 ### Acceptance checks
 
--   Inspection opens `data/bronze/<stream_id>.duckdb`.
--   It shows promoted batches from `__promotion_log`.
--   It shows row counts for each Bronze data table.
--   It detects log/data inconsistencies.
+-   Inspection opens the DuckDB database at `data/bronze/<stream_id>.duckdb`.
+-   Promotion history is read from `__promotion_log` and ordered by `promoted_at DESC`.
+-   Row counts for physical data tables are displayed.
+-   Missing physical tables referenced by the promotion log are reported as **FAIL**.
+-   Physical tables not referenced by the promotion log are reported as **WARN**.
+
+### Bronze authority and sanity semantics
+
+The Bronze layer follows an asymmetric authority model.
+
+`__promotion_log` is authoritative for promoted data:
+- every table referenced in the log must exist physically
+- absence of a log entry for a physical table does not imply corruption
+
+Sanity levels are interpreted as follows:
+
+- **OK**  
+  Promotion log and physical tables are fully consistent.
+
+- **WARN**  
+  Physical tables exist that are not referenced by the promotion log  
+  (e.g. legacy data, historical artifacts, or debugging tables).
+
+- **FAIL**  
+  Promotion log entries reference tables that are missing physically,  
+  or the promotion log itself is missing.
+
+Only **FAIL** indicates a structurally invalid Bronze state.
+
 
 ## Work package 5 — Silver configuration contract
 
@@ -760,11 +785,12 @@ stable, profile-driven Batch outputs.
 
 Batch and Bronze inspection are considered mandatory operational steps.
 
-Before promoting: 
+Before promoting:
 
-- Batch → Bronze: `inspect_batch_layer()` must show no structural errors.
-- Bronze → Silver: `inspect_bronze()` must show no log/data inconsistencies.
-
+-   Batch → Bronze: `inspect_batch_layer()` must show no structural
+    errors.
+-   Bronze → Silver: `inspect_bronze()` must show no log/data
+    inconsistencies.
 
 Skipping inspection is acceptable only in automated pipelines that
 perform equivalent validation programmatically.
@@ -794,7 +820,7 @@ This branch is complete when:
 -   Repeated surgeon/anesthetist nodes in procedure rows are preserved
     without data loss.
 
----
+------------------------------------------------------------------------
 
 ## Backlog for future plans
 
@@ -805,7 +831,7 @@ current plan.
 Items listed here are **not acceptance criteria** for this branch. They
 are candidates for future planning documents.
 
----
+------------------------------------------------------------------------
 
 ### Contract cleanup
 
@@ -814,7 +840,7 @@ split into clearer contract fields.
 
 Potential future structure:
 
-```json
+``` json
 {
   "input_components": {
     "A": "*_A.xml",
@@ -827,20 +853,21 @@ Potential future structure:
 
 Possible meanings:
 
-- **input_components**  
-  Physical input files or file patterns to resolve before extraction.
+-   **input_components**\
+    Physical input files or file patterns to resolve before extraction.
 
-- **source_tables**  
-  Source tables to extract from database-like inputs such as Access/MDB.
+-   **source_tables**\
+    Source tables to extract from database-like inputs such as
+    Access/MDB.
 
-- **output_tables**  
-  Logical tables expected from the extractor.
+-   **output_tables**\
+    Logical tables expected from the extractor.
 
 This cleanup should be handled in a dedicated contract-refactor branch
 because it affects Batch preparation, XML extraction, Access extraction,
 metadata, recap output, and inspection.
 
----
+------------------------------------------------------------------------
 
 ### XML extractor expansion
 
@@ -848,19 +875,20 @@ Future XML profiles should be added without changing `extract_xml()`.
 
 Planned or likely profiles include:
 
-- `emur_v1`
-- `filecint_v1`
-- future extensions of `sdo_tracciato_abcd`
+-   `emur_v1`
+-   `filecint_v1`
+-   future extensions of `sdo_tracciato_abcd`
 
 Each new profile should:
 
-- be implemented as a separate code-driven parser function
-- be registered in `.xml_profile_registry`
-- be selected via `xml_profile` in `methods.json`
-- return a named list of flat, batch-ready `data.frame`s
-- avoid XPath, enrichment, harmonization, and cross-table semantic joins
+-   be implemented as a separate code-driven parser function
+-   be registered in `.xml_profile_registry`
+-   be selected via `xml_profile` in `methods.json`
+-   return a named list of flat, batch-ready `data.frame`s
+-   avoid XPath, enrichment, harmonization, and cross-table semantic
+    joins
 
----
+------------------------------------------------------------------------
 
 ### EMUR extraction
 
@@ -868,31 +896,32 @@ EMUR will likely require its own XML profile.
 
 Known expected characteristics:
 
-- input may be split into anagrafica and sanitary components
-- some structures may resemble SDO, including repeated procedure-like
-  sections
-- profile-local parsing logic should be preferred over shared
-  domain-specific helpers
+-   input may be split into anagrafica and sanitary components
+-   some structures may resemble SDO, including repeated procedure-like
+    sections
+-   profile-local parsing logic should be preferred over shared
+    domain-specific helpers
 
 Shared helpers may be used only when they are purely mechanical.
 
----
+------------------------------------------------------------------------
 
 ### FileCInt extraction
 
-FileCInt should be handled as a separate XML profile if XML-based, or as a
-separate extractor type if the format requires different mechanics.
+FileCInt should be handled as a separate XML profile if XML-based, or as
+a separate extractor type if the format requires different mechanics.
 
 The decision should be made only after inspecting real input structure.
 
 Expected concerns:
 
-- high row volume
-- strict type preservation
-- avoiding unnecessary R materialization where possible
-- clear distinction between source records and derived analytical tables
+-   high row volume
+-   strict type preservation
+-   avoiding unnecessary R materialization where possible
+-   clear distinction between source records and derived analytical
+    tables
 
----
+------------------------------------------------------------------------
 
 ### Harmonized Silver
 
@@ -900,26 +929,27 @@ Harmonized Silver is intentionally out of scope for this branch.
 
 Future harmonization work may include:
 
-- standardizing column names across methods
-- parsing and validating dates
-- deriving fiscal or reporting years
-- mapping local codes to controlled vocabularies
-- producing epidemiology-ready semantic tables
-- deciding whether list-columns should be exploded or preserved
-- creating export views or Parquet exports for external consumers
+-   standardizing column names across methods
+-   parsing and validating dates
+-   deriving fiscal or reporting years
+-   mapping local codes to controlled vocabularies
+-   producing epidemiology-ready semantic tables
+-   deciding whether list-columns should be exploded or preserved
+-   creating export views or Parquet exports for external consumers
 
-Harmonized tables should initially live in the same stream DuckDB file as
-Silver-current:
+Harmonized tables should initially live in the same stream DuckDB file
+as Silver-current:
 
-```text
+``` text
 data/silver/<stream_id>.duckdb
   current__*
   harmonized__*
 ```
 
-Parquet should remain an export format, not the canonical Silver storage.
+Parquet should remain an export format, not the canonical Silver
+storage.
 
----
+------------------------------------------------------------------------
 
 ### Date parsing and temporal semantics
 
@@ -928,10 +958,10 @@ source formats are not guaranteed to be clean and stable.
 
 Future harmonization may parse dates into typed date/timestamp columns.
 
-Parsing should be explicit and audited. Silent conversion to `NA` must be
-avoided.
+Parsing should be explicit and audited. Silent conversion to `NA` must
+be avoided.
 
----
+------------------------------------------------------------------------
 
 ### Privacy rule expansion
 
@@ -943,11 +973,11 @@ type enforcement or XML parsing.
 
 Future work should review:
 
-- `chirurgoIntervento`
-- `anestesistaIntervento`
-- any other operator/person identifiers introduced by new profiles
+-   `chirurgoIntervento`
+-   `anestesistaIntervento`
+-   any other operator/person identifiers introduced by new profiles
 
----
+------------------------------------------------------------------------
 
 ### Bronze schema evolution hardening
 
@@ -955,12 +985,12 @@ Current Bronze schema evolution handles additive schema changes.
 
 Future work may extend this to:
 
-- type widening
-- explicit incompatible type-change aborts
-- schema evolution reporting in `inspect_bronze()`
-- manual migration utilities for rare incompatible changes
+-   type widening
+-   explicit incompatible type-change aborts
+-   schema evolution reporting in `inspect_bronze()`
+-   manual migration utilities for rare incompatible changes
 
----
+------------------------------------------------------------------------
 
 ### Layer metadata
 
@@ -971,19 +1001,18 @@ These files should be descriptive only.
 
 Authoritative state remains:
 
-- **Batch**: immutable batch directories and metadata
-- **Bronze**: `__promotion_log` inside DuckDB
-- **Silver**: Silver contract plus generated DuckDB tables
+-   **Batch**: immutable batch directories and metadata
+-   **Bronze**: `__promotion_log` inside DuckDB
+-   **Silver**: Silver contract plus generated DuckDB tables
 
----
+------------------------------------------------------------------------
 
 ### Retention and pruning
 
 Retention policies are not needed now.
 
-Future work may define pruning or archival rules, for example keeping only
-recent years in Bronze while preserving rebuildability from Batch.
+Future work may define pruning or archival rules, for example keeping
+only recent years in Bronze while preserving rebuildability from Batch.
 
 Retention must be treated as a deliberate operational policy, not as a
 hidden side effect of promotion.
-

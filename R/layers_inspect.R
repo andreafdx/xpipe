@@ -161,6 +161,181 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
   )
 }
 
+
+
+#' Inspect the Bronze layer (DuckDB)
+#'
+#' Opens the stream DuckDB file in Bronze and reports:
+#' - physical tables and row counts
+#' - authoritative __promotion_log history
+#' - consistency checks between log and physical tables
+#'
+#' @param stream_id Character scalar. Stream identifier (e.g. "sdo").
+#' @param config xpipe_config.
+#' @param read_only Logical. Defaults to TRUE.
+#'
+#' @return An object of class xpipe_bronze_inspection.
+#' @export
+inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_only = TRUE) {
+
+  checkmate::assert_string(stream_id, null.ok = TRUE)
+  checkmate::assert_class(config, "xpipe_config")
+  checkmate::assert_flag(read_only)
+
+  bronze_root <- config$local$paths$bronze
+  if (!checkmate::test_string(bronze_root, min.chars = 1)) {
+    cli::cli_abort(
+      c("Bronze path not configured",
+        "x" = "Expected config$local$paths$bronze to be set"),
+      class = c("xpipe_bronze_state", "xpipe_error")
+    )
+  }
+
+  if (is.null(stream_id)) {
+    dbs <- fs::dir_ls(bronze_root, glob = "*.duckdb", type = "file")
+    streams <- fs::path_ext_remove(fs::path_file(dbs))
+
+    if (length(streams) == 0) {
+      cli::cli_abort(
+        c("No Bronze databases found",
+          "x" = "No *.duckdb files found in {.file {bronze_root}}"),
+        class = c("xpipe_bronze_state", "xpipe_error")
+      )
+    }
+
+    choice <- NULL
+
+    if (interactive() && requireNamespace("climenu", quietly = TRUE)) {
+      choice <- tryCatch(
+        climenu::select(streams, prompt = "Select Bronze stream to inspect"),
+        error = function(e) NULL
+      )
+    }
+
+    if (!is.null(choice)) {
+      stream_id <- choice
+    } else {
+      # fallback: simple numbered prompt (no cli_inform)
+      cat("\nSelect Bronze stream to inspect\n\n")
+
+      for (i in seq_along(streams)) {
+        cat(sprintf(" %d. %s\n", i, streams[[i]]))
+      }
+
+      cat("\n")
+      k <- suppressWarnings(as.integer(readline("Enter number: ")))
+
+      if (is.na(k) || k < 1 || k > length(streams)) {
+        cli::cli_abort(
+          "Invalid selection.",
+          class = c("xpipe_bronze_state", "xpipe_error")
+        )
+      }
+
+      stream_id <- streams[[k]]
+    }
+
+  }
+
+  bronze_db <- fs::path(bronze_root, paste0(stream_id, ".duckdb"))
+  if (!fs::file_exists(bronze_db)) {
+    cli::cli_abort(
+      c("Bronze database not found",
+        "x" = "Expected {.file {bronze_db}} to exist"),
+      class = c("xpipe_bronze_state", "xpipe_error")
+    )
+  }
+
+  con <- DBI::dbConnect(
+    duckdb::duckdb(),
+    dbdir = as.character(bronze_db),
+    read_only = read_only
+  )
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  tables <- DBI::dbListTables(con)
+  has_log <- "__promotion_log" %in% tables
+
+  # data tables (exclude internal)
+  data_tables <- setdiff(tables, "__promotion_log")
+
+  # row counts (can be expensive if huge; acceptable for Bronze inspection)
+  row_counts <- if (length(data_tables) > 0) {
+    do.call(rbind, lapply(data_tables, function(tbl) {
+      n <- DBI::dbGetQuery(
+        con,
+        paste0("SELECT COUNT(*) AS n FROM ", DBI::dbQuoteIdentifier(con, tbl))
+      )$n[[1]]
+      data.frame(table_name = tbl, n = as.numeric(n), stringsAsFactors = FALSE)
+    }))
+  } else {
+    data.frame(table_name = character(), n = numeric(), stringsAsFactors = FALSE)
+  }
+
+  # promotion history
+  promotion_log <- if (isTRUE(has_log)) {
+    DBI::dbGetQuery(
+      con,
+      "SELECT batch_id, stream_id, method_id, promoted_at, batch_created_at, tables, tool, tool_version
+       FROM __promotion_log
+       ORDER BY promoted_at DESC"
+    )
+  } else {
+    data.frame(
+      batch_id = character(),
+      stream_id = character(),
+      method_id = character(),
+      promoted_at = as.POSIXct(character()),
+      batch_created_at = as.POSIXct(character()),
+      tables = character(),
+      tool = character(),
+      tool_version = character(),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # parse promoted table list from JSON
+  promoted_tables_from_log <- character(0)
+  if (nrow(promotion_log) > 0) {
+    promoted_tables_from_log <- unlist(lapply(promotion_log$tables, function(x) {
+      if (is.null(x) || is.na(x) || !nzchar(x)) return(character(0))
+      out <- tryCatch(jsonlite::fromJSON(x), error = function(e) NULL)
+      if (is.null(out)) return(character(0))
+      as.character(out)
+    }))
+    promoted_tables_from_log <- unique(promoted_tables_from_log)
+  }
+
+  # sanity checks
+  checks <- list()
+  checks$has_promotion_log <- isTRUE(has_log)
+  checks$log_rows <- nrow(promotion_log)
+  checks$data_tables_count <- length(data_tables)
+
+  checks$log_tables_missing_physically <- setdiff(promoted_tables_from_log, data_tables)
+  checks$physical_tables_not_in_log <- setdiff(data_tables, promoted_tables_from_log)
+
+  # latest promotion summary
+  latest <- if (nrow(promotion_log) > 0) promotion_log[1, , drop = FALSE] else promotion_log
+
+  structure(
+    list(
+      stream_id = stream_id,
+      bronze_db = as.character(bronze_db),
+      tables = tables,
+      data_tables = data_tables,
+      row_counts = row_counts,
+      promotion_log = promotion_log,
+      latest = latest,
+      promoted_tables_from_log = promoted_tables_from_log,
+      checks = checks
+    ),
+    class = "xpipe_bronze_inspection"
+  )
+}
+
+
+
 #' Inspect Silver-current tables
 #'
 #' Inspects the Silver DuckDB database for one stream/method pair, reporting
@@ -480,7 +655,7 @@ print.xpipe_batch_layer <- function(x, ...) {
 
   cli::cat_boxx(
     summary_rows,
-    header = "Summary",
+    header = "Batch Layer Summary",
     border_style = "round",
     padding = c(top = 0, right = 2, bottom = 0, left = 2),
     float = "left",
@@ -624,7 +799,7 @@ print.xpipe_batch_layer <- function(x, ...) {
 
   }
 
-  cli::cli_h3("Hystory of other batches")
+  cli::cli_h3("More info")
 
   # build summary rows for all batches (excluding latest)
 
@@ -647,7 +822,7 @@ print.xpipe_batch_layer <- function(x, ...) {
   if (length(other_ids) == 0) {
     cli::cat_boxx(
       "No older batches.",
-      header = "Other batches",
+      header = "Batch history (latest first)",
       border_style = "round",
       padding = c(top = 0, right = 2, bottom = 0, left = 2),
       float = "left",
@@ -722,11 +897,161 @@ print.xpipe_batch_layer <- function(x, ...) {
 
     cli::cat_boxx(
       table_rows,
-      header = "Other batches",
+      header = "Batch history (latest first)",
       border_style = "round",
       padding = c(top = 0, right = 2, bottom = 0, left = 2),
       float = "left",
       border_col = border_col
+    )
+  }
+
+  invisible(x)
+}
+
+#' Print Method for xpipe_bronze_inspection
+#'
+#' @export
+print.xpipe_bronze_inspection <- function(x, ...) {
+  pad <- function(x, width) {
+    x <- as.character(x)
+    paste0(x, strrep(" ", pmax(0, width - nchar(x))))
+  }
+
+  fmt_bool <- function(v) if (isTRUE(v)) "YES" else "NO"
+
+  head_tail <- function(v, n = 12) {
+    v <- as.character(v)
+    if (length(v) <= n) return(v)
+    c(v[seq_len(n)], paste0("… +", length(v) - n, " more"))
+  }
+
+  cli::cli_h2("Bronze stream inspection")
+
+  summary_rows <- c(
+    paste0(pad("Stream", 18), ": ", x$stream_id),
+    paste0(pad("Database", 18), ": ", x$bronze_db),
+    paste0(pad("Tables", 18), ": ", length(x$tables)),
+    paste0(pad("Data tables", 18), ": ", length(x$data_tables)),
+    paste0(pad("Has promotion log", 18), ": ", fmt_bool(x$checks$has_promotion_log)),
+    paste0(pad("Log rows", 18), ": ", x$checks$log_rows)
+  )
+
+  cli::cat_boxx(
+    summary_rows,
+    header = "Bronze Summary",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = "cyan"
+  )
+
+  # Sanity checks table
+  missing_phys <- x$checks$log_tables_missing_physically %||% character(0)
+  extra_phys <- x$checks$physical_tables_not_in_log %||% character(0)
+
+  sanity_df <- data.frame(
+    check = c(
+      "Promotion log present",
+      "Log tables missing physically",
+      "Physical tables not in log"
+    ),
+    result = c(
+      if (isTRUE(x$checks$has_promotion_log)) "OK" else "FAIL",
+      if (length(missing_phys) == 0) "OK" else "FAIL",
+      if (length(extra_phys) == 0) "OK" else "WARN"
+    ),
+    detail = c(
+      if (isTRUE(x$checks$has_promotion_log)) "__promotion_log" else "missing",
+      if (length(missing_phys) == 0) "none" else paste(head_tail(missing_phys), collapse = ", "),
+      if (length(extra_phys) == 0) "none" else paste(head_tail(extra_phys), collapse = ", ")
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  max_check  <- max(nchar(sanity_df$check),  nchar("check"))
+  max_result <- max(nchar(sanity_df$result), nchar("result"))
+  max_detail <- max(nchar(sanity_df$detail), nchar("detail"))
+
+  sanity_rows <- c(
+    paste0(pad("check",  max_check),  "  ",
+           pad("result", max_result), "  ",
+           pad("detail", max_detail)),
+    paste0(strrep("-", max_check), "  ",
+           strrep("-", max_result), "  ",
+           strrep("-", max_detail)),
+    vapply(seq_len(nrow(sanity_df)), function(i) {
+      paste0(pad(sanity_df$check[[i]],  max_check),  "  ",
+             pad(sanity_df$result[[i]], max_result), "  ",
+             pad(sanity_df$detail[[i]], max_detail))
+    }, character(1))
+  )
+
+  border_col <- if (any(sanity_df$result == "FAIL")) "red" else if (any(sanity_df$result == "WARN")) "yellow" else "green"
+
+  cli::cat_boxx(
+    sanity_rows,
+    header = "Bronze sanity checks",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = border_col
+  )
+
+  # Current tables row counts (top N)
+  if (nrow(x$row_counts) > 0) {
+    df <- x$row_counts[order(-x$row_counts$n), , drop = FALSE]
+    df <- head(df, 20)
+
+    max_t <- max(nchar(df$table_name), nchar("table"))
+    max_n <- max(nchar(as.character(df$n)), nchar("rows"))
+
+    rows <- c(
+      paste0(pad("table", max_t), "  ", pad("rows", max_n)),
+      paste0(strrep("-", max_t), "  ", strrep("-", max_n)),
+      vapply(seq_len(nrow(df)), function(i) {
+        paste0(pad(df$table_name[[i]], max_t), "  ", pad(df$n[[i]], max_n))
+      }, character(1))
+    )
+
+    cli::cli_h3("More info")
+    cli::cat_boxx(
+      rows,
+      header = "Top tables by rows",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = "cyan"
+    )
+  }
+
+  # Promotion history (other batches)
+  if (nrow(x$promotion_log) > 1) {
+    df <- x$promotion_log
+    df$promoted_at <- as.character(df$promoted_at)
+    df$batch_created_at <- as.character(df$batch_created_at)
+
+    df2 <- df[, c("batch_id", "method_id", "batch_created_at", "promoted_at"), drop = FALSE]
+    if (nrow(df2) > 20) df2 <- df2[seq_len(20), , drop = FALSE]
+
+    widths <- vapply(names(df2), function(nm) {
+      max(nchar(nm), max(nchar(df2[[nm]]), na.rm = TRUE))
+    }, numeric(1))
+
+    lines <- c(
+      paste(pad(names(df2), widths), collapse = "  "),
+      paste(vapply(widths, function(w) strrep("-", w), character(1)), collapse = "  "),
+      vapply(seq_len(nrow(df2)), function(i) {
+        paste(pad(df2[i, ], widths), collapse = "  ")
+      }, character(1))
+    )
+
+    cli::cat_boxx(
+      lines,
+      header = "Promotion history (latest first)",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = "cyan"
     )
   }
 
@@ -759,7 +1084,7 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     if (isTRUE(x)) "YES" else "NO"
   }
 
-  cli::cli_h2("Silver-current inspection")
+  cli::cli_h2("Silver-current stream / method inspection")
 
   summary_rows <- c(
     paste0(pad("Stream", 18), ": ", x$stream_id),
@@ -771,41 +1096,14 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
 
   cli::cat_boxx(
     summary_rows,
-    header = "Summary",
+    header = "Silver stream / method Summary",
     border_style = "round",
     padding = c(top = 0, right = 2, bottom = 0, left = 2),
     float = "left",
     border_col = "cyan"
   )
 
-  if (nrow(x$row_counts) > 0) {
-    max_name <- max(nchar(x$row_counts$table_name), nchar("table"))
-    max_n <- max(nchar(as.character(x$row_counts$n)), nchar("rows"))
-
-    table_rows <- c(
-      paste0(pad("table", max_name), "  ", pad("rows", max_n)),
-      paste0(strrep("-", max_name), "  ", strrep("-", max_n)),
-      vapply(seq_len(nrow(x$row_counts)), function(i) {
-        paste0(
-          pad(x$row_counts$table_name[[i]], max_name),
-          "  ",
-          pad(x$row_counts$n[[i]], max_n)
-        )
-      }, character(1))
-    )
-  } else {
-    table_rows <- "No current__ tables found."
-  }
-
-  cli::cat_boxx(
-    table_rows,
-    header = "Current tables",
-    border_style = "round",
-    padding = c(top = 0, right = 2, bottom = 0, left = 2),
-    float = "left",
-    border_col = "cyan"
-  )
-
+  # Sanity checks
   uniqueness_rows <- if (!isTRUE(x$anchor_exists)) {
     "Anchor table is missing."
   } else if (nrow(x$duplicate_keys) == 0) {
@@ -817,7 +1115,6 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     )
   }
 
-  cli::cli_h3("Sanity checks")
 
   cli::cat_boxx(
     uniqueness_rows,
@@ -879,6 +1176,36 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
 
   cli::cli_h3("More info")
 
+  # Current tables row counts
+  if (nrow(x$row_counts) > 0) {
+    max_name <- max(nchar(x$row_counts$table_name), nchar("table"))
+    max_n <- max(nchar(as.character(x$row_counts$n)), nchar("rows"))
+
+    table_rows <- c(
+      paste0(pad("table", max_name), "  ", pad("rows", max_n)),
+      paste0(strrep("-", max_name), "  ", strrep("-", max_n)),
+      vapply(seq_len(nrow(x$row_counts)), function(i) {
+        paste0(
+          pad(x$row_counts$table_name[[i]], max_name),
+          "  ",
+          pad(x$row_counts$n[[i]], max_n)
+        )
+      }, character(1))
+    )
+  } else {
+    table_rows <- "No current__ tables found."
+  }
+
+  cli::cat_boxx(
+    table_rows,
+    header = "Current tables",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = "cyan"
+  )
+
+  # Batch distribution in anchor table
   if (nrow(x$batch_distribution) > 0) {
     bd <- x$batch_distribution
 
