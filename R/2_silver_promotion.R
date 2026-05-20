@@ -49,6 +49,34 @@
   DBI::dbFetch(res)
 }
 
+# Resolve canonical method for Silver-current
+# @noRd
+.resolve_silver_canonical_method <- function(stream_id, config) {
+  if (is.null(config$silver[[stream_id]])) {
+    cli::cli_abort(
+      c(
+        "Silver not configured for stream",
+        "x" = "Stream {.val {stream_id}} not found in silver.json"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  s <- config$silver[[stream_id]]
+
+  if (!isTRUE(s$current$enabled)) {
+    cli::cli_abort(
+      c(
+        "Silver-current disabled",
+        "x" = "Silver-current is disabled for stream {.val {stream_id}}"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  s$canonical_method
+}
+
 #' Promote Bronze data to Silver-current (DuckDB)
 #'
 #' Builds Silver-current tables for a given stream and method by selecting the
@@ -64,10 +92,20 @@
 #'
 #' @return Invisibly TRUE on success.
 #' @keywords internal
-.promote_to_silver_current <- function(stream_id, method_id, config) {
+.promote_to_silver_current <- function(stream_id, config) {
   checkmate::assert_string(stream_id)
-  checkmate::assert_string(method_id)
   checkmate::assert_class(config, "xpipe_config")
+
+
+  if (is.null(config$silver)) {
+    cli::cli_abort(
+      "Silver contract not loaded",
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  method_id <- .resolve_silver_canonical_method(stream_id, config)
+
 
   bronze_root <- config$local$paths$bronze
   silver_root <- config$local$paths$silver

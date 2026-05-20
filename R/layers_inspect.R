@@ -350,15 +350,77 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
 #' @return An object of class `xpipe_silver_current_inspection`.
 #' @export
 inspect_silver_current <- function(
-    stream_id,
-    method_id,
+    stream_id = NULL,
+    method_id = NULL,
     config = get_xpipe_config(),
     read_only = TRUE
 ) {
-  checkmate::assert_string(stream_id)
-  checkmate::assert_string(method_id)
+
+  checkmate::assert_string(stream_id, null.ok = TRUE)
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_flag(read_only)
+
+  if (is.null(stream_id)) {
+    streams <- names(config$silver)
+
+    if (length(streams) == 0) {
+      cli::cli_abort(
+        "No Silver streams configured",
+        class = c("xpipe_silver_state", "xpipe_error")
+      )
+    }
+
+    choice <- NULL
+    if (interactive() && requireNamespace("climenu", quietly = TRUE)) {
+      choice <- tryCatch(
+        climenu::select(streams, prompt = "Select Silver stream to inspect"),
+        error = function(e) NULL
+      )
+    }
+
+    if (!is.null(choice)) {
+      stream_id <- choice
+    } else {
+      cat("\nSelect Silver stream to inspect\n\n")
+      for (i in seq_along(streams)) {
+        cat(sprintf(" %d. %s\n", i, streams[[i]]))
+      }
+      cat("\n")
+      k <- suppressWarnings(as.integer(readline("Enter number: ")))
+      if (is.na(k) || k < 1 || k > length(streams)) {
+        cli::cli_abort(
+          "Invalid selection.",
+          class = c("xpipe_silver_state", "xpipe_error")
+        )
+      }
+      stream_id <- streams[[k]]
+    }
+  }
+
+  silver_cfg <- config$silver[[stream_id]]
+  if (is.null(silver_cfg)) {
+    cli::cli_abort(
+      c(
+        "Silver not configured for stream",
+        "x" = "Stream {.val {stream_id}} not found in silver.json"
+      ),
+      class = c("xpipe_silver_state", "xpipe_error")
+    )
+  }
+
+  if (!isTRUE(silver_cfg$current$enabled)) {
+    cli::cli_abort(
+      c(
+        "Silver-current disabled",
+        "x" = "Silver-current is disabled for stream {.val {stream_id}}"
+      ),
+      class = c("xpipe_silver_state", "xpipe_error")
+    )
+  }
+
+  canonical_method <- silver_cfg$canonical_method
+  method_id <- method_id %||% canonical_method
+  checkmate::assert_string(method_id)
 
   silver_root <- config$local$paths$silver
   if (!checkmate::test_string(silver_root, min.chars = 1)) {
@@ -536,6 +598,7 @@ inspect_silver_current <- function(
     list(
       stream_id = stream_id,
       method_id = method_id,
+      canonical_method = canonical_method,
       silver_db = silver_db,
       tables = tables,
       current_tables = current_tables,
@@ -1089,6 +1152,7 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
   summary_rows <- c(
     paste0(pad("Stream", 18), ": ", x$stream_id),
     paste0(pad("Method", 18), ": ", x$method_id),
+    paste0(pad("Method (canonical)", 18), ": ", x$canonical_method),
     paste0(pad("Database", 18), ": ", x$silver_db),
     paste0(pad("Anchor table", 18), ": ", x$anchor_table),
     paste0(pad("Anchor exists", 18), ": ", fmt_bool(x$anchor_exists))

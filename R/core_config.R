@@ -96,6 +96,14 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
                                  .load_methods_contract(config$local)
   )
 
+  silver_contract <- .config_step(
+    "load Silver contract",
+    .load_silver_contract(config$local)
+  )
+
+  config$silver_meta <- silver_contract$meta
+  config$silver      <- silver_contract$streams
+
   # Validate schema domains consistency
   stream_domains  <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
   method_domains  <- unique(vapply(config$methods, `[[`, "", "schema_domain"))
@@ -111,6 +119,38 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
       ),
       class = c("xpipe_config_schema_domain", "xpipe_config_error", "xpipe_error")
     )
+  }
+
+  # Validate Silver canonical methods
+  for (stream_id in names(config$silver)) {
+    s <- config$silver[[stream_id]]
+
+    if (isTRUE(s$current$enabled)) {
+      method_id <- s$canonical_method
+
+      if (!method_id %in% names(config$methods)) {
+        cli::cli_abort(
+          c(
+            "Invalid silver contract",
+            "x" = "Canonical method {.val {method_id}} for stream {.val {stream_id}} does not exist"
+          ),
+          class = c("xpipe_config_error", "xpipe_error")
+        )
+      }
+
+      method_domain <- config$methods[[method_id]]$schema_domain
+      stream_domain <- config$streams[[stream_id]]$schema_domain
+
+      if (!identical(method_domain, stream_domain)) {
+        cli::cli_abort(
+          c(
+            "Invalid silver contract",
+            "x" = "Canonical method {.val {method_id}} domain {.val {method_domain}} does not match stream {.val {stream_id}} domain {.val {stream_domain}}"
+          ),
+          class = c("xpipe_config_error", "xpipe_error")
+        )
+      }
+    }
   }
 
   cli::cli_alert_success("Configuration system loaded and validated.")
@@ -364,6 +404,58 @@ get_xpipe_config <- function() {
   )
 }
 
+#' Load Silver Contract
+#'
+#' Loads and validates the Silver contract, which defines the canonical
+#' method used to build Silver-current per stream.
+#'
+#' @param local_config Local configuration.
+#' @return Parsed silver contract.
+#' @noRd
+.load_silver_contract <- function(local_config) {
+  path <- fs::path(local_config$paths$shared, "silver.json")
+
+  .validate_json_schema(
+    json_path   = path,
+    schema_name = "silver_contract.schema.json",
+    error_title = "Invalid silver.json",
+    error_class = "xpipe_config_error"
+  )
+
+  raw <- .read_json_safe(
+    path,
+    error_title = "Invalid silver contract",
+    error_class = "xpipe_config_error"
+  )
+
+  meta <- raw$`_meta`
+  if (is.null(meta) || meta$type != "silver_contract") {
+    cli::cli_abort(
+      c(
+        "Invalid silver contract",
+        "x" = "Missing or invalid {.field _meta.type}",
+        "i" = "Expected: 'silver_contract'"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  streams <- raw$streams
+  if (is.null(streams) || length(streams) == 0) {
+    cli::cli_abort(
+      c(
+        "Invalid silver contract",
+        "x" = "No streams defined"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  list(
+    meta    = meta,
+    streams = streams
+  )
+}
 
 
 
