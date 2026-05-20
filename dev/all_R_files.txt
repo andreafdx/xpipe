@@ -33,7 +33,7 @@ R/0_batch_materialization.R
 #       ├── xpipe_batch_stream        # unknown stream identifier
 #       ├── xpipe_batch_path          # inbox path invalid or not found
 #       ├── xpipe_batch_input_type    # file vs directory requirement mismatch
-#       ├── xpipe_batch_components    # directory component missing or ambiguous
+#       ├── xpipe_batch_input_files    # directory component missing or ambiguous
 #       ├── xpipe_batch_id            # invalid explicit batch_id
 #       ├── xpipe_batch_collision     # target batch directory already exists
 #       ├── xpipe_batch_input         # input missing or empty at materialization
@@ -200,17 +200,34 @@ ingest_batch <- function(
   # Validation against method requirement
   .validate_input_type(filepath, method_config)
 
-  # Discover and resolve component inputs
+  # Input files contract
+  input_files <- method_config$input_files %||% NULL
+
+
+  # Discover and resolve inputs
   resolved_inputs <- if (fs::is_dir(filepath)) {
-    .resolve_inputs(filepath, method_config)
-  } else {
-    components <- method_config$components
-    if (!is.null(components)) {
-      setNames(rep(list(filepath), length(components)), components)
-    } else {
-      list(data = filepath)
+
+    # method declares directory => input_files required
+    if (identical(method_config$input_type, "directory") && is.null(input_files)) {
+      cli::cli_abort(
+        c(
+          "Invalid method configuration",
+          "x" = "Directory methods must define {.field input_files}"
+        ),
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
+      )
     }
+
+    .resolve_inputs(filepath, input_files)
+
+  } else {
+
+    # single-file input: do not replicate per component anymore
+    list(data = filepath)
+
   }
+
+
 
   batch_id <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
   batch_dir <- .build_batch_target_dir(config, batch_id)
@@ -385,34 +402,31 @@ ingest_batch <- function(
   }
 }
 
-#' Discover and resolve components
+#' Discover and resolve input_files
 #'
-#' Resolves logical components into concrete file paths.
+#' Resolves logical input_files into concrete file paths.
 #'
 #' @keywords internal
 #' @noRd
-.resolve_inputs <- function(dir_path, method_config) {
-  components <- method_config$components
+.resolve_inputs <- function(dir_path, input_files) {
 
-  if (is.null(components)) {
-    return(NULL)
-  }
+  if (is.null(input_files)) return(NULL)
 
   resolved <- list()
 
-  for (nm in names(components)) {
-    pattern <- components[[nm]]
+  for (nm in names(input_files)) {
+    pattern <- input_files[[nm]]
     matches <- fs::dir_ls(dir_path, glob = pattern)
 
     if (length(matches) == 0) {
       cli::cli_abort(
         c(
           "Missing input",
-          "x" = "No files found for component {.val {nm}}",
+          "x" = "No files found for input {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Directory: {.file {dir_path}}"
         ),
-        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
       )
     }
 
@@ -420,11 +434,11 @@ ingest_batch <- function(
       cli::cli_abort(
         c(
           "Ambiguous input",
-          "x" = "Multiple files found for component {.val {nm}}",
+          "x" = "Multiple files found for input {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Found: {.file {basename(matches)}}"
         ),
-        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
       )
     }
 
@@ -513,7 +527,7 @@ ingest_batch <- function(
   ))
 
   if (!is.null(ctx$resolved_inputs)) {
-    cli::cli_h3("Resolved component inputs")
+    cli::cli_h3("Resolved input files")
     cli::cli_bullets(
       purrr::imap_chr(
         ctx$resolved_inputs,
@@ -716,13 +730,6 @@ ingest_batch <- function(
     }
   )
 
-  cli::cli_alert_info("Enforcing batch column types")
-
-  extracted_data <- .apply_batch_column_types(
-    extracted_data = extracted_data,
-    method_config  = ctx$method_config
-  )
-
   cli::cli_alert_info("Applying privacy rules")
 
   for (nm in names(extracted_data)) {
@@ -734,8 +741,12 @@ ingest_batch <- function(
     )
   }
 
+  cli::cli_alert_info("Enforcing batch column types")
 
-  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+  extracted_data <- .apply_batch_column_types(
+    extracted_data = extracted_data,
+    method_config  = ctx$method_config
+  )
 
 
   rlang::try_fetch(
@@ -2550,8 +2561,8 @@ get_xpipe_config <- function() {
 #' Loads and validates the Methods contract, which defines ingestion
 #' mechanics and extraction rules used to materialize Batch data.
 #'
-#' A Method describes HOW data is ingested (format, components,
-#' identity, partitioning, privacy), not WHAT the data means.
+#' A Method describes HOW data is ingested (format, file_inputs, source_tables,
+#' partitioning, privacy), not WHAT the data means.
 #'
 #' The Methods contract is a CONTROL-PLANE artifact and must not
 #' be confused with medallion data layers.
@@ -3129,25 +3140,24 @@ R/core_crypto.R
 
 #' Apply Privacy Rules to an Extracted Data Frame
 #'
-#' Applies method-level privacy rules to a data frame produced during batch
-#' extraction. Two rule types are supported:
+#' Applies method-level privacy rules to a data frame produced during Batch
+#' extraction, before Parquet writing.
 #'
-#' - **Pseudonymization**: selected columns are replaced with HMAC-SHA256
-#'   hashes, keyed by a runtime pepper. Hashing is deterministic and
-#'   case/whitespace-insensitive.
-#' - **Column removal**: columns listed under `skip` are dropped entirely
-#'   before persistence.
+#' - `privacy$skip`: drops declared columns (supports `scalar` and `list`)
+#' - `privacy$hash`: pseudonymizes declared columns using HMAC-SHA256
+#'      (supports `scalar` and `list`, list-columns are hashed element-wise)
+#'    The declared shape (`scalar` vs `list`) is authoritative; mismatches abort.
 #'
-#' Rules are defined in `methods.json` and loaded as part of the method
-#' configuration. This function is called by the batch materialization
-#' pipeline and should not need to be invoked directly.
+#' Hashing is deterministic (same input + pepper = same hash) and
+#' case/whitespace-insensitive, allowing downstream joins without exposing raw
+#' identifiers. The pepper is never stored on disk.
 #'
 #' @param df Data frame to process.
-#' @param table_name Character scalar. Table name used in progress messages.
-#' @param method_config Named list containing privacy rule fields
-#'   (`pseudonymize`, `skip`) as defined in the methods contract.
-#' @param pepper Character scalar. HMAC key loaded from the environment
-#'   via [load_xpipe_config()]. Must be non-empty.
+#' @param table_name Character scalar. Name of the extracted table.
+#' @param method_config Named list that may contain a `privacy` block.
+#'   If `privacy` is absent, the function is a no-op and returns `df` unchanged.
+#' @param pepper Character scalar. HMAC key loaded from the environment via
+#'   [load_xpipe_config()]. Must be non-empty.
 #'
 #' @return The input data frame with privacy rules applied.
 #'
@@ -3161,30 +3171,70 @@ apply_privacy_rules <- function(df, table_name, method_config, pepper) {
 
   if (nrow(df) == 0) return(df)
 
-  existing_pseudo <- character(0)
-  existing_skip   <- character(0)
-
-  if (!is.null(method_config$pseudonymize)) {
-    existing_pseudo <- intersect(method_config$pseudonymize, names(df))
+  if (is.null(method_config$privacy)) {
+    return(df)
   }
 
-  if (!is.null(method_config$skip)) {
-    existing_skip <- intersect(method_config$skip, names(df))
-  }
+  privacy <- method_config$privacy
 
-  if (length(existing_pseudo) > 0 || length(existing_skip) > 0) {
-
-    cli::cli_inform("Applying privacy to {table_name}")
-
-    if (length(existing_pseudo) > 0) {
-      df <- .pseudonymize_cols(df, existing_pseudo, pepper)
-      .log_debug("Pseudonymized: {paste(existing_pseudo, collapse = ', ')}")
+  .assert_shape <- function(x, shape, tbl, col, action) {
+    if (identical(shape, "scalar") && is.list(x)) {
+      cli::cli_abort(
+        c(
+          "Privacy rule shape mismatch",
+          "x" = "Column {.val {tbl}.{col}} is a list-column but declared as scalar ({.val {action}})"
+        ),
+        class = c("xpipe_privacy", "xpipe_batch_error", "xpipe_error")
+      )
     }
+    if (identical(shape, "list") && !is.list(x)) {
+      cli::cli_abort(
+        c(
+          "Privacy rule shape mismatch",
+          "x" = "Column {.val {tbl}.{col}} is scalar but declared as list ({.val {action}})"
+        ),
+        class = c("xpipe_privacy", "xpipe_batch_error", "xpipe_error")
+      )
+    }
+    if (!identical(shape, "scalar") && !identical(shape, "list")) {
+      cli::cli_abort(
+        c(
+          "Invalid privacy rule",
+          "x" = "Unsupported privacy shape {.val {shape}} for {.val {tbl}.{col}}"
+        ),
+        class = c("xpipe_privacy", "xpipe_batch_error", "xpipe_error")
+      )
+    }
+    invisible(TRUE)
+  }
 
-    if (length(existing_skip) > 0) {
-      df <- dplyr::select(df, -dplyr::all_of(existing_skip))
-      # Visible only if local.json has level: "debug"
-      .log_debug("Dropped: {paste(existing_skip, collapse = ', ')}")
+  # 1) SKIP
+  skip_spec <- privacy$skip %||% list()
+  skip_tbl  <- skip_spec[[table_name]] %||% NULL
+  if (!is.null(skip_tbl) && length(skip_tbl) > 0) {
+    cols <- intersect(names(skip_tbl), names(df))
+    for (col in cols) .assert_shape(df[[col]], skip_tbl[[col]], table_name, col, "skip")
+    if (length(cols) > 0) df[cols] <- NULL
+  }
+
+  # 2) HASH
+  hash_spec <- privacy$hash %||% list()
+  hash_tbl  <- hash_spec[[table_name]] %||% NULL
+  if (!is.null(hash_tbl) && length(hash_tbl) > 0) {
+    cols <- intersect(names(hash_tbl), names(df))
+    for (col in cols) {
+      shape <- hash_tbl[[col]]
+      x <- df[[col]]
+      .assert_shape(x, shape, table_name, col, "hash")
+      if (identical(shape, "scalar")) {
+        df[[col]] <- hash_phi(as.character(x), pepper)
+      } else {
+        df[[col]] <- lapply(x, function(v) {
+          if (is.null(v)) return(NULL)
+          if (length(v) == 0) return(character(0))
+          hash_phi(as.character(v), pepper)
+        })
+      }
     }
   }
 
@@ -4683,7 +4733,7 @@ R/tools_access.R
 
 #' Extract Access Database
 #'
-#' Extracts tables configured in the method component list from an Access Database.
+#' Extracts tables configured in the method input_files list from an Access Database.
 #'
 #' @param job Batch job object.
 #' @param path Path to .mdb file.
@@ -4692,14 +4742,25 @@ R/tools_access.R
 extract_access_db <- function(ctx) {
   is_windows <- .Platform$OS.type == "windows"
 
-  target_tables <- ctx$method_config$components
+  target_tables <- ctx$method_config$source_tables
+
+  if (is.null(target_tables) || length(target_tables) == 0) {
+    cli::cli_abort(
+      c(
+        "No tables defined for extraction",
+        "x" = "Method {.val {ctx$method_id}} must define {.field source_tables}"
+      ),
+      class = c("xpipe_batch_config", "xpipe_batch_error", "xpipe_error")
+    )
+  }
+
   path <- ctx$filepath
 
   if (is.null(target_tables) || length(target_tables) == 0) {
     cli::cli_abort(
       c(
         "No tables defined for extraction",
-        "x" = "Method {.val {ctx$method_id}} is missing the {.field components} list."
+        "x" = "Method {.val {ctx$method_id}} is missing the {.field target_tables} list."
       ),
       class = c("batch_job", "config")
     )
@@ -5057,10 +5118,10 @@ extract_xml <- function(ctx) {
   prog   <- ctx$prog
 
   .normalize_diagnosi_cols <- function(nm) {
-    nm <- sub("^diagnosiPrincipaleDimissione$", "diagnosiDimissione", nm)
-    nm <- sub("^diagnosiSecondarieDimissione$", "diagnosiDimissione", nm)
     nm <- sub("^diagnosiPrincipaleDimissioneAlRicovero$", "presenteAlRicovero", nm)
     nm <- sub("^diagnosiSecondarieDimissioneAlRicovero$", "presenteAlRicovero", nm)
+    nm <- sub("^diagnosiPrincipaleDimissione$", "diagnosiDimissione", nm)
+    nm <- sub("^diagnosiSecondarieDimissione$", "diagnosiDimissione", nm)
     nm
   }
 
@@ -5120,8 +5181,6 @@ extract_xml <- function(ctx) {
   prog   <- ctx$prog
 
   .normalize_proc_cols <- function(nm) {
-    nm <- sub("^interventoPrincipale", "intervento", nm)
-    nm <- sub("^interventiSecondari", "intervento", nm)
     nm <- sub("^dataInterventoPrincipale", "dataIntervento", nm)
     nm <- sub("^dataInterventoSecondario", "dataIntervento", nm)
     nm <- sub("^oraInterventoPrincipale", "oraIntervento", nm)
@@ -5132,6 +5191,10 @@ extract_xml <- function(ctx) {
     nm <- sub("^anestesistaInterventoSecondario", "anestesistaIntervento", nm)
     nm <- sub("^ckListSalaOperatoriaInterventoPrincipale", "ckListSalaOperatoriaIntervento", nm)
     nm <- sub("^ckListSalaOperatoriaInterventoSecondario", "ckListSalaOperatoriaIntervento", nm)
+    nm <- sub("^interventoPrincipaleEsterno$", "interventoEsterno", nm)
+    nm <- sub("^interventiSecondariEsterni$", "interventoEsterno", nm)
+    nm <- sub("^interventoPrincipale", "intervento", nm)
+    nm <- sub("^interventiSecondari", "intervento", nm)
     nm
   }
 
@@ -5153,8 +5216,28 @@ extract_xml <- function(ctx) {
       vals <- xml2::xml_text(ch[is_scalar])
       nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
 
+      multi_cols <- c("chirurgoIntervento", "anestesistaIntervento")
+
       for (nm in unique(nms)) {
-        row[[nm]] <- list(vals[nms == nm])      }
+        vv <- vals[nms == nm]
+
+        if (nm %in% multi_cols) {
+          # sempre list-column, anche se length 1
+          row[[nm]] <- list(vv)
+        } else {
+          # scalare: se ci sono più valori qui è un input sporco → abort
+          if (length(vv) > 1) {
+            cli::cli_abort(
+              c(
+                "Unexpected repeated scalar field in procedure",
+                "x" = sprintf("Field %s appears %d times in one procedure row", nm, length(vv))
+              ),
+              class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+            )
+          }
+          row[[nm]] <- if (length(vv) == 0) NA_character_ else vv[[1]]
+        }
+      }
     }
 
     out[[length(out) + 1]] <- row
@@ -5181,8 +5264,26 @@ extract_xml <- function(ctx) {
         vals <- xml2::xml_text(ch[is_scalar])
         nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
 
+        multi_cols <- c("chirurgoIntervento", "anestesistaIntervento")  # UDI resta scalare
+
         for (nm in unique(nms)) {
-          row[[nm]] <- list(vals[nms == nm])        }
+          vv <- vals[nms == nm]
+
+          if (nm %in% multi_cols) {
+            row[[nm]] <- list(vv)  # list-column
+          } else {
+            if (length(vv) > 1) {
+              cli::cli_abort(
+                c(
+                  "Unexpected repeated scalar field in procedure",
+                  "x" = sprintf("Field %s appears %d times in one procedure row", nm, length(vv))
+                ),
+                class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+              )
+            }
+            row[[nm]] <- if (length(vv) == 0) NA_character_ else vv[[1]]
+          }
+        }
       }
 
       out[[length(out) + 1]] <- row

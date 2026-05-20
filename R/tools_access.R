@@ -56,7 +56,7 @@
 
 #' Extract Access Database
 #'
-#' Extracts tables configured in the method input_files list from an Access Database.
+#' Extracts tables configured in the method source_tables list from an Access Database.
 #'
 #' @param job Batch job object.
 #' @param path Path to .mdb file.

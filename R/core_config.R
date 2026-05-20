@@ -378,7 +378,7 @@ get_xpipe_config <- function() {
 #' Loads and validates the Methods contract, which defines ingestion
 #' mechanics and extraction rules used to materialize Batch data.
 #'
-#' A Method describes HOW data is ingested (format, file_inputs, source_tables,
+#' A Method describes HOW data is ingested (format, input_files, source_tables,
 #' partitioning, privacy), not WHAT the data means.
 #'
 #' The Methods contract is a CONTROL-PLANE artifact and must not

@@ -31,7 +31,7 @@
 #       ├── xpipe_batch_stream        # unknown stream identifier
 #       ├── xpipe_batch_path          # inbox path invalid or not found
 #       ├── xpipe_batch_input_type    # file vs directory requirement mismatch
-#       ├── xpipe_batch_input_files    # directory component missing or ambiguous
+#       ├── xpipe_batch_input_files    # directory input file missing or ambiguous
 #       ├── xpipe_batch_id            # invalid explicit batch_id
 #       ├── xpipe_batch_collision     # target batch directory already exists
 #       ├── xpipe_batch_input         # input missing or empty at materialization
