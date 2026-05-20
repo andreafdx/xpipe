@@ -31,7 +31,7 @@
 #       ├── xpipe_batch_stream        # unknown stream identifier
 #       ├── xpipe_batch_path          # inbox path invalid or not found
 #       ├── xpipe_batch_input_type    # file vs directory requirement mismatch
-#       ├── xpipe_batch_components    # directory component missing or ambiguous
+#       ├── xpipe_batch_input_files    # directory component missing or ambiguous
 #       ├── xpipe_batch_id            # invalid explicit batch_id
 #       ├── xpipe_batch_collision     # target batch directory already exists
 #       ├── xpipe_batch_input         # input missing or empty at materialization
@@ -202,9 +202,9 @@ ingest_batch <- function(
   resolved_inputs <- if (fs::is_dir(filepath)) {
     .resolve_inputs(filepath, method_config)
   } else {
-    components <- method_config$components
-    if (!is.null(components)) {
-      setNames(rep(list(filepath), length(components)), components)
+    input_files <- method_config$input_files %||% method_config$components
+    if (!is.null(input_files)) {
+      setNames(rep(list(filepath), length(input_files)), input_files)
     } else {
       list(data = filepath)
     }
@@ -383,23 +383,23 @@ ingest_batch <- function(
   }
 }
 
-#' Discover and resolve components
+#' Discover and resolve input_files
 #'
-#' Resolves logical components into concrete file paths.
+#' Resolves logical input_files into concrete file paths.
 #'
 #' @keywords internal
 #' @noRd
 .resolve_inputs <- function(dir_path, method_config) {
-  components <- method_config$components
+  input_files <- method_config$input_files %||% method_config$components
 
-  if (is.null(components)) {
+  if (is.null(input_files)) {
     return(NULL)
   }
 
   resolved <- list()
 
-  for (nm in names(components)) {
-    pattern <- components[[nm]]
+  for (nm in names(input_files)) {
+    pattern <- input_files[[nm]]
     matches <- fs::dir_ls(dir_path, glob = pattern)
 
     if (length(matches) == 0) {
@@ -410,7 +410,7 @@ ingest_batch <- function(
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Directory: {.file {dir_path}}"
         ),
-        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
       )
     }
 
@@ -422,7 +422,7 @@ ingest_batch <- function(
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Found: {.file {basename(matches)}}"
         ),
-        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
       )
     }
 
