@@ -12,8 +12,20 @@
     "anchor_table": "TblScheda",
     "identity_keys": ["i_IDScheda"],
     "partition_column": "d_DataDimissione",
-    "pseudonymize": ["c_CodicePaziente", "c_CodiceMadre"],
-    "skip": ["v_Nome", "v_Cognome"]
+    "privacy": {
+      "hash": {
+        "TblScheda": {
+          "c_CodicePaziente": "scalar",
+          "c_CodiceMadre": "scalar"
+        }
+      },
+      "skip": {
+        "TblScheda": {
+          "v_Nome": "scalar",
+          "v_Cognome": "scalar"
+        }
+      }
+    }
   },
 
   "xml_campania_2026": {
@@ -82,7 +94,18 @@
     "anchor_table": "data",
     "identity_keys": ["id_accesso"],
     "partition_column": "data_ingresso",
-    "pseudonymize": ["cf"],
-    "skip": ["nome", "cognome"]
+    "privacy": {
+      "hash": {
+        "data": {
+          "cf": "scalar"
+        }
+      },
+      "skip": {
+        "data": {
+          "nome": "scalar",
+          "cognome": "scalar"
+        }
+      }
+    }
   }
 }
