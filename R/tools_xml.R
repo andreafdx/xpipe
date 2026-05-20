@@ -302,10 +302,10 @@ extract_xml <- function(ctx) {
   prog   <- ctx$prog
 
   .normalize_diagnosi_cols <- function(nm) {
-    nm <- sub("^diagnosiPrincipaleDimissione$", "diagnosiDimissione", nm)
-    nm <- sub("^diagnosiSecondarieDimissione$", "diagnosiDimissione", nm)
     nm <- sub("^diagnosiPrincipaleDimissioneAlRicovero$", "presenteAlRicovero", nm)
     nm <- sub("^diagnosiSecondarieDimissioneAlRicovero$", "presenteAlRicovero", nm)
+    nm <- sub("^diagnosiPrincipaleDimissione$", "diagnosiDimissione", nm)
+    nm <- sub("^diagnosiSecondarieDimissione$", "diagnosiDimissione", nm)
     nm
   }
 
@@ -365,8 +365,6 @@ extract_xml <- function(ctx) {
   prog   <- ctx$prog
 
   .normalize_proc_cols <- function(nm) {
-    nm <- sub("^interventoPrincipale", "intervento", nm)
-    nm <- sub("^interventiSecondari", "intervento", nm)
     nm <- sub("^dataInterventoPrincipale", "dataIntervento", nm)
     nm <- sub("^dataInterventoSecondario", "dataIntervento", nm)
     nm <- sub("^oraInterventoPrincipale", "oraIntervento", nm)
@@ -377,6 +375,10 @@ extract_xml <- function(ctx) {
     nm <- sub("^anestesistaInterventoSecondario", "anestesistaIntervento", nm)
     nm <- sub("^ckListSalaOperatoriaInterventoPrincipale", "ckListSalaOperatoriaIntervento", nm)
     nm <- sub("^ckListSalaOperatoriaInterventoSecondario", "ckListSalaOperatoriaIntervento", nm)
+    nm <- sub("^interventoPrincipaleEsterno$", "interventoEsterno", nm)
+    nm <- sub("^interventiSecondariEsterni$", "interventoEsterno", nm)
+    nm <- sub("^interventoPrincipale", "intervento", nm)
+    nm <- sub("^interventiSecondari", "intervento", nm)
     nm
   }
 
@@ -398,8 +400,28 @@ extract_xml <- function(ctx) {
       vals <- xml2::xml_text(ch[is_scalar])
       nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
 
+      multi_cols <- c("chirurgoIntervento", "anestesistaIntervento")
+
       for (nm in unique(nms)) {
-        row[[nm]] <- list(vals[nms == nm])      }
+        vv <- vals[nms == nm]
+
+        if (nm %in% multi_cols) {
+          # sempre list-column, anche se length 1
+          row[[nm]] <- list(vv)
+        } else {
+          # scalare: se ci sono più valori qui è un input sporco → abort
+          if (length(vv) > 1) {
+            cli::cli_abort(
+              c(
+                "Unexpected repeated scalar field in procedure",
+                "x" = sprintf("Field %s appears %d times in one procedure row", nm, length(vv))
+              ),
+              class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+            )
+          }
+          row[[nm]] <- if (length(vv) == 0) NA_character_ else vv[[1]]
+        }
+      }
     }
 
     out[[length(out) + 1]] <- row
@@ -426,8 +448,26 @@ extract_xml <- function(ctx) {
         vals <- xml2::xml_text(ch[is_scalar])
         nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
 
+        multi_cols <- c("chirurgoIntervento", "anestesistaIntervento")  # UDI resta scalare
+
         for (nm in unique(nms)) {
-          row[[nm]] <- list(vals[nms == nm])        }
+          vv <- vals[nms == nm]
+
+          if (nm %in% multi_cols) {
+            row[[nm]] <- list(vv)  # list-column
+          } else {
+            if (length(vv) > 1) {
+              cli::cli_abort(
+                c(
+                  "Unexpected repeated scalar field in procedure",
+                  "x" = sprintf("Field %s appears %d times in one procedure row", nm, length(vv))
+                ),
+                class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+              )
+            }
+            row[[nm]] <- if (length(vv) == 0) NA_character_ else vv[[1]]
+          }
+        }
       }
 
       out[[length(out) + 1]] <- row
