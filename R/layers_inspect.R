@@ -31,21 +31,8 @@
 
 #' Inspect the Batch layer
 #'
-#' Scans the local Batch layer directory and returns a structured
-#' representation of all discovered batches and their metadata.
-#'
-#' Incomplete batches (missing \code{_batch_metadata.json}) are recorded
-#' but marked as such and excluded from detailed inspection.
-#'
-#' @param config An \code{xpipe_config} object.
-#'
-#' @return An object of class \code{xpipe_batch_layer} containing:
-#' \itemize{
-#'   \item \code{root} - batch layer root path
-#'   \item \code{count} - number of batch directories found
-#'   \item \code{batches} - named list of batch metadata
-#' }
-#'
+#' @param config xpipe_config object.
+#' @return xpipe_batch_layer
 #' @export
 inspect_batch_layer <- function(config = get_xpipe_config()) {
   if (!inherits(config, "xpipe_config")) {
@@ -56,7 +43,6 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
   }
 
   batch_root <- config$local$paths$batch
-
   if (!fs::dir_exists(batch_root)) {
     cli::cli_abort(
       "Batch layer directory does not exist: {.file {batch_root}}",
@@ -65,32 +51,114 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
   }
 
   batch_dirs <- fs::dir_ls(batch_root, type = "directory", recurse = FALSE)
-
-  # Defensive: remove empty directory names
   batch_dirs <- batch_dirs[nzchar(basename(batch_dirs))]
-
   ids <- basename(batch_dirs)
-  metadata_files <- fs::path(batch_dirs, "_batch_metadata.json")
-  has_meta <- fs::file_exists(metadata_files)
+
+  meta_paths <- fs::path(batch_dirs, "_batch_metadata.json")
+  has_meta <- fs::file_exists(meta_paths)
+
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:", read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
   batches <- vector("list", length(ids))
   names(batches) <- ids
 
   for (i in seq_along(ids)) {
-    if (!has_meta[i]) {
-      batches[[i]] <- list(.status = "incomplete")
+    bd <- batch_dirs[[i]]
+    id <- ids[[i]]
+
+    info <- list(
+      batch_id = id,
+      path = bd,
+      status = "ok",
+      meta = NULL,
+      parquet_files = character(0),
+      parquet_tables = character(0),
+      parquet_stats = data.frame(),
+      checks = list()
+    )
+
+    if (!has_meta[[i]]) {
+      info$status <- "incomplete"
+      batches[[i]] <- info
       next
     }
 
-    batches[[i]] <- jsonlite::fromJSON(metadata_files[i], simplifyVector = TRUE)
+    meta <- rlang::try_fetch(
+      jsonlite::fromJSON(meta_paths[[i]], simplifyVector = TRUE),
+      error = function(e) NULL
+    )
+
+    if (is.null(meta)) {
+      info$status <- "invalid_metadata"
+      batches[[i]] <- info
+      next
+    }
+
+    info$meta <- meta
+
+    pq_files <- fs::dir_ls(bd, glob = "*.parquet", type = "file")
+    info$parquet_files <- as.character(pq_files)
+    info$parquet_tables <- fs::path_ext_remove(fs::path_file(pq_files))
+
+    # Stats via DuckDB (no R materialization)
+    if (length(pq_files) > 0) {
+      stats <- lapply(seq_along(pq_files), function(j) {
+        p <- as.character(pq_files[[j]])
+        tbl <- info$parquet_tables[[j]]
+        p_lit <- DBI::dbQuoteLiteral(con, p)
+
+        ncols <- DBI::dbGetQuery(con, paste0("SELECT COUNT(*) AS n FROM parquet_schema(", p_lit, ")"))$n[[1]]
+        nrows <- DBI::dbGetQuery(con, paste0("SELECT COUNT(*) AS n FROM read_parquet(", p_lit, ")"))$n[[1]]
+
+        data.frame(
+          table = tbl,
+          ncols = as.integer(ncols),
+          nrows = as.integer(nrows),
+          file = p,
+          stringsAsFactors = FALSE
+        )
+      })
+      info$parquet_stats <- do.call(rbind, stats)
+    } else {
+      info$parquet_stats <- data.frame(
+        table = character(),
+        ncols = integer(),
+        nrows = integer(),
+        file = character(),
+        stringsAsFactors = FALSE
+      )
+    }
+
+    # Checks
+    method_id <- meta$method$id %||% NA_character_
+    method_cfg <- config$methods[[method_id]] %||% NULL
+    anchor <- if (!is.null(method_cfg)) method_cfg$anchor_table %||% NA_character_ else NA_character_
+
+    declared_tables <- meta$tables %||% character(0)
+    materialized_tables <- info$parquet_tables
+
+    info$checks$anchor_table <- anchor
+    info$checks$anchor_materialized <- isTRUE(nzchar(anchor) && anchor %in% materialized_tables)
+
+    info$checks$zero_column_parquet <- if (nrow(info$parquet_stats) > 0) {
+      info$parquet_stats$table[info$parquet_stats$ncols == 0]
+    } else character(0)
+
+    info$checks$declared_not_materialized <- setdiff(declared_tables, materialized_tables)
+    info$checks$materialized_not_declared <- setdiff(materialized_tables, declared_tables)
+
+    batches[[i]] <- info
   }
 
-  structure(list(
-    root    = batch_root,
-    count   = length(ids),
-    batches = batches
-  ),
-  class = "xpipe_batch_layer")
+  structure(
+    list(
+      root = batch_root,
+      count = length(ids),
+      batches = batches
+    ),
+    class = "xpipe_batch_layer"
+  )
 }
 
 #' Inspect Silver-current tables
@@ -313,100 +381,358 @@ inspect_silver_current <- function(
 
 #' Print Method for xpipe_batch_layer
 #'
-#' @param x An object of class \code{xpipe_batch_layer}.
-#' @param ... Additional arguments (ignored).
 #' @export
 print.xpipe_batch_layer <- function(x, ...) {
-  cli::cli_div(theme = list(rule = list(
-    color = "cyan", "line-type" = "double"
-  )))
-
-  cli::cli_rule("Batch Layer", right = "xpipe")
-
-  cli::cli_bullets(c("Path        : {.file {x$root}}", "Batch count : {.val {x$count}}"))
-
-  if (x$count == 0) {
-    cli::cli_alert_info("No batches found.")
-    return(invisible(x))
+  pad <- function(x, width) {
+    x <- as.character(x)
+    paste0(x, strrep(" ", pmax(0, width - nchar(x))))
   }
 
-  # Filter valid batches
-  metas <- x$batches
-  metas <- metas[!vapply(metas, function(m)
-    isTRUE(m$.status == "incomplete"), logical(1))]
-
-  if (length(metas) == 0) {
-    cli::cli_alert_warning("Found {x$count} batch directories, but all are incomplete (missing metadata).")
-    return(invisible(x))
+  fmt_bool <- function(v) {
+    if (isTRUE(v)) "YES" else "NO"
   }
-  created <- vapply(metas, function(m)
-    as.POSIXct(m$execution$created_at, tz = "UTC"), as.POSIXct(NA))
 
-  latest_id <- names(which.max(created))
-  latest    <- metas[[latest_id]]
+  head_tail <- function(v, n = 12) {
+    v <- as.character(v)
+    if (length(v) <= n) return(v)
+    c(v[seq_len(n)], paste0("… +", length(v) - n, " more"))
+  }
 
-  # Latest batch
-  cli::cli_h2("Latest Batch")
-  cli::cli_text("{.strong {latest_id}}")
-
-  cli::cli_bullets(c(
-    paste0(
-      "Stream       : ",
-      latest$stream$id,
-      " [",
-      latest$stream$schema_domain,
-      "]"
-    ),
-    paste0("Method       : ", latest$method$id, " [", latest$method$type, "]"),
-    paste0("Input        : ", latest$input$path),
-    paste0("Created at   : ", latest$execution$created_at),
-    paste0(
-      "Producer     : ",
-      latest$execution$tool,
-      " ",
-      latest$execution$tool_version
+  box_list <- function(v, header, border_col = "cyan") {
+    if (length(v) == 0) v <- "None"
+    cli::cat_boxx(
+      head_tail(v),
+      header = header,
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = border_col
     )
-  ))
-
-  # Components
-  if (!is.null(latest$components)) {
-    cli::cli_text("Components")
-
-    items <- purrr::imap_chr(latest$components, ~ paste0(.x))
-
-    cli::cli_ul(items)
   }
 
-  # Other batches
-  others <- metas[names(metas) != latest_id]
+  box_table <- function(df, header, border_col = "cyan", max_rows = 20) {
+    if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
+      return(cli::cat_boxx(
+        "None",
+        header = header,
+        border_style = "round",
+        padding = c(top = 0, right = 2, bottom = 0, left = 2),
+        float = "left",
+        border_col = border_col
+      ))
+    }
 
-  if (length(others) > 0) {
-    cli::cli_h2("Other batches")
+    df2 <- df
+    if (nrow(df2) > max_rows) df2 <- df2[seq_len(max_rows), , drop = FALSE]
 
-    by_stream <- split(others, vapply(others, function(m)
-      m$stream$id, character(1)))
+    cols <- names(df2)
+    widths <- vapply(cols, function(cn) {
+      max(nchar(cn), max(nchar(as.character(df2[[cn]])), na.rm = TRUE))
+    }, numeric(1))
 
-    for (stream_id in names(by_stream)) {
-      cli::cli_h3("{stream_id} stream")
+    header_row <- paste(pad(cols, widths), collapse = "  ")
+    sep_row <- paste(vapply(widths, function(w) strrep("-", w), character(1)), collapse = "  ")
 
-      items <- vapply(names(by_stream[[stream_id]]), function(batch_id) {
-        m <- by_stream[[stream_id]][[batch_id]]
-        paste(batch_id,
-              "|",
-              m$method$id,
-              "|",
-              .format_datetime(m$execution$created_at))
-      }, character(1))
+    body <- vapply(seq_len(nrow(df2)), function(i) {
+      paste(pad(df2[i, cols, drop = FALSE], widths), collapse = "  ")
+    }, character(1))
 
-      cli::cli_ul(items)
+    lines <- c(header_row, sep_row, body)
+    if (nrow(df) > max_rows) {
+      lines <- c(lines, paste0("… +", nrow(df) - max_rows, " more"))
+    }
+
+    cli::cat_boxx(
+      lines,
+      header = header,
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = border_col
+    )
+  }
+
+  cli::cli_h2("Batch layer inspection")
+
+  # Summary counts (supports both old/new shapes)
+  batches <- x$batches %||% list()
+  ids <- names(batches)
+
+  status_of <- function(b) {
+    if (!is.null(b$status)) return(as.character(b$status))
+    if (!is.null(b$.status)) return(as.character(b$.status))
+    if (is.list(b) && !is.null(b$batch_id)) return("ok")
+    "unknown"
+  }
+
+  statuses <- vapply(batches, status_of, character(1))
+  tab <- sort(table(statuses), decreasing = TRUE)
+
+  summary_rows <- c(
+    paste0(pad("Path", 18), ": ", x$root),
+    paste0(pad("Batches", 18), ": ", x$count)
+  )
+  if (length(tab) > 0) {
+    for (nm in names(tab)) {
+      summary_rows <- c(summary_rows, paste0(pad(paste0("Status ", nm), 18), ": ", tab[[nm]]))
     }
   }
 
-  cli::cli_rule()
-  cli::cli_end()
+  cli::cat_boxx(
+    summary_rows,
+    header = "Summary",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = "cyan"
+  )
+
+  if (length(ids) == 0) return(invisible(x))
+
+  cli::cli_h3("Latest batch details")
+
+  # Determine latest batch by metadata execution.created_at when available
+  created <- vapply(batches, function(b) {
+    m <- b$meta %||% b
+    ts <- m$execution$created_at %||% NA_character_
+    if (!is.character(ts) || !nzchar(ts)) return(as.POSIXct(NA))
+    as.POSIXct(ts, tz = "UTC", tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"))
+  }, as.POSIXct(NA))
+
+  latest_id <- if (all(is.na(created))) ids[[1]] else names(which.max(created))
+  b <- batches[[latest_id]]
+  m <- b$meta %||% b
+
+  method_id <- m$method$id %||% NA_character_
+  stream_id <- m$stream$id %||% NA_character_
+  created_at <- m$execution$created_at %||% NA_character_
+
+  latest_rows <- c(
+    paste0(pad("Batch", 18), ": ", latest_id),
+    paste0(pad("Status", 18), ": ", status_of(b)),
+    paste0(pad("Stream", 18), ": ", stream_id),
+    paste0(pad("Method", 18), ": ", method_id),
+    paste0(pad("Created at", 18), ": ", created_at)
+  )
+
+  # Extra info if new inspect is used
+  if (!is.null(b$parquet_tables)) {
+    latest_rows <- c(latest_rows, paste0(pad("Parquet tables", 18), ": ", length(b$parquet_tables)))
+  }
+
+  cli::cat_boxx(
+    latest_rows,
+    header = "Info",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = "cyan"
+  )
+
+  # Show parquet stats if available
+  if (!is.null(b$parquet_stats) && is.data.frame(b$parquet_stats)) {
+    df <- b$parquet_stats
+    keep <- intersect(c("table", "ncols", "nrows"), names(df))
+    df <- df[, keep, drop = FALSE]
+    box_table(df, header = "Parquet stats", border_col = "cyan", max_rows = 25)
+  } else {
+    # fallback: show declared tables from metadata if available
+    declared <- m$tables %||% character(0)
+    box_list(declared, header = "Declared tables (metadata)", border_col = "cyan")
+  }
+
+  # Checks (if available)
+  if (!is.null(b$checks) && is.list(b$checks)) {
+    checks <- b$checks
+    anchor <- checks$anchor_table %||% NA_character_
+    anchor_ok <- checks$anchor_materialized %||% FALSE
+    zero_cols <- checks$zero_column_parquet %||% character(0)
+    decl_not_mat <- checks$declared_not_materialized %||% character(0)
+    mat_not_decl <- checks$materialized_not_declared %||% character(0)
+
+    sanity_rows <- c(
+      paste0(pad("Anchor", 18), ": ", anchor),
+      paste0(pad("Anchor ok", 18), ": ", fmt_bool(anchor_ok))
+    )
+
+
+    # build sanity check table
+    sanity_df <- data.frame(
+      check = c(
+        "Anchor table",
+        "Zero-column parquet",
+        "Declared not materialized",
+        "Materialized not declared"
+      ),
+      result = c(
+        if (isTRUE(anchor_ok)) "OK" else "FAIL",
+        if (length(zero_cols) == 0) "OK" else "FAIL",
+        if (length(decl_not_mat) == 0) "OK" else "WARN",
+        if (length(mat_not_decl) == 0) "OK" else "WARN"
+      ),
+      detail = c(
+        anchor %||% "",
+        if (length(zero_cols) == 0) "none" else paste(zero_cols, collapse = ", "),
+        if (length(decl_not_mat) == 0) "none" else paste(decl_not_mat, collapse = ", "),
+        if (length(mat_not_decl) == 0) "none" else paste(mat_not_decl, collapse = ", ")
+      ),
+      stringsAsFactors = FALSE
+    )
+
+    # column widths
+    max_check  <- max(nchar(sanity_df$check),  nchar("check"))
+    max_result <- max(nchar(sanity_df$result), nchar("result"))
+    max_detail <- max(nchar(sanity_df$detail), nchar("detail"))
+
+    sanity_rows <- c(
+      paste0(
+        pad("check",  max_check),  "  ",
+        pad("result", max_result), "  ",
+        pad("detail", max_detail)
+      ),
+      paste0(
+        strrep("-", max_check),  "  ",
+        strrep("-", max_result), "  ",
+        strrep("-", max_detail)
+      ),
+      vapply(seq_len(nrow(sanity_df)), function(i) {
+        paste0(
+          pad(sanity_df$check[[i]],  max_check),  "  ",
+          pad(sanity_df$result[[i]], max_result), "  ",
+          pad(sanity_df$detail[[i]], max_detail)
+        )
+      }, character(1))
+    )
+
+    # overall color: red if any FAIL, yellow if any WARN, else green
+    border_col <- if (any(sanity_df$result == "FAIL")) {
+      "red"
+    } else if (any(sanity_df$result == "WARN")) {
+      "yellow"
+    } else {
+      "green"
+    }
+
+    cli::cat_boxx(
+      sanity_rows,
+      header = "Sanity checks",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = border_col
+    )
+
+  }
+
+  cli::cli_h3("Hystory of other batches")
+
+  # build summary rows for all batches (excluding latest)
+
+  other_ids <- setdiff(names(batches), latest_id)
+
+  other_ids <- other_ids[order(
+    vapply(other_ids, function(id) {
+      b <- batches[[id]]
+      m <- b$meta %||% b
+      ts <- m$execution$created_at %||% NA_character_
+      as.POSIXct(
+        ts,
+        tz = "UTC",
+        tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S")
+      )
+    }, as.POSIXct(NA)),
+    decreasing = TRUE
+  )]
+
+  if (length(other_ids) == 0) {
+    cli::cat_boxx(
+      "No older batches.",
+      header = "Other batches",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = "cyan"
+    )
+  } else {
+
+    rows <- lapply(other_ids, function(id) {
+      b <- batches[[id]]
+      m <- b$meta %||% b
+
+      stream_id <- m$stream$id %||% ""
+      method_id <- m$method$id %||% ""
+      created_at <- m$execution$created_at %||% ""
+
+      # human-friendly datetime
+      created_at <- tryCatch(
+        format(
+          as.POSIXct(created_at, tz = "UTC",
+                     tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S")),
+          "%Y-%m-%d %H:%M"
+        ),
+        error = function(e) created_at
+      )
+
+      n_tables <- length(b$parquet_tables %||% character(0))
+
+      # derive generic sanity
+      chk <- b$checks %||% list()
+      sanity <- "OK"
+
+      if (isFALSE(chk$anchor_materialized) ||
+          length(chk$zero_column_parquet %||% character(0)) > 0) {
+        sanity <- "FAIL"
+      } else if (length(chk$declared_not_materialized %||% character(0)) > 0 ||
+                 length(chk$materialized_not_declared %||% character(0)) > 0) {
+        sanity <- "WARN"
+      }
+
+      c(
+        batch_id = id,
+        stream   = stream_id,
+        method   = method_id,
+        created  = created_at,
+        tables   = as.character(n_tables),
+        sanity   = sanity
+      )
+    })
+
+    df <- as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
+
+    # column widths
+    widths <- vapply(names(df), function(nm) {
+      max(nchar(nm), max(nchar(df[[nm]]), na.rm = TRUE))
+    }, numeric(1))
+
+    table_rows <- c(
+      paste(pad(names(df), widths), collapse = "  "),
+      paste(vapply(widths, function(w) strrep("-", w), character(1)), collapse = "  "),
+      vapply(seq_len(nrow(df)), function(i) {
+        paste(pad(df[i, ], widths), collapse = "  ")
+      }, character(1))
+    )
+
+    border_col <- if ("FAIL" %in% df$sanity) {
+      "red"
+    } else if ("WARN" %in% df$sanity) {
+      "yellow"
+    } else {
+      "green"
+    }
+
+    cli::cat_boxx(
+      table_rows,
+      header = "Other batches",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = border_col
+    )
+  }
 
   invisible(x)
 }
+
 
 
 #' Print Silver-current inspection
