@@ -65,14 +65,14 @@
 extract_access_db <- function(ctx) {
   is_windows <- .Platform$OS.type == "windows"
 
-  target_tables <- ctx$method_config$components
+  target_tables <- ctx$method_config$source_tables %||% ctx$method_config$components
   path <- ctx$filepath
 
   if (is.null(target_tables) || length(target_tables) == 0) {
     cli::cli_abort(
       c(
         "No tables defined for extraction",
-        "x" = "Method {.val {ctx$method_id}} is missing the {.field components} list."
+        "x" = "Method {.val {ctx$method_id}} is missing the {.field target_tables} list."
       ),
       class = c("batch_job", "config")
     )

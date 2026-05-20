@@ -144,23 +144,52 @@
         "description": "Domain-time column associated with the anchor table. Historically used for Bronze partitioning. In the DuckDB pipeline it remains method metadata for inspection, future semantic enrichment, and possible harmonized/fiscal logic, but it is not used to determine Silver-current."
       },
 
+      "privacy": {
+        "type": "object",
+        "description": "Declarative privacy rules applied during Batch materialization.",
+        "properties": {
+          "hash": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["scalar", "list"]
+              }
+            }
+          },
+          "skip": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["scalar", "list"]
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+
       "pseudonymize": {
         "type": "array",
-        "description": "Columns containing sensitive identifiers that must be pseudonymized during Batch materialization. Used by apply_privacy_rules() before Batch Parquet files are written.",
+        "description": "LEGACY: scalar columns to pseudonymize (hash). Prefer using privacy.hash with explicit scalar/list shape.",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "skip": {
+        "type": "array",
+        "description": "LEGACY: scalar columns to remove. Prefer using privacy.skip with explicit scalar/list shape.",
         "items": {
           "type": "string",
           "minLength": 1
         }
       },
 
-      "skip": {
-        "type": "array",
-        "description": "Columns that must be removed during Batch materialization. Used by apply_privacy_rules() before Batch Parquet files are written.",
-        "items": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
+
 
       "column_types": {
         "type": "object",
@@ -177,6 +206,25 @@
       }
     },
 
-    "additionalProperties": false
+    "additionalProperties": false,
+
+"allOf": [
+  {
+    "if": {
+      "properties": { "type": { "const": "xml" } },
+      "required": ["type"]
+    },
+    "then": { "required": ["xml_profile"] }
+  },
+  {
+    "if": { "required": ["privacy", "pseudonymize"] },
+    "then": false
+  },
+  {
+    "if": { "required": ["privacy", "skip"] },
+    "then": false
+  }
+]
+
   }
 }

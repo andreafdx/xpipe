@@ -21,6 +21,18 @@
     "type": "xml",
     "input_type": "directory",
     "xml_profile": "sdo_tracciato_abcd",
+
+    "input_files": {
+      "file_a": "*_A.xml",
+      "file_b": "*_B.xml"
+    },
+
+    "output_tables": {
+      "required": ["ricovero"],
+      "optional": ["diagnosi", "procedure", "trasferimenti", "accessi_dh"]
+    },
+
+
     "components": {
       "anagrafica": "*_A.xml",
       "ricovero": "*_B.xml",
@@ -29,11 +41,28 @@
       "trasferimenti": "*_B.xml",
       "accessi_dh": "*_B.xml"
     },
+
     "anchor_table": "ricovero",
     "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"],
     "partition_column": "dim_dataDimissioneMorte",
-    "pseudonymize": ["identificativoPaziente", "codiceFiscale"],
-    "skip": ["cognome", "nome"],
+    "privacy": {
+      "hash": {
+        "ricovero": {
+          "identificativoPaziente": "scalar",
+          "codiceFiscale": "scalar"
+        },
+        "procedure": {
+          "chirurgoIntervento": "list",
+          "anestesistaIntervento": "list"
+        }
+      },
+      "skip": {
+        "ricovero": {
+          "nome": "scalar",
+          "cognome": "scalar"
+        }
+      }
+    },
     "column_types": {
       "ricovero": {
         "codiceIstitutoDiCura": "character",
