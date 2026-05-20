@@ -3,7 +3,7 @@
     "schema_domain": "sdo",
     "type": "access_mdb",
     "input_type": "file",
-    "components": [
+    "source_tables": [
       "TblScheda",
       "TblSchedaDiagnosi",
       "TblSchedaProcedure",
@@ -32,15 +32,6 @@
       "optional": ["diagnosi", "procedure", "trasferimenti", "accessi_dh"]
     },
 
-
-    "components": {
-      "anagrafica": "*_A.xml",
-      "ricovero": "*_B.xml",
-      "diagnosi": "*_B.xml",
-      "procedure": "*_B.xml",
-      "trasferimenti": "*_B.xml",
-      "accessi_dh": "*_B.xml"
-    },
 
     "anchor_table": "ricovero",
     "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"],

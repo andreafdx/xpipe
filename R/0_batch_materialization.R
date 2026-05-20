@@ -198,17 +198,34 @@ ingest_batch <- function(
   # Validation against method requirement
   .validate_input_type(filepath, method_config)
 
-  # Discover and resolve component inputs
+  # Input files contract
+  input_files <- method_config$input_files %||% NULL
+
+
+  # Discover and resolve inputs
   resolved_inputs <- if (fs::is_dir(filepath)) {
-    .resolve_inputs(filepath, method_config)
-  } else {
-    input_files <- method_config$input_files %||% method_config$components
-    if (!is.null(input_files)) {
-      setNames(rep(list(filepath), length(input_files)), input_files)
-    } else {
-      list(data = filepath)
+
+    # method declares directory => input_files required
+    if (identical(method_config$input_type, "directory") && is.null(input_files)) {
+      cli::cli_abort(
+        c(
+          "Invalid method configuration",
+          "x" = "Directory methods must define {.field input_files}"
+        ),
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
+      )
     }
+
+    .resolve_inputs(filepath, input_files)
+
+  } else {
+
+    # single-file input: do not replicate per component anymore
+    list(data = filepath)
+
   }
+
+
 
   batch_id <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
   batch_dir <- .build_batch_target_dir(config, batch_id)
@@ -389,12 +406,9 @@ ingest_batch <- function(
 #'
 #' @keywords internal
 #' @noRd
-.resolve_inputs <- function(dir_path, method_config) {
-  input_files <- method_config$input_files %||% method_config$components
+.resolve_inputs <- function(dir_path, input_files) {
 
-  if (is.null(input_files)) {
-    return(NULL)
-  }
+  if (is.null(input_files)) return(NULL)
 
   resolved <- list()
 
@@ -406,7 +420,7 @@ ingest_batch <- function(
       cli::cli_abort(
         c(
           "Missing input",
-          "x" = "No files found for component {.val {nm}}",
+          "x" = "No files found for input {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Directory: {.file {dir_path}}"
         ),
@@ -418,7 +432,7 @@ ingest_batch <- function(
       cli::cli_abort(
         c(
           "Ambiguous input",
-          "x" = "Multiple files found for component {.val {nm}}",
+          "x" = "Multiple files found for input {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Found: {.file {basename(matches)}}"
         ),
@@ -511,7 +525,7 @@ ingest_batch <- function(
   ))
 
   if (!is.null(ctx$resolved_inputs)) {
-    cli::cli_h3("Resolved component inputs")
+    cli::cli_h3("Resolved input files")
     cli::cli_bullets(
       purrr::imap_chr(
         ctx$resolved_inputs,
