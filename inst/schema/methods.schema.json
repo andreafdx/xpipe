@@ -140,22 +140,7 @@
         "additionalProperties": false
       },
 
-      "pseudonymize": {
-        "type": "array",
-        "description": "LEGACY: scalar columns to pseudonymize (hash). Prefer using privacy.hash with explicit scalar/list shape.",
-        "items": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "skip": {
-        "type": "array",
-        "description": "LEGACY: scalar columns to remove. Prefer using privacy.skip with explicit scalar/list shape.",
-        "items": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
+
 
 
 
@@ -185,14 +170,6 @@
         "then": {
           "required": ["xml_profile"]
         }
-      },
-      {
-        "if": { "required": ["privacy", "pseudonymize"] },
-        "then": false
-      },
-      {
-        "if": { "required": ["privacy", "skip"] },
-        "then": false
       },
       {
         "if": {
