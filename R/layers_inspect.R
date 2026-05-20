@@ -476,6 +476,59 @@ inspect_silver_current <- function(
   )
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
+  # Silver vs Bronze currency check
+
+  latest_bronze_batch <- NA_character_
+
+  # Try to read Bronze promotion log if Bronze DB is available
+  bronze_db <- fs::path(config$local$paths$bronze, paste0(stream_id, ".duckdb"))
+  if (fs::file_exists(bronze_db)) {
+    try({
+      DBI::dbExecute(
+        con,
+        paste0(
+          "ATTACH ",
+          DBI::dbQuoteLiteral(con, as.character(bronze_db)),
+          " AS bronze (READ_ONLY)"
+        )
+      )
+
+      latest_bronze_batch <- DBI::dbGetQuery(
+        con,
+        paste0(
+          "SELECT MAX(batch_id) AS batch_id
+         FROM bronze.main.__promotion_log
+         WHERE stream_id = ",
+          DBI::dbQuoteLiteral(con, stream_id),
+          " AND method_id = ",
+          DBI::dbQuoteLiteral(con, canonical_method)
+        )
+      )$batch_id[[1]]
+
+      DBI::dbExecute(con, "DETACH bronze")
+    }, silent = TRUE)
+  }
+
+  latest_silver_batch <- NA_character_
+  current_anchor <- paste0("current__", anchor_tbl)
+
+  if (current_anchor %in% DBI::dbListTables(con)) {
+    latest_silver_batch <- DBI::dbGetQuery(
+      con,
+      paste0(
+        "SELECT MAX(__batch_id) AS batch_id
+       FROM ", DBI::dbQuoteIdentifier(con, current_anchor)
+      )
+    )$batch_id[[1]]
+  }
+
+  silver_status <- dplyr::case_when(
+    is.na(latest_bronze_batch) ~ "UNKNOWN",
+    is.na(latest_silver_batch) ~ "STALE",
+    identical(latest_bronze_batch, latest_silver_batch) ~ "UP TO DATE",
+    TRUE ~ "STALE"
+  )
+
   tables <- DBI::dbListTables(con)
   current_tables <- tables[startsWith(tables, "current__")]
 
@@ -607,7 +660,10 @@ inspect_silver_current <- function(
       row_counts = row_counts,
       duplicate_keys = duplicate_keys,
       orphan_checks = orphan_checks,
-      batch_distribution = batch_distribution
+      batch_distribution = batch_distribution,
+      latest_bronze_batch = latest_bronze_batch,
+      latest_silver_batch = latest_silver_batch,
+      silver_status = silver_status
     ),
     class = "xpipe_silver_current_inspection"
   )
@@ -1155,7 +1211,10 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     paste0(pad("Method (canonical)", 18), ": ", x$canonical_method),
     paste0(pad("Database", 18), ": ", x$silver_db),
     paste0(pad("Anchor table", 18), ": ", x$anchor_table),
-    paste0(pad("Anchor exists", 18), ": ", fmt_bool(x$anchor_exists))
+    paste0(pad("Anchor exists", 18), ": ", fmt_bool(x$anchor_exists)),
+    paste0(pad("Silver status", 18), ": ", x$silver_status),
+    paste0(pad("Latest Bronze batch", 18), ": ", x$latest_bronze_batch %||% "NA"),
+    paste0(pad("Latest Silver batch", 18), ": ", x$latest_silver_batch %||% "NA")
   )
 
   cli::cat_boxx(
@@ -1164,7 +1223,10 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     border_style = "round",
     padding = c(top = 0, right = 2, bottom = 0, left = 2),
     float = "left",
-    border_col = "cyan"
+    border_col =
+      if (x$silver_status == "UP TO DATE") "cyan"
+    else if (x$silver_status == "STALE") "yellow"
+    else "red"
   )
 
   # Sanity checks
