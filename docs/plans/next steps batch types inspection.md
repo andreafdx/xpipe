@@ -577,7 +577,9 @@ inspect_bronze <- function(
   read_only = TRUE
 )
 ```
-If stream_id is NULL, the function prompts the user to select a Bronze stream interactively based on available DuckDB files.
+
+If stream_id is NULL, the function prompts the user to select a Bronze
+stream interactively based on available DuckDB files.
 
 ### Inspection should report
 
@@ -591,38 +593,40 @@ If stream_id is NULL, the function prompts the user to select a Bronze stream in
 -   log-referenced tables missing physically
 -   physical tables not referenced by the log
 
-
 ### Acceptance checks
 
--   Inspection opens the DuckDB database at `data/bronze/<stream_id>.duckdb`.
--   Promotion history is read from `__promotion_log` and ordered by `promoted_at DESC`.
+-   Inspection opens the DuckDB database at
+    `data/bronze/<stream_id>.duckdb`.
+-   Promotion history is read from `__promotion_log` and ordered by
+    `promoted_at DESC`.
 -   Row counts for physical data tables are displayed.
--   Missing physical tables referenced by the promotion log are reported as **FAIL**.
--   Physical tables not referenced by the promotion log are reported as **WARN**.
+-   Missing physical tables referenced by the promotion log are reported
+    as **FAIL**.
+-   Physical tables not referenced by the promotion log are reported as
+    **WARN**.
 
 ### Bronze authority and sanity semantics
 
 The Bronze layer follows an asymmetric authority model.
 
-`__promotion_log` is authoritative for promoted data:
-- every table referenced in the log must exist physically
-- absence of a log entry for a physical table does not imply corruption
+`__promotion_log` is authoritative for promoted data: - every table
+referenced in the log must exist physically - absence of a log entry for
+a physical table does not imply corruption
 
 Sanity levels are interpreted as follows:
 
-- **OK**  
-  Promotion log and physical tables are fully consistent.
+-   **OK**\
+    Promotion log and physical tables are fully consistent.
 
-- **WARN**  
-  Physical tables exist that are not referenced by the promotion log  
-  (e.g. legacy data, historical artifacts, or debugging tables).
+-   **WARN**\
+    Physical tables exist that are not referenced by the promotion log\
+    (e.g. legacy data, historical artifacts, or debugging tables).
 
-- **FAIL**  
-  Promotion log entries reference tables that are missing physically,  
-  or the promotion log itself is missing.
+-   **FAIL**\
+    Promotion log entries reference tables that are missing physically,\
+    or the promotion log itself is missing.
 
 Only **FAIL** indicates a structurally invalid Bronze state.
-
 
 ## Work package 5 — Silver configuration contract
 
