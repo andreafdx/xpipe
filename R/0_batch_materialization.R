@@ -728,13 +728,6 @@ ingest_batch <- function(
     }
   )
 
-  cli::cli_alert_info("Enforcing batch column types")
-
-  extracted_data <- .apply_batch_column_types(
-    extracted_data = extracted_data,
-    method_config  = ctx$method_config
-  )
-
   cli::cli_alert_info("Applying privacy rules")
 
   for (nm in names(extracted_data)) {
@@ -745,6 +738,13 @@ ingest_batch <- function(
       pepper = config$runtime$pepper
     )
   }
+
+  cli::cli_alert_info("Enforcing batch column types")
+
+  extracted_data <- .apply_batch_column_types(
+    extracted_data = extracted_data,
+    method_config  = ctx$method_config
+  )
 
 
   # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
