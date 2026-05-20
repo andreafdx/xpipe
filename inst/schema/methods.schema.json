@@ -56,6 +56,38 @@
         "description": "Expected shape of the inbox input. Used by .validate_input_type() during Batch preparation to abort early if a method expecting a directory receives a file, or vice versa."
       },
 
+      "input_files": {
+        "type": "object",
+        "description": "Physical input files or file patterns resolved during Batch preparation.",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+
+      "source_tables": {
+        "type": "array",
+        "description": "Logical source tables for database-like inputs (e.g. Access/MDB).",
+        "items": {
+          "type": "string"
+        }
+      },
+
+      "output_tables": {
+        "type": "object",
+        "description": "Expected output tables from the extractor (informational only).",
+        "properties": {
+          "required": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "optional": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      },
+
       "input_map": {
         "type": "object",
         "minProperties": 1,
