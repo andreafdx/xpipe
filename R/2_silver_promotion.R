@@ -68,24 +68,10 @@ promote_to_silver <- function(
     )
   }
 
-  targets <- if (is.null(stream)) {
-    # promote all streams with current.enabled = TRUE
-    nms <- names(config$silver)
-    nms[vapply(nms, function(sid) isTRUE(config$silver[[sid]]$current$enabled), logical(1))]
-  } else {
-    stream
-  }
-
-  unknown <- setdiff(targets, names(config$silver))
-  if (length(unknown) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid Silver stream",
-        "x" = "Stream(s) not found in silver.json: {.val {unknown}}"
-      ),
-      class = c("xpipe_config_error", "xpipe_error")
-    )
-  }
+  targets <- .select_silver_promotion_targets(
+    config = config,
+    stream = stream
+  )
 
   if (length(targets) == 0) {
     cli::cli_inform("No Silver-current streams enabled.")
@@ -94,40 +80,22 @@ promote_to_silver <- function(
 
   if (isTRUE(dry_run)) {
     for (sid in targets) {
-      if (is.null(config$silver[[sid]])) {
-        cli::cli_inform("Would SKIP stream {.val {sid}} (not in silver.json).")
-        next
-      }
-      if (!isTRUE(config$silver[[sid]]$current$enabled)) {
-        cli::cli_inform("Would SKIP stream {.val {sid}} (current.disabled).")
-        next
-      }
       mid <- .resolve_silver_canonical_method(sid, config)
-      cli::cli_inform("Would promote Silver-current for stream {.val {sid}} using method {.val {mid}}.")
+      cli::cli_inform(
+        "Would promote Silver-current for stream {.val {sid}} using method {.val {mid}}."
+      )
     }
     return(invisible(TRUE))
   }
 
-
-  enabled <- targets[vapply(targets, function(sid) {
-    isTRUE(config$silver[[sid]]$current$enabled)
-  }, logical(1))]
-
-  if (length(enabled) == 0) {
-    cli::cli_inform("No Silver-current streams enabled.")
-    return(invisible(TRUE))
-  }
-
-  # confirm once for the whole operation
   .confirm_silver_promotion(confirm)
 
-  for (sid in enabled) {
+  for (sid in targets) {
     .promote_to_silver_current(
       stream_id = sid,
       config = config
     )
   }
-
 
   invisible(TRUE)
 }
@@ -169,6 +137,109 @@ promote_to_silver <- function(
 
   res <- DBI::dbSendQuery(con, sql, params = params)
   DBI::dbFetch(res)
+}
+
+
+.select_silver_promotion_targets <- function(config, stream = NULL) {
+  checkmate::assert_class(config, "xpipe_config")
+  checkmate::assert_string(stream, null.ok = TRUE)
+
+  silver_streams <- names(config$silver)
+
+  if (length(silver_streams) == 0) {
+    cli::cli_abort(
+      c(
+        "Silver contract not loaded",
+        "x" = "No streams found in silver.json."
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  enabled <- silver_streams[vapply(
+    silver_streams,
+    function(sid) isTRUE(config$silver[[sid]]$current$enabled),
+    logical(1)
+  )]
+
+  if (!is.null(stream)) {
+    if (!(stream %in% silver_streams)) {
+      cli::cli_abort(
+        c(
+          "Invalid Silver stream",
+          "x" = "Stream {.val {stream}} not found in silver.json"
+        ),
+        class = c("xpipe_config_error", "xpipe_error")
+      )
+    }
+
+    if (!isTRUE(config$silver[[stream]]$current$enabled)) {
+      cli::cli_abort(
+        c(
+          "Silver-current disabled",
+          "x" = "Silver-current is disabled for stream {.val {stream}}"
+        ),
+        class = c("xpipe_config_error", "xpipe_error")
+      )
+    }
+
+    return(stream)
+  }
+
+  if (length(enabled) == 0) {
+    return(character(0))
+  }
+
+  # Non-interactive: preserve pipeline behavior.
+  # stream = NULL means all enabled streams.
+  if (!interactive()) {
+    return(enabled)
+  }
+
+  choices <- c("All enabled streams", enabled, "Abort")
+
+  choice <- NULL
+  if (requireNamespace("climenu", quietly = TRUE)) {
+    choice <- tryCatch(
+      climenu::select(
+        choices,
+        prompt = "Select Silver stream to promote"
+      ),
+      error = function(e) NULL
+    )
+  }
+
+  if (is.null(choice)) {
+    cat("\nSelect Silver stream to promote\n\n")
+    for (i in seq_along(choices)) {
+      cat(sprintf(" %d. %s\n", i, choices[[i]]))
+    }
+    cat("\n")
+
+    k <- suppressWarnings(as.integer(readline("Enter number: ")))
+
+    if (is.na(k) || k < 1 || k > length(choices)) {
+      cli::cli_abort(
+        "Invalid selection.",
+        class = c("xpipe_silver_abort", "xpipe_silver_error", "xpipe_error")
+      )
+    }
+
+    choice <- choices[[k]]
+  }
+
+  if (identical(choice, "Abort")) {
+    cli::cli_abort(
+      "Silver promotion aborted by user.",
+      class = c("xpipe_silver_abort", "xpipe_silver_error", "xpipe_error")
+    )
+  }
+
+  if (identical(choice, "All enabled streams")) {
+    return(enabled)
+  }
+
+  choice
 }
 
 # Resolve canonical method for Silver-current
@@ -256,13 +327,26 @@ promote_to_silver <- function(
 #' @keywords internal
 .promote_to_silver_current <- function(stream_id, config) {
 
-
   # 1. Preconditions
 
   checkmate::assert_string(stream_id)
   checkmate::assert_class(config, "xpipe_config")
 
   method_id <- .resolve_silver_canonical_method(stream_id, config)
+
+  bronze_root <- config$local$paths$bronze
+  silver_root <- config$local$paths$silver
+
+  if (!checkmate::test_string(bronze_root, min.chars = 1) ||
+      !checkmate::test_string(silver_root, min.chars = 1)) {
+    cli::cli_abort(
+      c(
+        "Silver promotion failed",
+        "x" = "Both paths$bronze and paths$silver must be configured"
+      ),
+      class = c("xpipe_silver_state", "xpipe_error")
+    )
+  }
 
   method_cfg <- config$methods[[method_id]]
   if (is.null(method_cfg)) {
@@ -274,31 +358,105 @@ promote_to_silver <- function(
       class = c("xpipe_methods_error", "xpipe_error")
     )
   }
-  anchor_tbl <- method_cfg$anchor_table
-  keys <- method_cfg$identity_keys
 
-  bronze_db <- fs::path(config$local$paths$bronze, paste0(stream_id, ".duckdb"))
-  silver_db <- fs::path(config$local$paths$silver, paste0(stream_id, ".duckdb"))
+  anchor_tbl <- method_cfg$anchor_table %||% NA_character_
+  keys <- method_cfg$identity_keys %||% character(0)
 
+  if (!checkmate::test_string(anchor_tbl, min.chars = 1) ||
+      !checkmate::test_character(keys, min.len = 1)) {
+    cli::cli_abort(
+      c(
+        "Invalid Silver configuration",
+        "x" = "Method must define anchor_table and identity_keys"
+      ),
+      class = c("xpipe_silver_config", "xpipe_error")
+    )
+  }
 
-  # 2. Open DuckDB and attach Bronze
+  bronze_db <- fs::path(bronze_root, paste0(stream_id, ".duckdb"))
+  silver_db <- fs::path(silver_root, paste0(stream_id, ".duckdb"))
 
-  con <- DBI::dbConnect(duckdb::duckdb(), silver_db, read_only = FALSE)
-  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  if (!fs::file_exists(bronze_db)) {
+    cli::cli_abort(
+      c(
+        "Bronze database not found",
+        "x" = "Expected {.file {bronze_db}} to exist"
+      ),
+      class = c("xpipe_bronze_state", "xpipe_error")
+    )
+  }
+
+  fs::dir_create(silver_root, recurse = TRUE)
+
+  # 2. Open Silver and attach Bronze
+
+  con_s <- DBI::dbConnect(
+    duckdb::duckdb(),
+    dbdir = as.character(silver_db),
+    read_only = FALSE
+  )
+
+  on.exit({
+    try(.silver_exec(con_s, "DETACH bronze"), silent = TRUE)
+    DBI::dbDisconnect(con_s, shutdown = TRUE)
+  }, add = TRUE)
+
+  try(.silver_exec(con_s, "DETACH bronze"), silent = TRUE)
 
   .silver_exec(
-    con,
+    con_s,
     paste0(
       "ATTACH ",
-      DBI::dbQuoteLiteral(con, bronze_db),
+      DBI::dbQuoteLiteral(con_s, as.character(bronze_db)),
       " AS bronze (READ_ONLY)"
     )
   )
 
+  # 3. Discover Bronze tables
 
-  # 3. Up-to-date check + UX decision
+  prefix <- paste0(stream_id, "__", method_id, "__")
+  anchor_full <- paste0(prefix, anchor_tbl)
 
-  if (.is_silver_up_to_date(con, stream_id, method_id, anchor_tbl)) {
+  bronze_tables <- .silver_query(
+    con_s,
+    "SELECT table_name
+     FROM duckdb_tables()
+     WHERE database_name = 'bronze'
+       AND schema_name = 'main'"
+  )$table_name
+
+  method_tables <- bronze_tables[startsWith(bronze_tables, prefix)]
+
+  if (!(anchor_full %in% method_tables)) {
+    cli::cli_abort(
+      c(
+        "Anchor table not found in Bronze",
+        "x" = "Expected {.val {anchor_full}} to exist"
+      ),
+      class = c("xpipe_silver_anchor", "xpipe_error")
+    )
+  }
+
+  current_anchor <- paste0("current__", anchor_tbl)
+
+  key_cols <- DBI::dbQuoteIdentifier(con_s, keys)
+  keys_sql <- paste(key_cols, collapse = ", ")
+
+  bronze_anchor <- paste0(
+    "bronze.main.",
+    DBI::dbQuoteIdentifier(con_s, anchor_full)
+  )
+
+  # 4. Up-to-date check
+
+  if (.is_silver_up_to_date(con_s, stream_id, method_id, anchor_tbl)) {
+
+    if (!interactive()) {
+      cli::cli_inform(
+        "Silver-current for stream {.val {stream_id}} left unchanged (already up to date)."
+      )
+      return(invisible(TRUE))
+    }
 
     answer <- readline(
       paste0(
@@ -319,22 +477,79 @@ promote_to_silver <- function(
     )
   }
 
+  # 5. Transactional rebuild
 
-  # 4. Transactional rebuild
-
-  DBI::dbBegin(con)
+  DBI::dbBegin(con_s)
 
   rlang::try_fetch(
     {
-      ## CREATE OR REPLACE current__anchor
-      ## CREATE OR REPLACE current__secondary tables
-      DBI::dbCommit(con)
+      .silver_exec(
+        con_s,
+        paste0(
+          "CREATE OR REPLACE TABLE ",
+          DBI::dbQuoteIdentifier(con_s, current_anchor), " AS
+           SELECT * EXCLUDE (rn)
+           FROM (
+             SELECT
+               a.*,
+               ROW_NUMBER() OVER (
+                 PARTITION BY ", keys_sql, "
+                 ORDER BY __batch_created_at DESC, __batch_id DESC
+               ) AS rn
+             FROM ", bronze_anchor, " a
+           ) t
+           WHERE rn = 1"
+        )
+      )
+
+      for (bt in method_tables) {
+        short <- sub(prefix, "", bt, fixed = TRUE)
+        if (identical(short, anchor_tbl)) next
+
+        bronze_sec <- paste0(
+          "bronze.main.",
+          DBI::dbQuoteIdentifier(con_s, bt)
+        )
+
+        current_sec <- paste0("current__", short)
+
+        join_keys <- paste(
+          paste0(
+            "s.", DBI::dbQuoteIdentifier(con_s, keys),
+            " = a.", DBI::dbQuoteIdentifier(con_s, keys)
+          ),
+          collapse = " AND "
+        )
+
+        .silver_exec(
+          con_s,
+          paste0(
+            "CREATE OR REPLACE TABLE ",
+            DBI::dbQuoteIdentifier(con_s, current_sec), " AS
+             SELECT s.*
+             FROM ", bronze_sec, " s
+             INNER JOIN ", DBI::dbQuoteIdentifier(con_s, current_anchor), " a
+               ON ", join_keys, "
+              AND s.__batch_id = a.__batch_id"
+          )
+        )
+      }
+
+      DBI::dbCommit(con_s)
+
+      cli::cli_alert_success(
+        "Silver-current rebuilt for stream {.val {stream_id}} using method {.val {method_id}}."
+      )
+
       invisible(TRUE)
     },
     error = function(e) {
-      try(DBI::dbRollback(con), silent = TRUE)
+      try(DBI::dbRollback(con_s), silent = TRUE)
       cli::cli_abort(
-        "Silver-current promotion failed",
+        c(
+          "Silver-current promotion failed",
+          "x" = "Silver tables were not rebuilt successfully."
+        ),
         parent = e,
         class = c("xpipe_silver_error", "xpipe_error")
       )
