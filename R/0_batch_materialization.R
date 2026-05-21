@@ -31,7 +31,7 @@
 #       ├── xpipe_batch_stream        # unknown stream identifier
 #       ├── xpipe_batch_path          # inbox path invalid or not found
 #       ├── xpipe_batch_input_type    # file vs directory requirement mismatch
-#       ├── xpipe_batch_components    # directory component missing or ambiguous
+#       ├── xpipe_batch_input_files    # directory input file missing or ambiguous
 #       ├── xpipe_batch_id            # invalid explicit batch_id
 #       ├── xpipe_batch_collision     # target batch directory already exists
 #       ├── xpipe_batch_input         # input missing or empty at materialization
@@ -198,17 +198,34 @@ ingest_batch <- function(
   # Validation against method requirement
   .validate_input_type(filepath, method_config)
 
-  # Discover and resolve component inputs
+  # Input files contract
+  input_files <- method_config$input_files %||% NULL
+
+
+  # Discover and resolve inputs
   resolved_inputs <- if (fs::is_dir(filepath)) {
-    .resolve_inputs(filepath, method_config)
-  } else {
-    components <- method_config$components
-    if (!is.null(components)) {
-      setNames(rep(list(filepath), length(components)), components)
-    } else {
-      list(data = filepath)
+
+    # method declares directory => input_files required
+    if (identical(method_config$input_type, "directory") && is.null(input_files)) {
+      cli::cli_abort(
+        c(
+          "Invalid method configuration",
+          "x" = "Directory methods must define {.field input_files}"
+        ),
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
+      )
     }
+
+    .resolve_inputs(filepath, input_files)
+
+  } else {
+
+    # single-file input: do not replicate per component anymore
+    list(data = filepath)
+
   }
+
+
 
   batch_id <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
   batch_dir <- .build_batch_target_dir(config, batch_id)
@@ -383,34 +400,31 @@ ingest_batch <- function(
   }
 }
 
-#' Discover and resolve components
+#' Discover and resolve input_files
 #'
-#' Resolves logical components into concrete file paths.
+#' Resolves logical input_files into concrete file paths.
 #'
 #' @keywords internal
 #' @noRd
-.resolve_inputs <- function(dir_path, method_config) {
-  components <- method_config$components
+.resolve_inputs <- function(dir_path, input_files) {
 
-  if (is.null(components)) {
-    return(NULL)
-  }
+  if (is.null(input_files)) return(NULL)
 
   resolved <- list()
 
-  for (nm in names(components)) {
-    pattern <- components[[nm]]
+  for (nm in names(input_files)) {
+    pattern <- input_files[[nm]]
     matches <- fs::dir_ls(dir_path, glob = pattern)
 
     if (length(matches) == 0) {
       cli::cli_abort(
         c(
           "Missing input",
-          "x" = "No files found for component {.val {nm}}",
+          "x" = "No files found for input {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Directory: {.file {dir_path}}"
         ),
-        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
       )
     }
 
@@ -418,11 +432,11 @@ ingest_batch <- function(
       cli::cli_abort(
         c(
           "Ambiguous input",
-          "x" = "Multiple files found for component {.val {nm}}",
+          "x" = "Multiple files found for input {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Found: {.file {basename(matches)}}"
         ),
-        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
       )
     }
 
@@ -511,7 +525,7 @@ ingest_batch <- function(
   ))
 
   if (!is.null(ctx$resolved_inputs)) {
-    cli::cli_h3("Resolved component inputs")
+    cli::cli_h3("Resolved input files")
     cli::cli_bullets(
       purrr::imap_chr(
         ctx$resolved_inputs,
@@ -714,13 +728,6 @@ ingest_batch <- function(
     }
   )
 
-  cli::cli_alert_info("Enforcing batch column types")
-
-  extracted_data <- .apply_batch_column_types(
-    extracted_data = extracted_data,
-    method_config  = ctx$method_config
-  )
-
   cli::cli_alert_info("Applying privacy rules")
 
   for (nm in names(extracted_data)) {
@@ -732,8 +739,12 @@ ingest_batch <- function(
     )
   }
 
+  cli::cli_alert_info("Enforcing batch column types")
 
-  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+  extracted_data <- .apply_batch_column_types(
+    extracted_data = extracted_data,
+    method_config  = ctx$method_config
+  )
 
 
   rlang::try_fetch(

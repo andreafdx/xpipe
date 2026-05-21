@@ -56,39 +56,39 @@
         "description": "Expected shape of the inbox input. Used by .validate_input_type() during Batch preparation to abort early if a method expecting a directory receives a file, or vice versa."
       },
 
-      "input_map": {
+      "input_files": {
         "type": "object",
-        "minProperties": 1,
-        "description": "Reserved legacy field for explicit input role mapping. It is currently not consumed by the Batch materialization or XML extraction pipeline. Do not rely on this field until a concrete loader uses it.",
+        "description": "Physical input files or file patterns resolved during Batch preparation.",
         "additionalProperties": {
-          "type": "string",
-          "minLength": 1
+          "type": "string"
         }
       },
 
-      "components": {
-        "description": "Legacy method component definition. For directory-based XML methods, components are used by .resolve_inputs() to resolve physical input files before extraction. For Access/MDB methods, components are currently used by extract_access_db() as the list of source tables to extract. This field is intentionally retained for compatibility but is overloaded; future contracts should split physical input components from logical output/source tables.",
-        "oneOf": [
-          {
-            "type": "array",
-            "minItems": 1,
-            "description": "List of component names. Suitable for methods where component names are sufficient and no file pattern is needed.",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "type": "object",
-            "minProperties": 1,
-            "description": "Mapping from component name to file glob pattern. Used to resolve one concrete input file per component inside the inbox directory.",
-            "additionalProperties": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        ]
+      "source_tables": {
+        "type": "array",
+        "description": "Logical source tables for database-like inputs (e.g. Access/MDB).",
+        "items": {
+          "type": "string"
+        }
       },
+
+      "output_tables": {
+        "type": "object",
+        "description": "Expected output tables from the extractor (informational only).",
+        "properties": {
+          "required": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "optional": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      },
+
+
 
       "anchor_table": {
         "type": "string",
@@ -112,23 +112,37 @@
         "description": "Domain-time column associated with the anchor table. Historically used for Bronze partitioning. In the DuckDB pipeline it remains method metadata for inspection, future semantic enrichment, and possible harmonized/fiscal logic, but it is not used to determine Silver-current."
       },
 
-      "pseudonymize": {
-        "type": "array",
-        "description": "Columns containing sensitive identifiers that must be pseudonymized during Batch materialization. Used by apply_privacy_rules() before Batch Parquet files are written.",
-        "items": {
-          "type": "string",
-          "minLength": 1
-        }
+      "privacy": {
+        "type": "object",
+        "description": "Declarative privacy rules applied during Batch materialization.",
+        "properties": {
+          "hash": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["scalar", "list"]
+              }
+            }
+          },
+          "skip": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["scalar", "list"]
+              }
+            }
+          }
+        },
+        "additionalProperties": false
       },
 
-      "skip": {
-        "type": "array",
-        "description": "Columns that must be removed during Batch materialization. Used by apply_privacy_rules() before Batch Parquet files are written.",
-        "items": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
+
+
+
 
       "column_types": {
         "type": "object",
@@ -145,6 +159,39 @@
       }
     },
 
-    "additionalProperties": false
+    "additionalProperties": false,
+
+   "allOf": [
+      {
+        "if": {
+          "properties": { "type": { "const": "xml" } },
+          "required": ["type"]
+        },
+        "then": {
+          "required": ["xml_profile"]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "type": { "const": "xml" },
+            "input_type": { "const": "directory" }
+          },
+          "required": ["type", "input_type"]
+        },
+        "then": {
+          "required": ["input_files"]
+        }
+      },
+      {
+        "if": {
+          "properties": { "type": { "const": "access_mdb" } },
+          "required": ["type"]
+        },
+        "then": {
+          "required": ["source_tables"]
+        }
+      }
+    ]
   }
 }

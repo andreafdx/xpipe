@@ -3,7 +3,7 @@
     "schema_domain": "sdo",
     "type": "access_mdb",
     "input_type": "file",
-    "components": [
+    "source_tables": [
       "TblScheda",
       "TblSchedaDiagnosi",
       "TblSchedaProcedure",
@@ -12,8 +12,20 @@
     "anchor_table": "TblScheda",
     "identity_keys": ["i_IDScheda"],
     "partition_column": "d_DataDimissione",
-    "pseudonymize": ["c_CodicePaziente", "c_CodiceMadre"],
-    "skip": ["v_Nome", "v_Cognome"]
+    "privacy": {
+      "hash": {
+        "TblScheda": {
+          "c_CodicePaziente": "scalar",
+          "c_CodiceMadre": "scalar"
+        }
+      },
+      "skip": {
+        "TblScheda": {
+          "v_Nome": "scalar",
+          "v_Cognome": "scalar"
+        }
+      }
+    }
   },
 
   "xml_campania_2026": {
@@ -21,19 +33,39 @@
     "type": "xml",
     "input_type": "directory",
     "xml_profile": "sdo_tracciato_abcd",
-    "components": {
-      "anagrafica": "*_A.xml",
-      "ricovero": "*_B.xml",
-      "diagnosi": "*_B.xml",
-      "procedure": "*_B.xml",
-      "trasferimenti": "*_B.xml",
-      "accessi_dh": "*_B.xml"
+
+    "input_files": {
+      "file_a": "*_A.xml",
+      "file_b": "*_B.xml"
     },
+
+    "output_tables": {
+      "required": ["ricovero"],
+      "optional": ["diagnosi", "procedure", "trasferimenti", "accessi_dh"]
+    },
+
+
     "anchor_table": "ricovero",
     "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"],
     "partition_column": "dim_dataDimissioneMorte",
-    "pseudonymize": ["identificativoPaziente", "codiceFiscale"],
-    "skip": ["cognome", "nome"],
+    "privacy": {
+      "hash": {
+        "ricovero": {
+          "identificativoPaziente": "scalar",
+          "codiceFiscale": "scalar"
+        },
+        "procedure": {
+          "chirurgoIntervento": "list",
+          "anestesistaIntervento": "list"
+        }
+      },
+      "skip": {
+        "ricovero": {
+          "nome": "scalar",
+          "cognome": "scalar"
+        }
+      }
+    },
     "column_types": {
       "ricovero": {
         "codiceIstitutoDiCura": "character",
@@ -62,7 +94,18 @@
     "anchor_table": "data",
     "identity_keys": ["id_accesso"],
     "partition_column": "data_ingresso",
-    "pseudonymize": ["cf"],
-    "skip": ["nome", "cognome"]
+    "privacy": {
+      "hash": {
+        "data": {
+          "cf": "scalar"
+        }
+      },
+      "skip": {
+        "data": {
+          "nome": "scalar",
+          "cognome": "scalar"
+        }
+      }
+    }
   }
 }

@@ -17,25 +17,24 @@
 
 #' Apply Privacy Rules to an Extracted Data Frame
 #'
-#' Applies method-level privacy rules to a data frame produced during batch
-#' extraction. Two rule types are supported:
+#' Applies method-level privacy rules to a data frame produced during Batch
+#' extraction, before Parquet writing.
 #'
-#' - **Pseudonymization**: selected columns are replaced with HMAC-SHA256
-#'   hashes, keyed by a runtime pepper. Hashing is deterministic and
-#'   case/whitespace-insensitive.
-#' - **Column removal**: columns listed under `skip` are dropped entirely
-#'   before persistence.
+#' - `privacy$skip`: drops declared columns (supports `scalar` and `list`)
+#' - `privacy$hash`: pseudonymizes declared columns using HMAC-SHA256
+#'      (supports `scalar` and `list`, list-columns are hashed element-wise)
+#'    The declared shape (`scalar` vs `list`) is authoritative; mismatches abort.
 #'
-#' Rules are defined in `methods.json` and loaded as part of the method
-#' configuration. This function is called by the batch materialization
-#' pipeline and should not need to be invoked directly.
+#' Hashing is deterministic (same input + pepper = same hash) and
+#' case/whitespace-insensitive, allowing downstream joins without exposing raw
+#' identifiers. The pepper is never stored on disk.
 #'
 #' @param df Data frame to process.
-#' @param table_name Character scalar. Table name used in progress messages.
-#' @param method_config Named list containing privacy rule fields
-#'   (`pseudonymize`, `skip`) as defined in the methods contract.
-#' @param pepper Character scalar. HMAC key loaded from the environment
-#'   via [load_xpipe_config()]. Must be non-empty.
+#' @param table_name Character scalar. Name of the extracted table.
+#' @param method_config Named list that may contain a `privacy` block.
+#'   If `privacy` is absent, the function is a no-op and returns `df` unchanged.
+#' @param pepper Character scalar. HMAC key loaded from the environment via
+#'   [load_xpipe_config()]. Must be non-empty.
 #'
 #' @return The input data frame with privacy rules applied.
 #'
@@ -49,30 +48,70 @@ apply_privacy_rules <- function(df, table_name, method_config, pepper) {
 
   if (nrow(df) == 0) return(df)
 
-  existing_pseudo <- character(0)
-  existing_skip   <- character(0)
-
-  if (!is.null(method_config$pseudonymize)) {
-    existing_pseudo <- intersect(method_config$pseudonymize, names(df))
+  if (is.null(method_config$privacy)) {
+    return(df)
   }
 
-  if (!is.null(method_config$skip)) {
-    existing_skip <- intersect(method_config$skip, names(df))
-  }
+  privacy <- method_config$privacy
 
-  if (length(existing_pseudo) > 0 || length(existing_skip) > 0) {
-
-    cli::cli_inform("Applying privacy to {table_name}")
-
-    if (length(existing_pseudo) > 0) {
-      df <- .pseudonymize_cols(df, existing_pseudo, pepper)
-      .log_debug("Pseudonymized: {paste(existing_pseudo, collapse = ', ')}")
+  .assert_shape <- function(x, shape, tbl, col, action) {
+    if (identical(shape, "scalar") && is.list(x)) {
+      cli::cli_abort(
+        c(
+          "Privacy rule shape mismatch",
+          "x" = "Column {.val {tbl}.{col}} is a list-column but declared as scalar ({.val {action}})"
+        ),
+        class = c("xpipe_privacy", "xpipe_batch_error", "xpipe_error")
+      )
     }
+    if (identical(shape, "list") && !is.list(x)) {
+      cli::cli_abort(
+        c(
+          "Privacy rule shape mismatch",
+          "x" = "Column {.val {tbl}.{col}} is scalar but declared as list ({.val {action}})"
+        ),
+        class = c("xpipe_privacy", "xpipe_batch_error", "xpipe_error")
+      )
+    }
+    if (!identical(shape, "scalar") && !identical(shape, "list")) {
+      cli::cli_abort(
+        c(
+          "Invalid privacy rule",
+          "x" = "Unsupported privacy shape {.val {shape}} for {.val {tbl}.{col}}"
+        ),
+        class = c("xpipe_privacy", "xpipe_batch_error", "xpipe_error")
+      )
+    }
+    invisible(TRUE)
+  }
 
-    if (length(existing_skip) > 0) {
-      df <- dplyr::select(df, -dplyr::all_of(existing_skip))
-      # Visible only if local.json has level: "debug"
-      .log_debug("Dropped: {paste(existing_skip, collapse = ', ')}")
+  # 1) SKIP
+  skip_spec <- privacy$skip %||% list()
+  skip_tbl  <- skip_spec[[table_name]] %||% NULL
+  if (!is.null(skip_tbl) && length(skip_tbl) > 0) {
+    cols <- intersect(names(skip_tbl), names(df))
+    for (col in cols) .assert_shape(df[[col]], skip_tbl[[col]], table_name, col, "skip")
+    if (length(cols) > 0) df[cols] <- NULL
+  }
+
+  # 2) HASH
+  hash_spec <- privacy$hash %||% list()
+  hash_tbl  <- hash_spec[[table_name]] %||% NULL
+  if (!is.null(hash_tbl) && length(hash_tbl) > 0) {
+    cols <- intersect(names(hash_tbl), names(df))
+    for (col in cols) {
+      shape <- hash_tbl[[col]]
+      x <- df[[col]]
+      .assert_shape(x, shape, table_name, col, "hash")
+      if (identical(shape, "scalar")) {
+        df[[col]] <- hash_phi(as.character(x), pepper)
+      } else {
+        df[[col]] <- lapply(x, function(v) {
+          if (is.null(v)) return(NULL)
+          if (length(v) == 0) return(character(0))
+          hash_phi(as.character(v), pepper)
+        })
+      }
     }
   }
 

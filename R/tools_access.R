@@ -56,7 +56,7 @@
 
 #' Extract Access Database
 #'
-#' Extracts tables configured in the method component list from an Access Database.
+#' Extracts tables configured in the method source_tables list from an Access Database.
 #'
 #' @param job Batch job object.
 #' @param path Path to .mdb file.
@@ -65,14 +65,25 @@
 extract_access_db <- function(ctx) {
   is_windows <- .Platform$OS.type == "windows"
 
-  target_tables <- ctx$method_config$components
+  target_tables <- ctx$method_config$source_tables
+
+  if (is.null(target_tables) || length(target_tables) == 0) {
+    cli::cli_abort(
+      c(
+        "No tables defined for extraction",
+        "x" = "Method {.val {ctx$method_id}} must define {.field source_tables}"
+      ),
+      class = c("xpipe_batch_config", "xpipe_batch_error", "xpipe_error")
+    )
+  }
+
   path <- ctx$filepath
 
   if (is.null(target_tables) || length(target_tables) == 0) {
     cli::cli_abort(
       c(
         "No tables defined for extraction",
-        "x" = "Method {.val {ctx$method_id}} is missing the {.field components} list."
+        "x" = "Method {.val {ctx$method_id}} is missing the {.field target_tables} list."
       ),
       class = c("batch_job", "config")
     )

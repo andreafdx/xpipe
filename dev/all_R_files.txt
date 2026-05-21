@@ -33,7 +33,7 @@ R/0_batch_materialization.R
 #       ├── xpipe_batch_stream        # unknown stream identifier
 #       ├── xpipe_batch_path          # inbox path invalid or not found
 #       ├── xpipe_batch_input_type    # file vs directory requirement mismatch
-#       ├── xpipe_batch_components    # directory component missing or ambiguous
+#       ├── xpipe_batch_input_files    # directory component missing or ambiguous
 #       ├── xpipe_batch_id            # invalid explicit batch_id
 #       ├── xpipe_batch_collision     # target batch directory already exists
 #       ├── xpipe_batch_input         # input missing or empty at materialization
@@ -200,17 +200,34 @@ ingest_batch <- function(
   # Validation against method requirement
   .validate_input_type(filepath, method_config)
 
-  # Discover and resolve component inputs
+  # Input files contract
+  input_files <- method_config$input_files %||% NULL
+
+
+  # Discover and resolve inputs
   resolved_inputs <- if (fs::is_dir(filepath)) {
-    .resolve_inputs(filepath, method_config)
-  } else {
-    components <- method_config$components
-    if (!is.null(components)) {
-      setNames(rep(list(filepath), length(components)), components)
-    } else {
-      list(data = filepath)
+
+    # method declares directory => input_files required
+    if (identical(method_config$input_type, "directory") && is.null(input_files)) {
+      cli::cli_abort(
+        c(
+          "Invalid method configuration",
+          "x" = "Directory methods must define {.field input_files}"
+        ),
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
+      )
     }
+
+    .resolve_inputs(filepath, input_files)
+
+  } else {
+
+    # single-file input: do not replicate per component anymore
+    list(data = filepath)
+
   }
+
+
 
   batch_id <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
   batch_dir <- .build_batch_target_dir(config, batch_id)
@@ -385,34 +402,31 @@ ingest_batch <- function(
   }
 }
 
-#' Discover and resolve components
+#' Discover and resolve input_files
 #'
-#' Resolves logical components into concrete file paths.
+#' Resolves logical input_files into concrete file paths.
 #'
 #' @keywords internal
 #' @noRd
-.resolve_inputs <- function(dir_path, method_config) {
-  components <- method_config$components
+.resolve_inputs <- function(dir_path, input_files) {
 
-  if (is.null(components)) {
-    return(NULL)
-  }
+  if (is.null(input_files)) return(NULL)
 
   resolved <- list()
 
-  for (nm in names(components)) {
-    pattern <- components[[nm]]
+  for (nm in names(input_files)) {
+    pattern <- input_files[[nm]]
     matches <- fs::dir_ls(dir_path, glob = pattern)
 
     if (length(matches) == 0) {
       cli::cli_abort(
         c(
           "Missing input",
-          "x" = "No files found for component {.val {nm}}",
+          "x" = "No files found for input {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Directory: {.file {dir_path}}"
         ),
-        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
       )
     }
 
@@ -420,11 +434,11 @@ ingest_batch <- function(
       cli::cli_abort(
         c(
           "Ambiguous input",
-          "x" = "Multiple files found for component {.val {nm}}",
+          "x" = "Multiple files found for input {.val {nm}}",
           "i" = "Pattern: {.val {pattern}}",
           "i" = "Found: {.file {basename(matches)}}"
         ),
-        class = c("xpipe_batch_components", "xpipe_batch_error", "xpipe_error")
+        class = c("xpipe_batch_input_files", "xpipe_batch_error", "xpipe_error")
       )
     }
 
@@ -513,7 +527,7 @@ ingest_batch <- function(
   ))
 
   if (!is.null(ctx$resolved_inputs)) {
-    cli::cli_h3("Resolved component inputs")
+    cli::cli_h3("Resolved input files")
     cli::cli_bullets(
       purrr::imap_chr(
         ctx$resolved_inputs,
@@ -716,13 +730,6 @@ ingest_batch <- function(
     }
   )
 
-  cli::cli_alert_info("Enforcing batch column types")
-
-  extracted_data <- .apply_batch_column_types(
-    extracted_data = extracted_data,
-    method_config  = ctx$method_config
-  )
-
   cli::cli_alert_info("Applying privacy rules")
 
   for (nm in names(extracted_data)) {
@@ -734,8 +741,12 @@ ingest_batch <- function(
     )
   }
 
+  cli::cli_alert_info("Enforcing batch column types")
 
-  # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+  extracted_data <- .apply_batch_column_types(
+    extracted_data = extracted_data,
+    method_config  = ctx$method_config
+  )
 
 
   rlang::try_fetch(
@@ -912,17 +923,46 @@ ingest_batch <- function(
 .persist_to_batch <- function(ctx, extracted_data, config) {
   fs::dir_create(ctx$batch_dir, recurse = TRUE)
 
+  anchor <- ctx$method_config$anchor_table
+  written_tables <- character(0)
+
   for (nm in names(extracted_data)) {
     tbl <- extracted_data[[nm]]
 
+    # zero-column guard
     if (!is.data.frame(tbl) || ncol(tbl) == 0) {
-      cli::cli_alert_warning("Not writing {.val {nm}}: extracted table has zero columns.")
+      if (identical(nm, anchor)) {
+        cli::cli_abort(
+          c(
+            "Invalid batch artifact",
+            "x" = "Anchor table {.val {nm}} has zero columns and cannot be materialized"
+          ),
+          class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
+        )
+      }
+
+      cli::cli_alert_warning(
+        "Not writing {.val {nm}}: extracted table has zero columns."
+      )
       next
     }
 
     arrow::write_parquet(
       tbl,
       fs::path(ctx$batch_dir, paste0(nm, ".parquet"))
+    )
+
+    written_tables <- c(written_tables, nm)
+  }
+
+  # anchor must have been materialized
+  if (!(anchor %in% written_tables)) {
+    cli::cli_abort(
+      c(
+        "Invalid batch artifact",
+        "x" = "Anchor table {.val {anchor}} was not materialized"
+      ),
+      class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
     )
   }
 
@@ -957,7 +997,7 @@ ingest_batch <- function(
     meta$resolved_inputs <- lapply(ctx$resolved_inputs, basename)
   }
 
-  meta$tables <- names(extracted_data)
+  meta$tables <- written_tables
 
   jsonlite::write_json(
     meta,
@@ -1761,9 +1801,131 @@ R/2_silver_promotion.R
 # __batch_id. Secondary tables are filtered by joining to the current anchor
 # table using identity keys plus __batch_id.
 #
-# Public API:
-# Internals: .promote_to_silver_current(), .silver_exec(), .silver_query()
+# Public API: promote_to_silver()
+# Internals: .promote_to_silver_current(), .silver_exec(), .silver_query(),
+#            .resolve_silver_canonical_method(), .is_silver_up_to_date(),
+#            .confirm_silver_promotion()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# Error Class Taxonomy ----------------------------------------------------
+
+
+
+# Public API --------------------------------------------------------------
+
+#' Promote data to Silver
+#'
+#' Uses silver.json to resolve canonical methods and build Silver-current tables.
+#' Harmonized phase is intentionally not implemented in this branch.
+#'
+#' @param config xpipe_config.
+#' @param stream Optional stream id. If NULL, promotes all enabled streams in silver.json.
+#' @param phase Character. Only "current" is supported.
+#' @param dry_run Logical. If TRUE, prints what would be done.
+#' @param confirm Logical. Ask for confirmation before writing.
+#'
+#' @return Invisibly TRUE.
+#' @export
+promote_to_silver <- function(
+    config = get_xpipe_config(),
+    stream = NULL,
+    phase = "current",
+    dry_run = FALSE,
+    confirm = interactive()
+) {
+  checkmate::assert_class(config, "xpipe_config")
+  checkmate::assert_string(stream, null.ok = TRUE)
+  checkmate::assert_string(phase)
+  checkmate::assert_flag(dry_run)
+  checkmate::assert_flag(confirm)
+
+  if (is.null(config$silver) || length(config$silver) == 0) {
+    cli::cli_abort(
+      c(
+        "Silver contract not loaded",
+        "x" = "No silver streams found in config. Ensure data/shared/silver.json is present and valid."
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  if (!identical(phase, "current")) {
+    cli::cli_abort(
+      c(
+        "Unsupported Silver phase",
+        "x" = "Only {.val {'current'}} is supported in this branch."
+      ),
+      class = c("xpipe_silver_error", "xpipe_error")
+    )
+  }
+
+  targets <- if (is.null(stream)) {
+    # promote all streams with current.enabled = TRUE
+    nms <- names(config$silver)
+    nms[vapply(nms, function(sid) isTRUE(config$silver[[sid]]$current$enabled), logical(1))]
+  } else {
+    stream
+  }
+
+  unknown <- setdiff(targets, names(config$silver))
+  if (length(unknown) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid Silver stream",
+        "x" = "Stream(s) not found in silver.json: {.val {unknown}}"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  if (length(targets) == 0) {
+    cli::cli_inform("No Silver-current streams enabled.")
+    return(invisible(TRUE))
+  }
+
+  if (isTRUE(dry_run)) {
+    for (sid in targets) {
+      if (is.null(config$silver[[sid]])) {
+        cli::cli_inform("Would SKIP stream {.val {sid}} (not in silver.json).")
+        next
+      }
+      if (!isTRUE(config$silver[[sid]]$current$enabled)) {
+        cli::cli_inform("Would SKIP stream {.val {sid}} (current.disabled).")
+        next
+      }
+      mid <- .resolve_silver_canonical_method(sid, config)
+      cli::cli_inform("Would promote Silver-current for stream {.val {sid}} using method {.val {mid}}.")
+    }
+    return(invisible(TRUE))
+  }
+
+
+  enabled <- targets[vapply(targets, function(sid) {
+    isTRUE(config$silver[[sid]]$current$enabled)
+  }, logical(1))]
+
+  if (length(enabled) == 0) {
+    cli::cli_inform("No Silver-current streams enabled.")
+    return(invisible(TRUE))
+  }
+
+  # confirm once for the whole operation
+  .confirm_silver_promotion(confirm)
+
+  for (sid in enabled) {
+    .promote_to_silver_current(
+      stream_id = sid,
+      config = config
+    )
+  }
+
+
+  invisible(TRUE)
+}
+
+# Helpers -----------------------------------------------------------------
+
 
 #' Execute a Silver SQL statement and always clear the result
 #'
@@ -1801,6 +1963,74 @@ R/2_silver_promotion.R
   DBI::dbFetch(res)
 }
 
+# Resolve canonical method for Silver-current
+# @noRd
+.resolve_silver_canonical_method <- function(stream_id, config) {
+  if (is.null(config$silver[[stream_id]])) {
+    cli::cli_abort(
+      c(
+        "Silver not configured for stream",
+        "x" = "Stream {.val {stream_id}} not found in silver.json"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  s <- config$silver[[stream_id]]
+
+  if (!isTRUE(s$current$enabled)) {
+    cli::cli_abort(
+      c(
+        "Silver-current disabled",
+        "x" = "Silver-current is disabled for stream {.val {stream_id}}"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  s$canonical_method
+}
+
+.is_silver_up_to_date <- function(con, stream_id, method_id, anchor_tbl) {
+
+  latest_bronze <- .silver_query(
+    con,
+    paste0(
+      "SELECT MAX(batch_id) AS batch_id
+       FROM bronze.main.__promotion_log
+       WHERE stream_id = ",
+      DBI::dbQuoteLiteral(con, stream_id),
+      " AND method_id = ",
+      DBI::dbQuoteLiteral(con, method_id)
+    )
+  )$batch_id[[1]]
+
+  current_anchor <- paste0("current__", anchor_tbl)
+
+  silver_latest <- if (current_anchor %in% DBI::dbListTables(con)) {
+    .silver_query(
+      con,
+      paste0(
+        "SELECT MAX(__batch_id) AS batch_id
+         FROM ", DBI::dbQuoteIdentifier(con, current_anchor)
+      )
+    )$batch_id[[1]]
+  } else {
+    NA_character_
+  }
+
+
+  if (is.na(latest_bronze) || is.na(silver_latest)) {
+    return(FALSE)
+  }
+
+  identical(latest_bronze, silver_latest)
+
+}
+
+## Pipeline ----------------------------------------------------------------
+
+
 #' Promote Bronze data to Silver-current (DuckDB)
 #'
 #' Builds Silver-current tables for a given stream and method by selecting the
@@ -1816,192 +2046,138 @@ R/2_silver_promotion.R
 #'
 #' @return Invisibly TRUE on success.
 #' @keywords internal
-.promote_to_silver_current <- function(stream_id, method_id, config) {
+.promote_to_silver_current <- function(stream_id, config) {
+
+
+  # 1. Preconditions
+
   checkmate::assert_string(stream_id)
-  checkmate::assert_string(method_id)
   checkmate::assert_class(config, "xpipe_config")
 
-  bronze_root <- config$local$paths$bronze
-  silver_root <- config$local$paths$silver
-
-  if (!checkmate::test_string(bronze_root, min.chars = 1) ||
-      !checkmate::test_string(silver_root, min.chars = 1)) {
-    cli::cli_abort(
-      c(
-        "Silver promotion failed",
-        "x" = "Both paths$bronze and paths$silver must be configured"
-      ),
-      class = c("xpipe_silver_state", "xpipe_error")
-    )
-  }
+  method_id <- .resolve_silver_canonical_method(stream_id, config)
 
   method_cfg <- config$methods[[method_id]]
   if (is.null(method_cfg)) {
     cli::cli_abort(
       c(
-        "Unknown method",
-        "x" = "Method {.val {method_id}} not found in methods contract"
+        "Invalid Silver configuration",
+        "x" = "Canonical method {.val {method_id}} not found in methods contract"
       ),
       class = c("xpipe_methods_error", "xpipe_error")
     )
   }
+  anchor_tbl <- method_cfg$anchor_table
+  keys <- method_cfg$identity_keys
 
-  anchor_tbl <- method_cfg$anchor_table %||% NA_character_
-  keys <- method_cfg$identity_keys %||% character(0)
+  bronze_db <- fs::path(config$local$paths$bronze, paste0(stream_id, ".duckdb"))
+  silver_db <- fs::path(config$local$paths$silver, paste0(stream_id, ".duckdb"))
 
-  if (!checkmate::test_string(anchor_tbl, min.chars = 1) ||
-      !checkmate::test_character(keys, min.len = 1)) {
-    cli::cli_abort(
-      c(
-        "Invalid Silver configuration",
-        "x" = "Method must define anchor_table and identity_keys"
-      ),
-      class = c("xpipe_silver_config", "xpipe_error")
-    )
-  }
 
-  bronze_db <- fs::path(bronze_root, paste0(stream_id, ".duckdb"))
-  silver_db <- fs::path(silver_root, paste0(stream_id, ".duckdb"))
+  # 2. Open DuckDB and attach Bronze
 
-  if (!fs::file_exists(bronze_db)) {
-    cli::cli_abort(
-      c(
-        "Bronze database not found",
-        "x" = "Expected {.file {bronze_db}} to exist"
-      ),
-      class = c("xpipe_bronze_state", "xpipe_error")
-    )
-  }
-
-  fs::dir_create(silver_root, recurse = TRUE)
-
-  con_s <- DBI::dbConnect(
-    duckdb::duckdb(),
-    dbdir = as.character(silver_db),
-    read_only = FALSE
-  )
-
-  on.exit({
-    try(.silver_exec(con_s, "DETACH bronze"), silent = TRUE)
-    DBI::dbDisconnect(con_s, shutdown = TRUE)
-  }, add = TRUE)
-
-  try(.silver_exec(con_s, "DETACH bronze"), silent = TRUE)
+  con <- DBI::dbConnect(duckdb::duckdb(), silver_db, read_only = FALSE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
   .silver_exec(
-    con_s,
+    con,
     paste0(
       "ATTACH ",
-      DBI::dbQuoteLiteral(con_s, as.character(bronze_db)),
+      DBI::dbQuoteLiteral(con, bronze_db),
       " AS bronze (READ_ONLY)"
     )
   )
 
-  prefix <- paste0(stream_id, "__", method_id, "__")
-  anchor_full <- paste0(prefix, anchor_tbl)
 
-  bronze_tables <- .silver_query(
-    con_s,
-    "SELECT table_name
-     FROM duckdb_tables()
-     WHERE database_name = 'bronze'
-       AND schema_name = 'main'"
-  )$table_name
+  # 3. Up-to-date check + UX decision
 
-  method_tables <- bronze_tables[startsWith(bronze_tables, prefix)]
+  if (.is_silver_up_to_date(con, stream_id, method_id, anchor_tbl)) {
 
-  if (!(anchor_full %in% method_tables)) {
-    cli::cli_abort(
-      c(
-        "Anchor table not found in Bronze",
-        "x" = "Expected {.val {anchor_full}} to exist"
-      ),
-      class = c("xpipe_silver_anchor", "xpipe_error")
+    answer <- readline(
+      paste0(
+        "Silver-current is already up to date for stream ",
+        stream_id, ". Rebuild anyway? [y/N]: "
+      )
+    )
+
+    if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
+      cli::cli_inform(
+        "Silver-current for stream {.val {stream_id}} left unchanged."
+      )
+      return(invisible(TRUE))
+    }
+
+    cli::cli_inform(
+      "Rebuilding Silver-current for stream {.val {stream_id}} despite being up to date."
     )
   }
 
-  current_anchor <- paste0("current__", anchor_tbl)
 
-  key_cols <- DBI::dbQuoteIdentifier(con_s, keys)
-  keys_sql <- paste(key_cols, collapse = ", ")
+  # 4. Transactional rebuild
 
-  bronze_anchor <- paste0(
-    "bronze.main.",
-    DBI::dbQuoteIdentifier(con_s, anchor_full)
-  )
-
-  DBI::dbBegin(con_s)
+  DBI::dbBegin(con)
 
   rlang::try_fetch(
     {
-      .silver_exec(
-        con_s,
-        paste0(
-          "CREATE OR REPLACE TABLE ",
-          DBI::dbQuoteIdentifier(con_s, current_anchor), " AS
-           SELECT * EXCLUDE (rn)
-           FROM (
-             SELECT
-               a.*,
-               ROW_NUMBER() OVER (
-                 PARTITION BY ", keys_sql, "
-                 ORDER BY __batch_created_at DESC, __batch_id DESC
-               ) AS rn
-             FROM ", bronze_anchor, " a
-           ) t
-           WHERE rn = 1"
-        )
-      )
-
-      for (bt in method_tables) {
-        short <- sub(prefix, "", bt, fixed = TRUE)
-        if (identical(short, anchor_tbl)) next
-
-        bronze_sec <- paste0(
-          "bronze.main.",
-          DBI::dbQuoteIdentifier(con_s, bt)
-        )
-
-        current_sec <- paste0("current__", short)
-
-        join_keys <- paste(
-          paste0(
-            "s.", DBI::dbQuoteIdentifier(con_s, keys),
-            " = a.", DBI::dbQuoteIdentifier(con_s, keys)
-          ),
-          collapse = " AND "
-        )
-
-        .silver_exec(
-          con_s,
-          paste0(
-            "CREATE OR REPLACE TABLE ",
-            DBI::dbQuoteIdentifier(con_s, current_sec), " AS
-             SELECT s.*
-             FROM ", bronze_sec, " s
-             INNER JOIN ", DBI::dbQuoteIdentifier(con_s, current_anchor), " a
-               ON ", join_keys, "
-              AND s.__batch_id = a.__batch_id"
-          )
-        )
-      }
-
-      DBI::dbCommit(con_s)
+      ## CREATE OR REPLACE current__anchor
+      ## CREATE OR REPLACE current__secondary tables
+      DBI::dbCommit(con)
       invisible(TRUE)
     },
     error = function(e) {
-      try(DBI::dbRollback(con_s), silent = TRUE)
+      try(DBI::dbRollback(con), silent = TRUE)
       cli::cli_abort(
-        c(
-          "Silver-current promotion failed",
-          "x" = "Silver tables were not rebuilt successfully."
-        ),
+        "Silver-current promotion failed",
         parent = e,
         class = c("xpipe_silver_error", "xpipe_error")
       )
     }
   )
 }
+
+
+## CLI ---------------------------------------------------------------------
+
+#' Confirm Silver promotion
+#'
+#' @param confirm Logical.
+#' @keywords internal
+#' @noRd
+.confirm_silver_promotion <- function(confirm = interactive()) {
+  checkmate::assert_flag(confirm)
+
+  if (!isTRUE(confirm)) return(invisible(TRUE))
+
+  # Try climenu first, fall back cleanly if unsupported
+  if (requireNamespace("climenu", quietly = TRUE) && interactive()) {
+    choice <- tryCatch(
+      climenu::select(
+        c("Yes, continue", "No, abort"),
+        prompt = "Proceed with Silver promotion?"
+      ),
+      error = function(e) NULL
+    )
+    if (!is.null(choice)) {
+      if (choice != "Yes, continue") {
+        cli::cli_abort(
+          "Silver promotion aborted by user.",
+          class = c("xpipe_silver_abort", "xpipe_silver_error", "xpipe_error")
+        )
+      }
+      return(invisible(TRUE))
+    }
+  }
+
+  answer <- readline("Proceed with Silver promotion? [y/N]: ")
+  if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
+    cli::cli_abort(
+      "Silver promotion aborted by user.",
+      class = c("xpipe_silver_abort", "xpipe_silver_error", "xpipe_error")
+    )
+  }
+
+  invisible(TRUE)
+}
+
 '''
 R/core_config.R
 '''
@@ -2103,6 +2279,14 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
                                  .load_methods_contract(config$local)
   )
 
+  silver_contract <- .config_step(
+    "load Silver contract",
+    .load_silver_contract(config$local)
+  )
+
+  config$silver_meta <- silver_contract$meta
+  config$silver      <- silver_contract$streams
+
   # Validate schema domains consistency
   stream_domains  <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
   method_domains  <- unique(vapply(config$methods, `[[`, "", "schema_domain"))
@@ -2118,6 +2302,38 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
       ),
       class = c("xpipe_config_schema_domain", "xpipe_config_error", "xpipe_error")
     )
+  }
+
+  # Validate Silver canonical methods
+  for (stream_id in names(config$silver)) {
+    s <- config$silver[[stream_id]]
+
+    if (isTRUE(s$current$enabled)) {
+      method_id <- s$canonical_method
+
+      if (!method_id %in% names(config$methods)) {
+        cli::cli_abort(
+          c(
+            "Invalid silver contract",
+            "x" = "Canonical method {.val {method_id}} for stream {.val {stream_id}} does not exist"
+          ),
+          class = c("xpipe_config_error", "xpipe_error")
+        )
+      }
+
+      method_domain <- config$methods[[method_id]]$schema_domain
+      stream_domain <- config$streams[[stream_id]]$schema_domain
+
+      if (!identical(method_domain, stream_domain)) {
+        cli::cli_abort(
+          c(
+            "Invalid silver contract",
+            "x" = "Canonical method {.val {method_id}} domain {.val {method_domain}} does not match stream {.val {stream_id}} domain {.val {stream_domain}}"
+          ),
+          class = c("xpipe_config_error", "xpipe_error")
+        )
+      }
+    }
   }
 
   cli::cli_alert_success("Configuration system loaded and validated.")
@@ -2345,8 +2561,8 @@ get_xpipe_config <- function() {
 #' Loads and validates the Methods contract, which defines ingestion
 #' mechanics and extraction rules used to materialize Batch data.
 #'
-#' A Method describes HOW data is ingested (format, components,
-#' identity, partitioning, privacy), not WHAT the data means.
+#' A Method describes HOW data is ingested (format, file_inputs, source_tables,
+#' partitioning, privacy), not WHAT the data means.
 #'
 #' The Methods contract is a CONTROL-PLANE artifact and must not
 #' be confused with medallion data layers.
@@ -2371,6 +2587,58 @@ get_xpipe_config <- function() {
   )
 }
 
+#' Load Silver Contract
+#'
+#' Loads and validates the Silver contract, which defines the canonical
+#' method used to build Silver-current per stream.
+#'
+#' @param local_config Local configuration.
+#' @return Parsed silver contract.
+#' @noRd
+.load_silver_contract <- function(local_config) {
+  path <- fs::path(local_config$paths$shared, "silver.json")
+
+  .validate_json_schema(
+    json_path   = path,
+    schema_name = "silver_contract.schema.json",
+    error_title = "Invalid silver.json",
+    error_class = "xpipe_config_error"
+  )
+
+  raw <- .read_json_safe(
+    path,
+    error_title = "Invalid silver contract",
+    error_class = "xpipe_config_error"
+  )
+
+  meta <- raw$`_meta`
+  if (is.null(meta) || meta$type != "silver_contract") {
+    cli::cli_abort(
+      c(
+        "Invalid silver contract",
+        "x" = "Missing or invalid {.field _meta.type}",
+        "i" = "Expected: 'silver_contract'"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  streams <- raw$streams
+  if (is.null(streams) || length(streams) == 0) {
+    cli::cli_abort(
+      c(
+        "Invalid silver contract",
+        "x" = "No streams defined"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  list(
+    meta    = meta,
+    streams = streams
+  )
+}
 
 
 
@@ -2872,25 +3140,24 @@ R/core_crypto.R
 
 #' Apply Privacy Rules to an Extracted Data Frame
 #'
-#' Applies method-level privacy rules to a data frame produced during batch
-#' extraction. Two rule types are supported:
+#' Applies method-level privacy rules to a data frame produced during Batch
+#' extraction, before Parquet writing.
 #'
-#' - **Pseudonymization**: selected columns are replaced with HMAC-SHA256
-#'   hashes, keyed by a runtime pepper. Hashing is deterministic and
-#'   case/whitespace-insensitive.
-#' - **Column removal**: columns listed under `skip` are dropped entirely
-#'   before persistence.
+#' - `privacy$skip`: drops declared columns (supports `scalar` and `list`)
+#' - `privacy$hash`: pseudonymizes declared columns using HMAC-SHA256
+#'      (supports `scalar` and `list`, list-columns are hashed element-wise)
+#'    The declared shape (`scalar` vs `list`) is authoritative; mismatches abort.
 #'
-#' Rules are defined in `methods.json` and loaded as part of the method
-#' configuration. This function is called by the batch materialization
-#' pipeline and should not need to be invoked directly.
+#' Hashing is deterministic (same input + pepper = same hash) and
+#' case/whitespace-insensitive, allowing downstream joins without exposing raw
+#' identifiers. The pepper is never stored on disk.
 #'
 #' @param df Data frame to process.
-#' @param table_name Character scalar. Table name used in progress messages.
-#' @param method_config Named list containing privacy rule fields
-#'   (`pseudonymize`, `skip`) as defined in the methods contract.
-#' @param pepper Character scalar. HMAC key loaded from the environment
-#'   via [load_xpipe_config()]. Must be non-empty.
+#' @param table_name Character scalar. Name of the extracted table.
+#' @param method_config Named list that may contain a `privacy` block.
+#'   If `privacy` is absent, the function is a no-op and returns `df` unchanged.
+#' @param pepper Character scalar. HMAC key loaded from the environment via
+#'   [load_xpipe_config()]. Must be non-empty.
 #'
 #' @return The input data frame with privacy rules applied.
 #'
@@ -2904,30 +3171,70 @@ apply_privacy_rules <- function(df, table_name, method_config, pepper) {
 
   if (nrow(df) == 0) return(df)
 
-  existing_pseudo <- character(0)
-  existing_skip   <- character(0)
-
-  if (!is.null(method_config$pseudonymize)) {
-    existing_pseudo <- intersect(method_config$pseudonymize, names(df))
+  if (is.null(method_config$privacy)) {
+    return(df)
   }
 
-  if (!is.null(method_config$skip)) {
-    existing_skip <- intersect(method_config$skip, names(df))
-  }
+  privacy <- method_config$privacy
 
-  if (length(existing_pseudo) > 0 || length(existing_skip) > 0) {
-
-    cli::cli_inform("Applying privacy to {table_name}")
-
-    if (length(existing_pseudo) > 0) {
-      df <- .pseudonymize_cols(df, existing_pseudo, pepper)
-      .log_debug("Pseudonymized: {paste(existing_pseudo, collapse = ', ')}")
+  .assert_shape <- function(x, shape, tbl, col, action) {
+    if (identical(shape, "scalar") && is.list(x)) {
+      cli::cli_abort(
+        c(
+          "Privacy rule shape mismatch",
+          "x" = "Column {.val {tbl}.{col}} is a list-column but declared as scalar ({.val {action}})"
+        ),
+        class = c("xpipe_privacy", "xpipe_batch_error", "xpipe_error")
+      )
     }
+    if (identical(shape, "list") && !is.list(x)) {
+      cli::cli_abort(
+        c(
+          "Privacy rule shape mismatch",
+          "x" = "Column {.val {tbl}.{col}} is scalar but declared as list ({.val {action}})"
+        ),
+        class = c("xpipe_privacy", "xpipe_batch_error", "xpipe_error")
+      )
+    }
+    if (!identical(shape, "scalar") && !identical(shape, "list")) {
+      cli::cli_abort(
+        c(
+          "Invalid privacy rule",
+          "x" = "Unsupported privacy shape {.val {shape}} for {.val {tbl}.{col}}"
+        ),
+        class = c("xpipe_privacy", "xpipe_batch_error", "xpipe_error")
+      )
+    }
+    invisible(TRUE)
+  }
 
-    if (length(existing_skip) > 0) {
-      df <- dplyr::select(df, -dplyr::all_of(existing_skip))
-      # Visible only if local.json has level: "debug"
-      .log_debug("Dropped: {paste(existing_skip, collapse = ', ')}")
+  # 1) SKIP
+  skip_spec <- privacy$skip %||% list()
+  skip_tbl  <- skip_spec[[table_name]] %||% NULL
+  if (!is.null(skip_tbl) && length(skip_tbl) > 0) {
+    cols <- intersect(names(skip_tbl), names(df))
+    for (col in cols) .assert_shape(df[[col]], skip_tbl[[col]], table_name, col, "skip")
+    if (length(cols) > 0) df[cols] <- NULL
+  }
+
+  # 2) HASH
+  hash_spec <- privacy$hash %||% list()
+  hash_tbl  <- hash_spec[[table_name]] %||% NULL
+  if (!is.null(hash_tbl) && length(hash_tbl) > 0) {
+    cols <- intersect(names(hash_tbl), names(df))
+    for (col in cols) {
+      shape <- hash_tbl[[col]]
+      x <- df[[col]]
+      .assert_shape(x, shape, table_name, col, "hash")
+      if (identical(shape, "scalar")) {
+        df[[col]] <- hash_phi(as.character(x), pepper)
+      } else {
+        df[[col]] <- lapply(x, function(v) {
+          if (is.null(v)) return(NULL)
+          if (length(v) == 0) return(character(0))
+          hash_phi(as.character(v), pepper)
+        })
+      }
     }
   }
 
@@ -3023,21 +3330,8 @@ R/layers_inspect.R
 
 #' Inspect the Batch layer
 #'
-#' Scans the local Batch layer directory and returns a structured
-#' representation of all discovered batches and their metadata.
-#'
-#' Incomplete batches (missing \code{_batch_metadata.json}) are recorded
-#' but marked as such and excluded from detailed inspection.
-#'
-#' @param config An \code{xpipe_config} object.
-#'
-#' @return An object of class \code{xpipe_batch_layer} containing:
-#' \itemize{
-#'   \item \code{root} - batch layer root path
-#'   \item \code{count} - number of batch directories found
-#'   \item \code{batches} - named list of batch metadata
-#' }
-#'
+#' @param config xpipe_config object.
+#' @return xpipe_batch_layer
 #' @export
 inspect_batch_layer <- function(config = get_xpipe_config()) {
   if (!inherits(config, "xpipe_config")) {
@@ -3048,7 +3342,6 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
   }
 
   batch_root <- config$local$paths$batch
-
   if (!fs::dir_exists(batch_root)) {
     cli::cli_abort(
       "Batch layer directory does not exist: {.file {batch_root}}",
@@ -3057,33 +3350,290 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
   }
 
   batch_dirs <- fs::dir_ls(batch_root, type = "directory", recurse = FALSE)
-
-  # Defensive: remove empty directory names
   batch_dirs <- batch_dirs[nzchar(basename(batch_dirs))]
-
   ids <- basename(batch_dirs)
-  metadata_files <- fs::path(batch_dirs, "_batch_metadata.json")
-  has_meta <- fs::file_exists(metadata_files)
+
+  meta_paths <- fs::path(batch_dirs, "_batch_metadata.json")
+  has_meta <- fs::file_exists(meta_paths)
+
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:", read_only = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
   batches <- vector("list", length(ids))
   names(batches) <- ids
 
   for (i in seq_along(ids)) {
-    if (!has_meta[i]) {
-      batches[[i]] <- list(.status = "incomplete")
+    bd <- batch_dirs[[i]]
+    id <- ids[[i]]
+
+    info <- list(
+      batch_id = id,
+      path = bd,
+      status = "ok",
+      meta = NULL,
+      parquet_files = character(0),
+      parquet_tables = character(0),
+      parquet_stats = data.frame(),
+      checks = list()
+    )
+
+    if (!has_meta[[i]]) {
+      info$status <- "incomplete"
+      batches[[i]] <- info
       next
     }
 
-    batches[[i]] <- jsonlite::fromJSON(metadata_files[i], simplifyVector = TRUE)
+    meta <- rlang::try_fetch(
+      jsonlite::fromJSON(meta_paths[[i]], simplifyVector = TRUE),
+      error = function(e) NULL
+    )
+
+    if (is.null(meta)) {
+      info$status <- "invalid_metadata"
+      batches[[i]] <- info
+      next
+    }
+
+    info$meta <- meta
+
+    pq_files <- fs::dir_ls(bd, glob = "*.parquet", type = "file")
+    info$parquet_files <- as.character(pq_files)
+    info$parquet_tables <- fs::path_ext_remove(fs::path_file(pq_files))
+
+    # Stats via DuckDB (no R materialization)
+    if (length(pq_files) > 0) {
+      stats <- lapply(seq_along(pq_files), function(j) {
+        p <- as.character(pq_files[[j]])
+        tbl <- info$parquet_tables[[j]]
+        p_lit <- DBI::dbQuoteLiteral(con, p)
+
+        ncols <- DBI::dbGetQuery(con, paste0("SELECT COUNT(*) AS n FROM parquet_schema(", p_lit, ")"))$n[[1]]
+        nrows <- DBI::dbGetQuery(con, paste0("SELECT COUNT(*) AS n FROM read_parquet(", p_lit, ")"))$n[[1]]
+
+        data.frame(
+          table = tbl,
+          ncols = as.integer(ncols),
+          nrows = as.integer(nrows),
+          file = p,
+          stringsAsFactors = FALSE
+        )
+      })
+      info$parquet_stats <- do.call(rbind, stats)
+    } else {
+      info$parquet_stats <- data.frame(
+        table = character(),
+        ncols = integer(),
+        nrows = integer(),
+        file = character(),
+        stringsAsFactors = FALSE
+      )
+    }
+
+    # Checks
+    method_id <- meta$method$id %||% NA_character_
+    method_cfg <- config$methods[[method_id]] %||% NULL
+    anchor <- if (!is.null(method_cfg)) method_cfg$anchor_table %||% NA_character_ else NA_character_
+
+    declared_tables <- meta$tables %||% character(0)
+    materialized_tables <- info$parquet_tables
+
+    info$checks$anchor_table <- anchor
+    info$checks$anchor_materialized <- isTRUE(nzchar(anchor) && anchor %in% materialized_tables)
+
+    info$checks$zero_column_parquet <- if (nrow(info$parquet_stats) > 0) {
+      info$parquet_stats$table[info$parquet_stats$ncols == 0]
+    } else character(0)
+
+    info$checks$declared_not_materialized <- setdiff(declared_tables, materialized_tables)
+    info$checks$materialized_not_declared <- setdiff(materialized_tables, declared_tables)
+
+    batches[[i]] <- info
   }
 
-  structure(list(
-    root    = batch_root,
-    count   = length(ids),
-    batches = batches
-  ),
-  class = "xpipe_batch_layer")
+  structure(
+    list(
+      root = batch_root,
+      count = length(ids),
+      batches = batches
+    ),
+    class = "xpipe_batch_layer"
+  )
 }
+
+
+
+#' Inspect the Bronze layer (DuckDB)
+#'
+#' Opens the stream DuckDB file in Bronze and reports:
+#' - physical tables and row counts
+#' - authoritative __promotion_log history
+#' - consistency checks between log and physical tables
+#'
+#' @param stream_id Character scalar. Stream identifier (e.g. "sdo").
+#' @param config xpipe_config.
+#' @param read_only Logical. Defaults to TRUE.
+#'
+#' @return An object of class xpipe_bronze_inspection.
+#' @export
+inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_only = TRUE) {
+
+  checkmate::assert_string(stream_id, null.ok = TRUE)
+  checkmate::assert_class(config, "xpipe_config")
+  checkmate::assert_flag(read_only)
+
+  bronze_root <- config$local$paths$bronze
+  if (!checkmate::test_string(bronze_root, min.chars = 1)) {
+    cli::cli_abort(
+      c("Bronze path not configured",
+        "x" = "Expected config$local$paths$bronze to be set"),
+      class = c("xpipe_bronze_state", "xpipe_error")
+    )
+  }
+
+  if (is.null(stream_id)) {
+    dbs <- fs::dir_ls(bronze_root, glob = "*.duckdb", type = "file")
+    streams <- fs::path_ext_remove(fs::path_file(dbs))
+
+    if (length(streams) == 0) {
+      cli::cli_abort(
+        c("No Bronze databases found",
+          "x" = "No *.duckdb files found in {.file {bronze_root}}"),
+        class = c("xpipe_bronze_state", "xpipe_error")
+      )
+    }
+
+    choice <- NULL
+
+    if (interactive() && requireNamespace("climenu", quietly = TRUE)) {
+      choice <- tryCatch(
+        climenu::select(streams, prompt = "Select Bronze stream to inspect"),
+        error = function(e) NULL
+      )
+    }
+
+    if (!is.null(choice)) {
+      stream_id <- choice
+    } else {
+      # fallback: simple numbered prompt (no cli_inform)
+      cat("\nSelect Bronze stream to inspect\n\n")
+
+      for (i in seq_along(streams)) {
+        cat(sprintf(" %d. %s\n", i, streams[[i]]))
+      }
+
+      cat("\n")
+      k <- suppressWarnings(as.integer(readline("Enter number: ")))
+
+      if (is.na(k) || k < 1 || k > length(streams)) {
+        cli::cli_abort(
+          "Invalid selection.",
+          class = c("xpipe_bronze_state", "xpipe_error")
+        )
+      }
+
+      stream_id <- streams[[k]]
+    }
+
+  }
+
+  bronze_db <- fs::path(bronze_root, paste0(stream_id, ".duckdb"))
+  if (!fs::file_exists(bronze_db)) {
+    cli::cli_abort(
+      c("Bronze database not found",
+        "x" = "Expected {.file {bronze_db}} to exist"),
+      class = c("xpipe_bronze_state", "xpipe_error")
+    )
+  }
+
+  con <- DBI::dbConnect(
+    duckdb::duckdb(),
+    dbdir = as.character(bronze_db),
+    read_only = read_only
+  )
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  tables <- DBI::dbListTables(con)
+  has_log <- "__promotion_log" %in% tables
+
+  # data tables (exclude internal)
+  data_tables <- setdiff(tables, "__promotion_log")
+
+  # row counts (can be expensive if huge; acceptable for Bronze inspection)
+  row_counts <- if (length(data_tables) > 0) {
+    do.call(rbind, lapply(data_tables, function(tbl) {
+      n <- DBI::dbGetQuery(
+        con,
+        paste0("SELECT COUNT(*) AS n FROM ", DBI::dbQuoteIdentifier(con, tbl))
+      )$n[[1]]
+      data.frame(table_name = tbl, n = as.numeric(n), stringsAsFactors = FALSE)
+    }))
+  } else {
+    data.frame(table_name = character(), n = numeric(), stringsAsFactors = FALSE)
+  }
+
+  # promotion history
+  promotion_log <- if (isTRUE(has_log)) {
+    DBI::dbGetQuery(
+      con,
+      "SELECT batch_id, stream_id, method_id, promoted_at, batch_created_at, tables, tool, tool_version
+       FROM __promotion_log
+       ORDER BY promoted_at DESC"
+    )
+  } else {
+    data.frame(
+      batch_id = character(),
+      stream_id = character(),
+      method_id = character(),
+      promoted_at = as.POSIXct(character()),
+      batch_created_at = as.POSIXct(character()),
+      tables = character(),
+      tool = character(),
+      tool_version = character(),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # parse promoted table list from JSON
+  promoted_tables_from_log <- character(0)
+  if (nrow(promotion_log) > 0) {
+    promoted_tables_from_log <- unlist(lapply(promotion_log$tables, function(x) {
+      if (is.null(x) || is.na(x) || !nzchar(x)) return(character(0))
+      out <- tryCatch(jsonlite::fromJSON(x), error = function(e) NULL)
+      if (is.null(out)) return(character(0))
+      as.character(out)
+    }))
+    promoted_tables_from_log <- unique(promoted_tables_from_log)
+  }
+
+  # sanity checks
+  checks <- list()
+  checks$has_promotion_log <- isTRUE(has_log)
+  checks$log_rows <- nrow(promotion_log)
+  checks$data_tables_count <- length(data_tables)
+
+  checks$log_tables_missing_physically <- setdiff(promoted_tables_from_log, data_tables)
+  checks$physical_tables_not_in_log <- setdiff(data_tables, promoted_tables_from_log)
+
+  # latest promotion summary
+  latest <- if (nrow(promotion_log) > 0) promotion_log[1, , drop = FALSE] else promotion_log
+
+  structure(
+    list(
+      stream_id = stream_id,
+      bronze_db = as.character(bronze_db),
+      tables = tables,
+      data_tables = data_tables,
+      row_counts = row_counts,
+      promotion_log = promotion_log,
+      latest = latest,
+      promoted_tables_from_log = promoted_tables_from_log,
+      checks = checks
+    ),
+    class = "xpipe_bronze_inspection"
+  )
+}
+
+
 
 #' Inspect Silver-current tables
 #'
@@ -3099,15 +3649,77 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
 #' @return An object of class `xpipe_silver_current_inspection`.
 #' @export
 inspect_silver_current <- function(
-    stream_id,
-    method_id,
+    stream_id = NULL,
+    method_id = NULL,
     config = get_xpipe_config(),
     read_only = TRUE
 ) {
-  checkmate::assert_string(stream_id)
-  checkmate::assert_string(method_id)
+
+  checkmate::assert_string(stream_id, null.ok = TRUE)
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_flag(read_only)
+
+  if (is.null(stream_id)) {
+    streams <- names(config$silver)
+
+    if (length(streams) == 0) {
+      cli::cli_abort(
+        "No Silver streams configured",
+        class = c("xpipe_silver_state", "xpipe_error")
+      )
+    }
+
+    choice <- NULL
+    if (interactive() && requireNamespace("climenu", quietly = TRUE)) {
+      choice <- tryCatch(
+        climenu::select(streams, prompt = "Select Silver stream to inspect"),
+        error = function(e) NULL
+      )
+    }
+
+    if (!is.null(choice)) {
+      stream_id <- choice
+    } else {
+      cat("\nSelect Silver stream to inspect\n\n")
+      for (i in seq_along(streams)) {
+        cat(sprintf(" %d. %s\n", i, streams[[i]]))
+      }
+      cat("\n")
+      k <- suppressWarnings(as.integer(readline("Enter number: ")))
+      if (is.na(k) || k < 1 || k > length(streams)) {
+        cli::cli_abort(
+          "Invalid selection.",
+          class = c("xpipe_silver_state", "xpipe_error")
+        )
+      }
+      stream_id <- streams[[k]]
+    }
+  }
+
+  silver_cfg <- config$silver[[stream_id]]
+  if (is.null(silver_cfg)) {
+    cli::cli_abort(
+      c(
+        "Silver not configured for stream",
+        "x" = "Stream {.val {stream_id}} not found in silver.json"
+      ),
+      class = c("xpipe_silver_state", "xpipe_error")
+    )
+  }
+
+  if (!isTRUE(silver_cfg$current$enabled)) {
+    cli::cli_abort(
+      c(
+        "Silver-current disabled",
+        "x" = "Silver-current is disabled for stream {.val {stream_id}}"
+      ),
+      class = c("xpipe_silver_state", "xpipe_error")
+    )
+  }
+
+  canonical_method <- silver_cfg$canonical_method
+  method_id <- method_id %||% canonical_method
+  checkmate::assert_string(method_id)
 
   silver_root <- config$local$paths$silver
   if (!checkmate::test_string(silver_root, min.chars = 1)) {
@@ -3162,6 +3774,59 @@ inspect_silver_current <- function(
     read_only = read_only
   )
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  # Silver vs Bronze currency check
+
+  latest_bronze_batch <- NA_character_
+
+  # Try to read Bronze promotion log if Bronze DB is available
+  bronze_db <- fs::path(config$local$paths$bronze, paste0(stream_id, ".duckdb"))
+  if (fs::file_exists(bronze_db)) {
+    try({
+      DBI::dbExecute(
+        con,
+        paste0(
+          "ATTACH ",
+          DBI::dbQuoteLiteral(con, as.character(bronze_db)),
+          " AS bronze (READ_ONLY)"
+        )
+      )
+
+      latest_bronze_batch <- DBI::dbGetQuery(
+        con,
+        paste0(
+          "SELECT MAX(batch_id) AS batch_id
+         FROM bronze.main.__promotion_log
+         WHERE stream_id = ",
+          DBI::dbQuoteLiteral(con, stream_id),
+          " AND method_id = ",
+          DBI::dbQuoteLiteral(con, canonical_method)
+        )
+      )$batch_id[[1]]
+
+      DBI::dbExecute(con, "DETACH bronze")
+    }, silent = TRUE)
+  }
+
+  latest_silver_batch <- NA_character_
+  current_anchor <- paste0("current__", anchor_tbl)
+
+  if (current_anchor %in% DBI::dbListTables(con)) {
+    latest_silver_batch <- DBI::dbGetQuery(
+      con,
+      paste0(
+        "SELECT MAX(__batch_id) AS batch_id
+       FROM ", DBI::dbQuoteIdentifier(con, current_anchor)
+      )
+    )$batch_id[[1]]
+  }
+
+  silver_status <- dplyr::case_when(
+    is.na(latest_bronze_batch) ~ "UNKNOWN",
+    is.na(latest_silver_batch) ~ "STALE",
+    identical(latest_bronze_batch, latest_silver_batch) ~ "UP TO DATE",
+    TRUE ~ "STALE"
+  )
 
   tables <- DBI::dbListTables(con)
   current_tables <- tables[startsWith(tables, "current__")]
@@ -3285,6 +3950,7 @@ inspect_silver_current <- function(
     list(
       stream_id = stream_id,
       method_id = method_id,
+      canonical_method = canonical_method,
       silver_db = silver_db,
       tables = tables,
       current_tables = current_tables,
@@ -3293,7 +3959,10 @@ inspect_silver_current <- function(
       row_counts = row_counts,
       duplicate_keys = duplicate_keys,
       orphan_checks = orphan_checks,
-      batch_distribution = batch_distribution
+      batch_distribution = batch_distribution,
+      latest_bronze_batch = latest_bronze_batch,
+      latest_silver_batch = latest_silver_batch,
+      silver_status = silver_status
     ),
     class = "xpipe_silver_current_inspection"
   )
@@ -3305,100 +3974,508 @@ inspect_silver_current <- function(
 
 #' Print Method for xpipe_batch_layer
 #'
-#' @param x An object of class \code{xpipe_batch_layer}.
-#' @param ... Additional arguments (ignored).
 #' @export
 print.xpipe_batch_layer <- function(x, ...) {
-  cli::cli_div(theme = list(rule = list(
-    color = "cyan", "line-type" = "double"
-  )))
-
-  cli::cli_rule("Batch Layer", right = "xpipe")
-
-  cli::cli_bullets(c("Path        : {.file {x$root}}", "Batch count : {.val {x$count}}"))
-
-  if (x$count == 0) {
-    cli::cli_alert_info("No batches found.")
-    return(invisible(x))
+  pad <- function(x, width) {
+    x <- as.character(x)
+    paste0(x, strrep(" ", pmax(0, width - nchar(x))))
   }
 
-  # Filter valid batches
-  metas <- x$batches
-  metas <- metas[!vapply(metas, function(m)
-    isTRUE(m$.status == "incomplete"), logical(1))]
-
-  if (length(metas) == 0) {
-    cli::cli_alert_warning("Found {x$count} batch directories, but all are incomplete (missing metadata).")
-    return(invisible(x))
+  fmt_bool <- function(v) {
+    if (isTRUE(v)) "YES" else "NO"
   }
-  created <- vapply(metas, function(m)
-    as.POSIXct(m$execution$created_at, tz = "UTC"), as.POSIXct(NA))
 
-  latest_id <- names(which.max(created))
-  latest    <- metas[[latest_id]]
+  head_tail <- function(v, n = 12) {
+    v <- as.character(v)
+    if (length(v) <= n) return(v)
+    c(v[seq_len(n)], paste0("… +", length(v) - n, " more"))
+  }
 
-  # Latest batch
-  cli::cli_h2("Latest Batch")
-  cli::cli_text("{.strong {latest_id}}")
-
-  cli::cli_bullets(c(
-    paste0(
-      "Stream       : ",
-      latest$stream$id,
-      " [",
-      latest$stream$schema_domain,
-      "]"
-    ),
-    paste0("Method       : ", latest$method$id, " [", latest$method$type, "]"),
-    paste0("Input        : ", latest$input$path),
-    paste0("Created at   : ", latest$execution$created_at),
-    paste0(
-      "Producer     : ",
-      latest$execution$tool,
-      " ",
-      latest$execution$tool_version
+  box_list <- function(v, header, border_col = "cyan") {
+    if (length(v) == 0) v <- "None"
+    cli::cat_boxx(
+      head_tail(v),
+      header = header,
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = border_col
     )
-  ))
-
-  # Components
-  if (!is.null(latest$components)) {
-    cli::cli_text("Components")
-
-    items <- purrr::imap_chr(latest$components, ~ paste0(.x))
-
-    cli::cli_ul(items)
   }
 
-  # Other batches
-  others <- metas[names(metas) != latest_id]
+  box_table <- function(df, header, border_col = "cyan", max_rows = 20) {
+    if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
+      return(cli::cat_boxx(
+        "None",
+        header = header,
+        border_style = "round",
+        padding = c(top = 0, right = 2, bottom = 0, left = 2),
+        float = "left",
+        border_col = border_col
+      ))
+    }
 
-  if (length(others) > 0) {
-    cli::cli_h2("Other batches")
+    df2 <- df
+    if (nrow(df2) > max_rows) df2 <- df2[seq_len(max_rows), , drop = FALSE]
 
-    by_stream <- split(others, vapply(others, function(m)
-      m$stream$id, character(1)))
+    cols <- names(df2)
+    widths <- vapply(cols, function(cn) {
+      max(nchar(cn), max(nchar(as.character(df2[[cn]])), na.rm = TRUE))
+    }, numeric(1))
 
-    for (stream_id in names(by_stream)) {
-      cli::cli_h3("{stream_id} stream")
+    header_row <- paste(pad(cols, widths), collapse = "  ")
+    sep_row <- paste(vapply(widths, function(w) strrep("-", w), character(1)), collapse = "  ")
 
-      items <- vapply(names(by_stream[[stream_id]]), function(batch_id) {
-        m <- by_stream[[stream_id]][[batch_id]]
-        paste(batch_id,
-              "|",
-              m$method$id,
-              "|",
-              .format_datetime(m$execution$created_at))
-      }, character(1))
+    body <- vapply(seq_len(nrow(df2)), function(i) {
+      paste(pad(df2[i, cols, drop = FALSE], widths), collapse = "  ")
+    }, character(1))
 
-      cli::cli_ul(items)
+    lines <- c(header_row, sep_row, body)
+    if (nrow(df) > max_rows) {
+      lines <- c(lines, paste0("… +", nrow(df) - max_rows, " more"))
+    }
+
+    cli::cat_boxx(
+      lines,
+      header = header,
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = border_col
+    )
+  }
+
+  cli::cli_h2("Batch layer inspection")
+
+  # Summary counts (supports both old/new shapes)
+  batches <- x$batches %||% list()
+  ids <- names(batches)
+
+  status_of <- function(b) {
+    if (!is.null(b$status)) return(as.character(b$status))
+    if (!is.null(b$.status)) return(as.character(b$.status))
+    if (is.list(b) && !is.null(b$batch_id)) return("ok")
+    "unknown"
+  }
+
+  statuses <- vapply(batches, status_of, character(1))
+  tab <- sort(table(statuses), decreasing = TRUE)
+
+  summary_rows <- c(
+    paste0(pad("Path", 18), ": ", x$root),
+    paste0(pad("Batches", 18), ": ", x$count)
+  )
+  if (length(tab) > 0) {
+    for (nm in names(tab)) {
+      summary_rows <- c(summary_rows, paste0(pad(paste0("Status ", nm), 18), ": ", tab[[nm]]))
     }
   }
 
-  cli::cli_rule()
-  cli::cli_end()
+  cli::cat_boxx(
+    summary_rows,
+    header = "Batch Layer Summary",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = "cyan"
+  )
+
+  if (length(ids) == 0) return(invisible(x))
+
+  cli::cli_h3("Latest batch details")
+
+  # Determine latest batch by metadata execution.created_at when available
+  created <- vapply(batches, function(b) {
+    m <- b$meta %||% b
+    ts <- m$execution$created_at %||% NA_character_
+    if (!is.character(ts) || !nzchar(ts)) return(as.POSIXct(NA))
+    as.POSIXct(ts, tz = "UTC", tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"))
+  }, as.POSIXct(NA))
+
+  latest_id <- if (all(is.na(created))) ids[[1]] else names(which.max(created))
+  b <- batches[[latest_id]]
+  m <- b$meta %||% b
+
+  method_id <- m$method$id %||% NA_character_
+  stream_id <- m$stream$id %||% NA_character_
+  created_at <- m$execution$created_at %||% NA_character_
+
+  latest_rows <- c(
+    paste0(pad("Batch", 18), ": ", latest_id),
+    paste0(pad("Status", 18), ": ", status_of(b)),
+    paste0(pad("Stream", 18), ": ", stream_id),
+    paste0(pad("Method", 18), ": ", method_id),
+    paste0(pad("Created at", 18), ": ", created_at)
+  )
+
+  # Extra info if new inspect is used
+  if (!is.null(b$parquet_tables)) {
+    latest_rows <- c(latest_rows, paste0(pad("Parquet tables", 18), ": ", length(b$parquet_tables)))
+  }
+
+  cli::cat_boxx(
+    latest_rows,
+    header = "Info",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = "cyan"
+  )
+
+  # Show parquet stats if available
+  if (!is.null(b$parquet_stats) && is.data.frame(b$parquet_stats)) {
+    df <- b$parquet_stats
+    keep <- intersect(c("table", "ncols", "nrows"), names(df))
+    df <- df[, keep, drop = FALSE]
+    box_table(df, header = "Parquet stats", border_col = "cyan", max_rows = 25)
+  } else {
+    # fallback: show declared tables from metadata if available
+    declared <- m$tables %||% character(0)
+    box_list(declared, header = "Declared tables (metadata)", border_col = "cyan")
+  }
+
+  # Checks (if available)
+  if (!is.null(b$checks) && is.list(b$checks)) {
+    checks <- b$checks
+    anchor <- checks$anchor_table %||% NA_character_
+    anchor_ok <- checks$anchor_materialized %||% FALSE
+    zero_cols <- checks$zero_column_parquet %||% character(0)
+    decl_not_mat <- checks$declared_not_materialized %||% character(0)
+    mat_not_decl <- checks$materialized_not_declared %||% character(0)
+
+    sanity_rows <- c(
+      paste0(pad("Anchor", 18), ": ", anchor),
+      paste0(pad("Anchor ok", 18), ": ", fmt_bool(anchor_ok))
+    )
+
+
+    # build sanity check table
+    sanity_df <- data.frame(
+      check = c(
+        "Anchor table",
+        "Zero-column parquet",
+        "Declared not materialized",
+        "Materialized not declared"
+      ),
+      result = c(
+        if (isTRUE(anchor_ok)) "OK" else "FAIL",
+        if (length(zero_cols) == 0) "OK" else "FAIL",
+        if (length(decl_not_mat) == 0) "OK" else "WARN",
+        if (length(mat_not_decl) == 0) "OK" else "WARN"
+      ),
+      detail = c(
+        anchor %||% "",
+        if (length(zero_cols) == 0) "none" else paste(zero_cols, collapse = ", "),
+        if (length(decl_not_mat) == 0) "none" else paste(decl_not_mat, collapse = ", "),
+        if (length(mat_not_decl) == 0) "none" else paste(mat_not_decl, collapse = ", ")
+      ),
+      stringsAsFactors = FALSE
+    )
+
+    # column widths
+    max_check  <- max(nchar(sanity_df$check),  nchar("check"))
+    max_result <- max(nchar(sanity_df$result), nchar("result"))
+    max_detail <- max(nchar(sanity_df$detail), nchar("detail"))
+
+    sanity_rows <- c(
+      paste0(
+        pad("check",  max_check),  "  ",
+        pad("result", max_result), "  ",
+        pad("detail", max_detail)
+      ),
+      paste0(
+        strrep("-", max_check),  "  ",
+        strrep("-", max_result), "  ",
+        strrep("-", max_detail)
+      ),
+      vapply(seq_len(nrow(sanity_df)), function(i) {
+        paste0(
+          pad(sanity_df$check[[i]],  max_check),  "  ",
+          pad(sanity_df$result[[i]], max_result), "  ",
+          pad(sanity_df$detail[[i]], max_detail)
+        )
+      }, character(1))
+    )
+
+    # overall color: red if any FAIL, yellow if any WARN, else green
+    border_col <- if (any(sanity_df$result == "FAIL")) {
+      "red"
+    } else if (any(sanity_df$result == "WARN")) {
+      "yellow"
+    } else {
+      "green"
+    }
+
+    cli::cat_boxx(
+      sanity_rows,
+      header = "Sanity checks",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = border_col
+    )
+
+  }
+
+  cli::cli_h3("More info")
+
+  # build summary rows for all batches (excluding latest)
+
+  other_ids <- setdiff(names(batches), latest_id)
+
+  other_ids <- other_ids[order(
+    vapply(other_ids, function(id) {
+      b <- batches[[id]]
+      m <- b$meta %||% b
+      ts <- m$execution$created_at %||% NA_character_
+      as.POSIXct(
+        ts,
+        tz = "UTC",
+        tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S")
+      )
+    }, as.POSIXct(NA)),
+    decreasing = TRUE
+  )]
+
+  if (length(other_ids) == 0) {
+    cli::cat_boxx(
+      "No older batches.",
+      header = "Batch history (latest first)",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = "cyan"
+    )
+  } else {
+
+    rows <- lapply(other_ids, function(id) {
+      b <- batches[[id]]
+      m <- b$meta %||% b
+
+      stream_id <- m$stream$id %||% ""
+      method_id <- m$method$id %||% ""
+      created_at <- m$execution$created_at %||% ""
+
+      # human-friendly datetime
+      created_at <- tryCatch(
+        format(
+          as.POSIXct(created_at, tz = "UTC",
+                     tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S")),
+          "%Y-%m-%d %H:%M"
+        ),
+        error = function(e) created_at
+      )
+
+      n_tables <- length(b$parquet_tables %||% character(0))
+
+      # derive generic sanity
+      chk <- b$checks %||% list()
+      sanity <- "OK"
+
+      if (isFALSE(chk$anchor_materialized) ||
+          length(chk$zero_column_parquet %||% character(0)) > 0) {
+        sanity <- "FAIL"
+      } else if (length(chk$declared_not_materialized %||% character(0)) > 0 ||
+                 length(chk$materialized_not_declared %||% character(0)) > 0) {
+        sanity <- "WARN"
+      }
+
+      c(
+        batch_id = id,
+        stream   = stream_id,
+        method   = method_id,
+        created  = created_at,
+        tables   = as.character(n_tables),
+        sanity   = sanity
+      )
+    })
+
+    df <- as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
+
+    # column widths
+    widths <- vapply(names(df), function(nm) {
+      max(nchar(nm), max(nchar(df[[nm]]), na.rm = TRUE))
+    }, numeric(1))
+
+    table_rows <- c(
+      paste(pad(names(df), widths), collapse = "  "),
+      paste(vapply(widths, function(w) strrep("-", w), character(1)), collapse = "  "),
+      vapply(seq_len(nrow(df)), function(i) {
+        paste(pad(df[i, ], widths), collapse = "  ")
+      }, character(1))
+    )
+
+    border_col <- if ("FAIL" %in% df$sanity) {
+      "red"
+    } else if ("WARN" %in% df$sanity) {
+      "yellow"
+    } else {
+      "green"
+    }
+
+    cli::cat_boxx(
+      table_rows,
+      header = "Batch history (latest first)",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = border_col
+    )
+  }
 
   invisible(x)
 }
+
+#' Print Method for xpipe_bronze_inspection
+#'
+#' @export
+print.xpipe_bronze_inspection <- function(x, ...) {
+  pad <- function(x, width) {
+    x <- as.character(x)
+    paste0(x, strrep(" ", pmax(0, width - nchar(x))))
+  }
+
+  fmt_bool <- function(v) if (isTRUE(v)) "YES" else "NO"
+
+  head_tail <- function(v, n = 12) {
+    v <- as.character(v)
+    if (length(v) <= n) return(v)
+    c(v[seq_len(n)], paste0("… +", length(v) - n, " more"))
+  }
+
+  cli::cli_h2("Bronze stream inspection")
+
+  summary_rows <- c(
+    paste0(pad("Stream", 18), ": ", x$stream_id),
+    paste0(pad("Database", 18), ": ", x$bronze_db),
+    paste0(pad("Tables", 18), ": ", length(x$tables)),
+    paste0(pad("Data tables", 18), ": ", length(x$data_tables)),
+    paste0(pad("Has promotion log", 18), ": ", fmt_bool(x$checks$has_promotion_log)),
+    paste0(pad("Log rows", 18), ": ", x$checks$log_rows)
+  )
+
+  cli::cat_boxx(
+    summary_rows,
+    header = "Bronze Summary",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = "cyan"
+  )
+
+  # Sanity checks table
+  missing_phys <- x$checks$log_tables_missing_physically %||% character(0)
+  extra_phys <- x$checks$physical_tables_not_in_log %||% character(0)
+
+  sanity_df <- data.frame(
+    check = c(
+      "Promotion log present",
+      "Log tables missing physically",
+      "Physical tables not in log"
+    ),
+    result = c(
+      if (isTRUE(x$checks$has_promotion_log)) "OK" else "FAIL",
+      if (length(missing_phys) == 0) "OK" else "FAIL",
+      if (length(extra_phys) == 0) "OK" else "WARN"
+    ),
+    detail = c(
+      if (isTRUE(x$checks$has_promotion_log)) "__promotion_log" else "missing",
+      if (length(missing_phys) == 0) "none" else paste(head_tail(missing_phys), collapse = ", "),
+      if (length(extra_phys) == 0) "none" else paste(head_tail(extra_phys), collapse = ", ")
+    ),
+    stringsAsFactors = FALSE
+  )
+
+  max_check  <- max(nchar(sanity_df$check),  nchar("check"))
+  max_result <- max(nchar(sanity_df$result), nchar("result"))
+  max_detail <- max(nchar(sanity_df$detail), nchar("detail"))
+
+  sanity_rows <- c(
+    paste0(pad("check",  max_check),  "  ",
+           pad("result", max_result), "  ",
+           pad("detail", max_detail)),
+    paste0(strrep("-", max_check), "  ",
+           strrep("-", max_result), "  ",
+           strrep("-", max_detail)),
+    vapply(seq_len(nrow(sanity_df)), function(i) {
+      paste0(pad(sanity_df$check[[i]],  max_check),  "  ",
+             pad(sanity_df$result[[i]], max_result), "  ",
+             pad(sanity_df$detail[[i]], max_detail))
+    }, character(1))
+  )
+
+  border_col <- if (any(sanity_df$result == "FAIL")) "red" else if (any(sanity_df$result == "WARN")) "yellow" else "green"
+
+  cli::cat_boxx(
+    sanity_rows,
+    header = "Bronze sanity checks",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = border_col
+  )
+
+  # Current tables row counts (top N)
+  if (nrow(x$row_counts) > 0) {
+    df <- x$row_counts[order(-x$row_counts$n), , drop = FALSE]
+    df <- head(df, 20)
+
+    max_t <- max(nchar(df$table_name), nchar("table"))
+    max_n <- max(nchar(as.character(df$n)), nchar("rows"))
+
+    rows <- c(
+      paste0(pad("table", max_t), "  ", pad("rows", max_n)),
+      paste0(strrep("-", max_t), "  ", strrep("-", max_n)),
+      vapply(seq_len(nrow(df)), function(i) {
+        paste0(pad(df$table_name[[i]], max_t), "  ", pad(df$n[[i]], max_n))
+      }, character(1))
+    )
+
+    cli::cli_h3("More info")
+    cli::cat_boxx(
+      rows,
+      header = "Top tables by rows",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = "cyan"
+    )
+  }
+
+  # Promotion history (other batches)
+  if (nrow(x$promotion_log) > 1) {
+    df <- x$promotion_log
+    df$promoted_at <- as.character(df$promoted_at)
+    df$batch_created_at <- as.character(df$batch_created_at)
+
+    df2 <- df[, c("batch_id", "method_id", "batch_created_at", "promoted_at"), drop = FALSE]
+    if (nrow(df2) > 20) df2 <- df2[seq_len(20), , drop = FALSE]
+
+    widths <- vapply(names(df2), function(nm) {
+      max(nchar(nm), max(nchar(df2[[nm]]), na.rm = TRUE))
+    }, numeric(1))
+
+    lines <- c(
+      paste(pad(names(df2), widths), collapse = "  "),
+      paste(vapply(widths, function(w) strrep("-", w), character(1)), collapse = "  "),
+      vapply(seq_len(nrow(df2)), function(i) {
+        paste(pad(df2[i, ], widths), collapse = "  ")
+      }, character(1))
+    )
+
+    cli::cat_boxx(
+      lines,
+      header = "Promotion history (latest first)",
+      border_style = "round",
+      padding = c(top = 0, right = 2, bottom = 0, left = 2),
+      float = "left",
+      border_col = "cyan"
+    )
+  }
+
+  invisible(x)
+}
+
 
 
 #' Print Silver-current inspection
@@ -3425,53 +4502,33 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     if (isTRUE(x)) "YES" else "NO"
   }
 
-  cli::cli_h2("Silver-current inspection")
+  cli::cli_h2("Silver-current stream / method inspection")
 
   summary_rows <- c(
     paste0(pad("Stream", 18), ": ", x$stream_id),
     paste0(pad("Method", 18), ": ", x$method_id),
+    paste0(pad("Method (canonical)", 18), ": ", x$canonical_method),
     paste0(pad("Database", 18), ": ", x$silver_db),
     paste0(pad("Anchor table", 18), ": ", x$anchor_table),
-    paste0(pad("Anchor exists", 18), ": ", fmt_bool(x$anchor_exists))
+    paste0(pad("Anchor exists", 18), ": ", fmt_bool(x$anchor_exists)),
+    paste0(pad("Silver status", 18), ": ", x$silver_status),
+    paste0(pad("Latest Bronze batch", 18), ": ", x$latest_bronze_batch %||% "NA"),
+    paste0(pad("Latest Silver batch", 18), ": ", x$latest_silver_batch %||% "NA")
   )
 
   cli::cat_boxx(
     summary_rows,
-    header = "Summary",
+    header = "Silver stream / method Summary",
     border_style = "round",
     padding = c(top = 0, right = 2, bottom = 0, left = 2),
     float = "left",
-    border_col = "cyan"
+    border_col =
+      if (x$silver_status == "UP TO DATE") "cyan"
+    else if (x$silver_status == "STALE") "yellow"
+    else "red"
   )
 
-  if (nrow(x$row_counts) > 0) {
-    max_name <- max(nchar(x$row_counts$table_name), nchar("table"))
-    max_n <- max(nchar(as.character(x$row_counts$n)), nchar("rows"))
-
-    table_rows <- c(
-      paste0(pad("table", max_name), "  ", pad("rows", max_n)),
-      paste0(strrep("-", max_name), "  ", strrep("-", max_n)),
-      vapply(seq_len(nrow(x$row_counts)), function(i) {
-        paste0(
-          pad(x$row_counts$table_name[[i]], max_name),
-          "  ",
-          pad(x$row_counts$n[[i]], max_n)
-        )
-      }, character(1))
-    )
-  } else {
-    table_rows <- "No current__ tables found."
-  }
-
-  cli::cat_boxx(
-    table_rows,
-    header = "Current tables",
-    border_style = "round",
-    padding = c(top = 0, right = 2, bottom = 0, left = 2),
-    float = "left",
-    border_col = "cyan"
-  )
-
+  # Sanity checks
   uniqueness_rows <- if (!isTRUE(x$anchor_exists)) {
     "Anchor table is missing."
   } else if (nrow(x$duplicate_keys) == 0) {
@@ -3483,7 +4540,6 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     )
   }
 
-  cli::cli_h3("Sanity checks")
 
   cli::cat_boxx(
     uniqueness_rows,
@@ -3545,6 +4601,36 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
 
   cli::cli_h3("More info")
 
+  # Current tables row counts
+  if (nrow(x$row_counts) > 0) {
+    max_name <- max(nchar(x$row_counts$table_name), nchar("table"))
+    max_n <- max(nchar(as.character(x$row_counts$n)), nchar("rows"))
+
+    table_rows <- c(
+      paste0(pad("table", max_name), "  ", pad("rows", max_n)),
+      paste0(strrep("-", max_name), "  ", strrep("-", max_n)),
+      vapply(seq_len(nrow(x$row_counts)), function(i) {
+        paste0(
+          pad(x$row_counts$table_name[[i]], max_name),
+          "  ",
+          pad(x$row_counts$n[[i]], max_n)
+        )
+      }, character(1))
+    )
+  } else {
+    table_rows <- "No current__ tables found."
+  }
+
+  cli::cat_boxx(
+    table_rows,
+    header = "Current tables",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = "cyan"
+  )
+
+  # Batch distribution in anchor table
   if (nrow(x$batch_distribution) > 0) {
     bd <- x$batch_distribution
 
@@ -3647,7 +4733,7 @@ R/tools_access.R
 
 #' Extract Access Database
 #'
-#' Extracts tables configured in the method component list from an Access Database.
+#' Extracts tables configured in the method input_files list from an Access Database.
 #'
 #' @param job Batch job object.
 #' @param path Path to .mdb file.
@@ -3656,14 +4742,25 @@ R/tools_access.R
 extract_access_db <- function(ctx) {
   is_windows <- .Platform$OS.type == "windows"
 
-  target_tables <- ctx$method_config$components
+  target_tables <- ctx$method_config$source_tables
+
+  if (is.null(target_tables) || length(target_tables) == 0) {
+    cli::cli_abort(
+      c(
+        "No tables defined for extraction",
+        "x" = "Method {.val {ctx$method_id}} must define {.field source_tables}"
+      ),
+      class = c("xpipe_batch_config", "xpipe_batch_error", "xpipe_error")
+    )
+  }
+
   path <- ctx$filepath
 
   if (is.null(target_tables) || length(target_tables) == 0) {
     cli::cli_abort(
       c(
         "No tables defined for extraction",
-        "x" = "Method {.val {ctx$method_id}} is missing the {.field components} list."
+        "x" = "Method {.val {ctx$method_id}} is missing the {.field target_tables} list."
       ),
       class = c("batch_job", "config")
     )
@@ -3738,22 +4835,64 @@ R/tools_xml.R
 # Any enrichment belongs downstream.
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Profile registry --------------------------------------------------------
+
+# Profile: SDO Tracciato A+B (+C+D)
+.xml_profile_sdo_tracciato_abcd <- function(doc, path, ctx) {
+  root_name <- xml2::xml_name(xml2::xml_root(doc))
+
+  if (root_name == "flsaInformazioniAnagrafiche") {
+    .log_debug("Detected Tracciato A schema.")
+    return(list(anagrafica = .parse_tracciato_a(doc)))
+  }
+
+  if (root_name == "flsbInformazioniRicovero") {
+    .log_debug("Detected Tracciato B schema.")
+    return(.parse_tracciato_b(doc))
+  }
+
+  cli::cli_abort(
+    c(
+      "Unrecognized SDO XML schema",
+      "x" = "File {.file {basename(path)}} has unknown root node: {.val {root_name}}"
+    ),
+    class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+  )
+}
+
+
+# XML profile registry (code-driven)
+.xml_profile_registry <- list(
+  sdo_tracciato_abcd = .xml_profile_sdo_tracciato_abcd
+)
 
 # Internal API ------------------------------------------------------------
 
 
-#' Extract XML Data (Main Dispatcher)
+#' Extract XML Data (Profile Dispatcher)
 #' @export
 #' @keywords internal
 extract_xml <- function(ctx) {
   checkmate::assert_list(ctx)
 
-  domain <- ctx$method_config$schema_domain
-  if (domain != "sdo") {
+  profile <- ctx$method_config$xml_profile %||% NA_character_
+  if (!checkmate::test_string(profile, min.chars = 1)) {
     cli::cli_abort(
       c(
-        "Unsupported schema domain",
-        "x" = "The XML extractor does not support the domain: {.val {domain}}"
+        "Invalid method configuration",
+        "x" = "Missing {.field xml_profile} for XML method {.val {ctx$method_id}}"
+      ),
+      class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+    )
+  }
+
+  parser <- .xml_profile_registry[[profile]] %||% NULL
+  if (is.null(parser) || !is.function(parser)) {
+    cli::cli_abort(
+      c(
+        "Unknown XML profile",
+        "x" = "No parser registered for profile {.val {profile}}",
+        "i" = "Registered profiles: {.val {names(.xml_profile_registry)}}"
       ),
       class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
     )
@@ -3764,23 +4903,26 @@ extract_xml <- function(ctx) {
     paths <- ctx$filepath
   }
 
-  extracted_all <- list()
+  # accumulate per-table outputs across multiple XML files
+  acc <- list()
 
   for (path in paths) {
     cli::cli_inform("Reading XML document: {.file {basename(path)}}")
     doc <- xml2::read_xml(path)
-    root_name <- xml2::xml_name(xml2::xml_root(doc))
 
-    res <- .extract_xml_sdo(doc, root_name, path)
+    res <- parser(doc, path, ctx)
 
     for (nm in names(res)) {
-      extracted_all[[nm]] <- res[[nm]]
+      if (is.null(acc[[nm]])) {
+        acc[[nm]] <- res[[nm]]
+      } else {
+        acc[[nm]] <- .rbind_fill_dfs(list(acc[[nm]], res[[nm]]))
+      }
     }
   }
 
-  extracted_all
+  acc
 }
-
 
 
 
@@ -3850,31 +4992,28 @@ extract_xml <- function(ctx) {
   )
 }
 
+# Bind data.frames preserving list-columns, aligning missing columns
+.rbind_fill_dfs <- function(dfs) {
+  dfs <- dfs[!vapply(dfs, is.null, logical(1))]
+  if (length(dfs) == 0) return(NULL)
+  if (length(dfs) == 1) return(dfs[[1]])
+
+  all_cols <- unique(unlist(lapply(dfs, names)))
+  dfs2 <- lapply(dfs, function(d) {
+    missing <- setdiff(all_cols, names(d))
+    if (length(missing) > 0) {
+      for (m in missing) d[[m]] <- NA
+    }
+    d[all_cols]
+  })
+  do.call(rbind, dfs2)
+}
+
 
 
 # SDO ---------------------------------------------------------------------
 
-#' SDO Domain Helper
-#' @noRd
-.extract_xml_sdo <- function(doc, root_name, path) {
-  if (root_name == "flsaInformazioniAnagrafiche") {
-  .log_debug("Detected Tracciato A schema.")
-  return(list(anagrafica = .parse_tracciato_a(doc)))
-  }
 
-  if (root_name == "flsbInformazioniRicovero") {
-    .log_debug("Detected Tracciato B schema.")
-    return(.parse_tracciato_b(doc))
-  }
-
-  cli::cli_abort(
-    c(
-      "Unrecognized SDO XML schema",
-      "x" = "File {.file {basename(path)}} has unknown root node: {.val {root_name}}"
-    ),
-    class =  c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
-  )
-}
 
 ## Tracciato A -------------------------------------------------------------
 
@@ -3979,10 +5118,10 @@ extract_xml <- function(ctx) {
   prog   <- ctx$prog
 
   .normalize_diagnosi_cols <- function(nm) {
-    nm <- sub("^diagnosiPrincipaleDimissione$", "diagnosiDimissione", nm)
-    nm <- sub("^diagnosiSecondarieDimissione$", "diagnosiDimissione", nm)
     nm <- sub("^diagnosiPrincipaleDimissioneAlRicovero$", "presenteAlRicovero", nm)
     nm <- sub("^diagnosiSecondarieDimissioneAlRicovero$", "presenteAlRicovero", nm)
+    nm <- sub("^diagnosiPrincipaleDimissione$", "diagnosiDimissione", nm)
+    nm <- sub("^diagnosiSecondarieDimissione$", "diagnosiDimissione", nm)
     nm
   }
 
@@ -4042,8 +5181,6 @@ extract_xml <- function(ctx) {
   prog   <- ctx$prog
 
   .normalize_proc_cols <- function(nm) {
-    nm <- sub("^interventoPrincipale", "intervento", nm)
-    nm <- sub("^interventiSecondari", "intervento", nm)
     nm <- sub("^dataInterventoPrincipale", "dataIntervento", nm)
     nm <- sub("^dataInterventoSecondario", "dataIntervento", nm)
     nm <- sub("^oraInterventoPrincipale", "oraIntervento", nm)
@@ -4054,6 +5191,10 @@ extract_xml <- function(ctx) {
     nm <- sub("^anestesistaInterventoSecondario", "anestesistaIntervento", nm)
     nm <- sub("^ckListSalaOperatoriaInterventoPrincipale", "ckListSalaOperatoriaIntervento", nm)
     nm <- sub("^ckListSalaOperatoriaInterventoSecondario", "ckListSalaOperatoriaIntervento", nm)
+    nm <- sub("^interventoPrincipaleEsterno$", "interventoEsterno", nm)
+    nm <- sub("^interventiSecondariEsterni$", "interventoEsterno", nm)
+    nm <- sub("^interventoPrincipale", "intervento", nm)
+    nm <- sub("^interventiSecondari", "intervento", nm)
     nm
   }
 
@@ -4075,8 +5216,28 @@ extract_xml <- function(ctx) {
       vals <- xml2::xml_text(ch[is_scalar])
       nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
 
+      multi_cols <- c("chirurgoIntervento", "anestesistaIntervento")
+
       for (nm in unique(nms)) {
-        row[[nm]] <- list(vals[nms == nm])      }
+        vv <- vals[nms == nm]
+
+        if (nm %in% multi_cols) {
+          # sempre list-column, anche se length 1
+          row[[nm]] <- list(vv)
+        } else {
+          # scalare: se ci sono più valori qui è un input sporco → abort
+          if (length(vv) > 1) {
+            cli::cli_abort(
+              c(
+                "Unexpected repeated scalar field in procedure",
+                "x" = sprintf("Field %s appears %d times in one procedure row", nm, length(vv))
+              ),
+              class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+            )
+          }
+          row[[nm]] <- if (length(vv) == 0) NA_character_ else vv[[1]]
+        }
+      }
     }
 
     out[[length(out) + 1]] <- row
@@ -4103,8 +5264,26 @@ extract_xml <- function(ctx) {
         vals <- xml2::xml_text(ch[is_scalar])
         nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
 
+        multi_cols <- c("chirurgoIntervento", "anestesistaIntervento")  # UDI resta scalare
+
         for (nm in unique(nms)) {
-          row[[nm]] <- list(vals[nms == nm])        }
+          vv <- vals[nms == nm]
+
+          if (nm %in% multi_cols) {
+            row[[nm]] <- list(vv)  # list-column
+          } else {
+            if (length(vv) > 1) {
+              cli::cli_abort(
+                c(
+                  "Unexpected repeated scalar field in procedure",
+                  "x" = sprintf("Field %s appears %d times in one procedure row", nm, length(vv))
+                ),
+                class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+              )
+            }
+            row[[nm]] <- if (length(vv) == 0) NA_character_ else vv[[1]]
+          }
+        }
       }
 
       out[[length(out) + 1]] <- row

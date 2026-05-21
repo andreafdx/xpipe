@@ -126,6 +126,29 @@ inst/schema/batch_metadata.schema.json
 '''
 inst/schema/bronze_layer.schema.json
 '''
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["layer", "role", "storage", "created_at", "description"],
+  "additionalProperties": false,
+  "properties": {
+    "layer": { "const": "bronze" },
+    "role": { "type": "string", "minLength": 1 },
+    "storage": {
+      "type": "object",
+      "required": ["format", "layout", "path_pattern"],
+      "additionalProperties": true,
+      "properties": {
+        "format": { "const": "duckdb" },
+        "layout": { "type": "string", "minLength": 1 },
+        "path_pattern": { "type": "string", "minLength": 1 }
+      }
+    },
+    "authoritative_state": { "type": "object" },
+    "created_at": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 }
+  }
+}
 '''
 inst/schema/local.schema.json
 '''
@@ -196,8 +219,11 @@ inst/schema/methods.schema.json
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
 
+  "description": "Methods contract. Each top-level property is a method id. A method describes how an input is ingested into an immutable Batch artifact: input shape, extraction instrument, optional XML parsing profile, privacy rules, semantic keys, and Batch-level type enforcement.",
+
   "additionalProperties": {
     "type": "object",
+
     "required": [
       "schema_domain",
       "type",
@@ -206,60 +232,91 @@ inst/schema/methods.schema.json
       "partition_column"
     ],
 
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "type": {
+              "const": "xml"
+            }
+          },
+          "required": ["type"]
+        },
+        "then": {
+          "required": ["xml_profile"]
+        }
+      }
+    ],
+
     "properties": {
       "schema_domain": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "Semantic domain of the method. Used during configuration loading and Batch preparation to ensure that a method is compatible with the selected stream. For example, an SDO method must only be used with an SDO stream."
       },
 
       "type": {
         "type": "string",
-        "enum": ["access_mdb", "xml", "csv"]
+        "enum": ["access_mdb", "xml", "csv"],
+        "description": "Extraction instrument type. Used by .resolve_extraction_instrument() to select the extractor function, e.g. extract_xml() for type 'xml' or extract_access_db() for type 'access_mdb'."
+      },
+
+      "xml_profile": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Code-driven XML parsing profile used by extract_xml(). Required only when type is 'xml'. It selects the registered parser strategy, e.g. 'sdo_tracciato_ab', without describing XML nodes or parsing rules declaratively."
       },
 
       "input_type": {
         "type": "string",
-        "enum": ["file", "directory"]
+        "enum": ["file", "directory"],
+        "description": "Expected shape of the inbox input. Used by .validate_input_type() during Batch preparation to abort early if a method expecting a directory receives a file, or vice versa."
       },
 
-      "input_map": {
+      "input_files": {
         "type": "object",
-        "minProperties": 1,
+        "description": "Physical input files or file patterns resolved during Batch preparation.",
         "additionalProperties": {
-          "type": "string",
-          "minLength": 1
+          "type": "string"
         }
       },
 
-      "components": {
-        "oneOf": [
-          {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "type": "object",
-            "minProperties": 1,
-            "additionalProperties": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        ]
+      "source_tables": {
+        "type": "array",
+        "description": "Logical source tables for database-like inputs (e.g. Access/MDB).",
+        "items": {
+          "type": "string"
+        }
       },
+
+      "output_tables": {
+        "type": "object",
+        "description": "Expected output tables from the extractor (informational only).",
+        "properties": {
+          "required": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "optional": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      },
+
+
 
       "anchor_table": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "Name of the required anchor table produced by the method. Used by Batch/Bronze validation to ensure the batch contains the required core table, and by Silver-current to select the latest version of each entity."
       },
 
       "identity_keys": {
         "type": "array",
         "minItems": 1,
+        "description": "Column names that identify an entity within the stream. Used by Silver-current to partition the anchor table and to join secondary tables back to the selected current anchor version using identity_keys + __batch_id.",
         "items": {
           "type": "string",
           "minLength": 1
@@ -268,44 +325,185 @@ inst/schema/methods.schema.json
 
       "partition_column": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "description": "Domain-time column associated with the anchor table. Historically used for Bronze partitioning. In the DuckDB pipeline it remains method metadata for inspection, future semantic enrichment, and possible harmonized/fiscal logic, but it is not used to determine Silver-current."
       },
 
-      "pseudonymize": {
-        "type": "array",
-        "items": {
-          "type": "string",
-          "minLength": 1
-        }
+      "privacy": {
+        "type": "object",
+        "description": "Declarative privacy rules applied during Batch materialization.",
+        "properties": {
+          "hash": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["scalar", "list"]
+              }
+            }
+          },
+          "skip": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "enum": ["scalar", "list"]
+              }
+            }
+          }
+        },
+        "additionalProperties": false
       },
 
-      "skip": {
-        "type": "array",
-        "items": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
+
+
+
 
       "column_types": {
         "type": "object",
-        "description": "Per-table column type enforcement rules applied at Batch materialization time",
+        "description": "Per-table column type enforcement rules applied during Batch materialization after privacy rules and before Parquet writing. Used by .apply_batch_column_types(). This protects semantic codes such as DRG, diagnosis codes, procedure codes, and administrative identifiers from being stored as numeric values.",
         "additionalProperties": {
           "type": "object",
+          "description": "Column type rules for one output table produced by the method. The object key is a column name and the value is the enforced target type.",
           "additionalProperties": {
             "type": "string",
-            "enum": ["character"]
+            "enum": ["character"],
+            "description": "Supported target type. Currently only 'character' is allowed because the implemented enforcement protects code-like values from numeric coercion and leading-zero loss."
           }
         }
       }
     },
 
-    "additionalProperties": false
+    "additionalProperties": false,
+
+   "allOf": [
+      {
+        "if": {
+          "properties": { "type": { "const": "xml" } },
+          "required": ["type"]
+        },
+        "then": {
+          "required": ["xml_profile"]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "type": { "const": "xml" },
+            "input_type": { "const": "directory" }
+          },
+          "required": ["type", "input_type"]
+        },
+        "then": {
+          "required": ["input_files"]
+        }
+      },
+      {
+        "if": {
+          "properties": { "type": { "const": "access_mdb" } },
+          "required": ["type"]
+        },
+        "then": {
+          "required": ["source_tables"]
+        }
+      }
+    ]
+  }
+}
+'''
+inst/schema/silver_contract.schema.json
+'''
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Silver configuration contract",
+  "type": "object",
+  "required": ["_meta", "streams"],
+  "additionalProperties": false,
+
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "required": ["type", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "silver_contract"
+        },
+        "version": {
+          "type": "string"
+        }
+      }
+    },
+
+    "streams": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["canonical_method", "current"],
+        "additionalProperties": false,
+
+        "properties": {
+          "canonical_method": {
+            "type": "string",
+            "description": "Method ID to be used as the canonical source for Silver-current tables."
+          },
+
+          "current": {
+            "type": "object",
+            "required": ["enabled"],
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              }
+            }
+          },
+
+          "harmonized": {
+            "type": "object",
+            "required": ["enabled"],
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
 '''
 inst/schema/silver_layer.schema.json
 '''
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["layer", "role", "storage", "created_at", "description"],
+  "additionalProperties": false,
+  "properties": {
+    "layer": { "const": "silver" },
+    "role": { "type": "string", "minLength": 1 },
+    "storage": {
+      "type": "object",
+      "required": ["format", "layout", "path_pattern", "table_patterns"],
+      "additionalProperties": true,
+      "properties": {
+        "format": { "const": "duckdb" },
+        "layout": { "type": "string", "minLength": 1 },
+        "path_pattern": { "type": "string", "minLength": 1 },
+        "table_patterns": { "type": "object" }
+      }
+    },
+    "authoritative_state": { "type": "object" },
+    "created_at": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 }
+  }
+}
 '''
 inst/schema/streams.schema.json
 '''

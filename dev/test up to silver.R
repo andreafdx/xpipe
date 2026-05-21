@@ -4,7 +4,7 @@ load_xpipe_config()
 
 # First ensure the target folder exists
 
-target_folder <- "xml 3-4-1"
+target_folder <- "xml 3-1"
 .cfg <- get_xpipe_config()
 inbox_path <- fs::path(.cfg$local$paths$inbox, target_folder)
 if (!fs::dir_exists(inbox_path)) {
@@ -25,8 +25,6 @@ ingest_batch(
 
 promote_to_bronze()
 
-.promote_to_silver_current(
-  stream_id = "sdo",
-  method_id = "xml_campania_2026",
-  config    = .cfg
+promote_to_silver(
+  stream = "sdo"
 )
