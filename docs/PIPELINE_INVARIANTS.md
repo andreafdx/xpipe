@@ -65,13 +65,57 @@ Optional tables may be absent without error.
 
 ### B4. Metadata is descriptive, not authoritative
 
-`_batch_metadata.json` describes expected or configured components.
+`_batch_metadata.json` describes the materialized Batch artifact and its
+resolved physical inputs.
 
 The presence of Parquet files on disk defines the set of materialized
 tables.
 
-Metadata entries for tables that were not materialized must not drive
-promotion logic.
+Metadata entries must not be used as the authoritative source for table
+promotion if the corresponding Parquet file is absent.
+
+Resolved input files are operational metadata only. They describe what was
+read to create the batch; they do not define expected output tables.
+
+### B5. Input resolution is explicit and separate from extraction
+
+Physical input resolution must be declared through `input_files`.
+
+Database-like source selection must be declared through `source_tables`.
+
+Extractors must consume resolved inputs or declared source tables; they
+must not infer behavior from legacy or overloaded fields.
+
+The contract must not collapse physical inputs, logical source tables,
+and expected output tables into a single field.
+
+### B6. Privacy rules are Batch-time transformations
+
+Privacy transformations are applied after extraction and before Parquet
+writing.
+
+If a method declares privacy rules, Batch must apply them before any data
+is persisted.
+
+If a method does not declare privacy rules, Batch performs no privacy
+transformation for that method. Absence of a privacy block is valid for
+streams that are already anonymized or do not require Batch-time privacy
+processing.
+
+Privacy must not be repaired or applied downstream in Bronze or Silver.
+
+### B7. Privacy shape declarations are authoritative
+
+Privacy rules must declare the expected shape of each protected column:
+`scalar` or `list`.
+
+The implementation must not infer shape at runtime.
+
+If a declared privacy shape does not match the extracted column shape,
+Batch materialization must abort.
+
+List-columns declared for hashing must be transformed element-wise while
+preserving list structure.
 
 ------------------------------------------------------------------------
 
