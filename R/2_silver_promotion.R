@@ -11,8 +11,8 @@
 #
 # Public API: promote_to_silver()
 # Internals: .promote_to_silver_current(), .silver_exec(), .silver_query(),
-#            .resolve_silver_canonical_method(), .is_silver_up_to_date(),
-#            .confirm_silver_promotion()
+#            .resolve_silver_canonical_method(), .normalize_silver_as_of(),
+#            .is_silver_up_to_date(), .confirm_silver_promotion(),
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
@@ -32,6 +32,9 @@
 #' @param phase Character. Only "current" is supported.
 #' @param dry_run Logical. If TRUE, prints what would be done.
 #' @param confirm Logical. Ask for confirmation before writing.
+#' @param as_of Optional ingestion snapshot timestamp. If provided, Silver-current
+#'   is rebuilt using only Bronze rows with `__batch_created_at <= as_of`.
+#'   This is an ingestion-time snapshot, it does not have domain temporal meaning.
 #'
 #' @return Invisibly TRUE.
 #' @export
@@ -39,6 +42,7 @@ promote_to_silver <- function(
     config = get_xpipe_config(),
     stream = NULL,
     phase = "current",
+    as_of = NULL,
     dry_run = FALSE,
     confirm = interactive()
 ) {
@@ -47,6 +51,7 @@ promote_to_silver <- function(
   checkmate::assert_string(phase)
   checkmate::assert_flag(dry_run)
   checkmate::assert_flag(confirm)
+  as_of <- .normalize_silver_as_of(as_of)
 
   if (is.null(config$silver) || length(config$silver) == 0) {
     cli::cli_abort(
@@ -78,12 +83,21 @@ promote_to_silver <- function(
     return(invisible(TRUE))
   }
 
+  # Dry Run block
+
   if (isTRUE(dry_run)) {
     for (sid in targets) {
       mid <- .resolve_silver_canonical_method(sid, config)
-      cli::cli_inform(
-        "Would promote Silver-current for stream {.val {sid}} using method {.val {mid}}."
-      )
+
+      if (is.null(as_of)) {
+        cli::cli_inform(
+          "Would promote Silver-current for stream {.val {sid}} using method {.val {mid}}."
+        )
+      } else {
+        cli::cli_inform(
+          "Would promote Silver-current for stream {.val {sid}} using method {.val {mid}} as of ingestion snapshot {.val {as_of}}."
+        )
+      }
     }
     return(invisible(TRUE))
   }
@@ -93,7 +107,8 @@ promote_to_silver <- function(
   for (sid in targets) {
     .promote_to_silver_current(
       stream_id = sid,
-      config = config
+      config = config,
+      as_of = as_of
     )
   }
 
@@ -242,6 +257,44 @@ promote_to_silver <- function(
   choice
 }
 
+
+.normalize_silver_as_of <- function(as_of = NULL) {
+  if (is.null(as_of)) return(NULL)
+
+  if (inherits(as_of, "POSIXt")) {
+    return(format(as_of, "%Y-%m-%d %H:%M:%S"))
+  }
+
+  if (inherits(as_of, "Date")) {
+    return(format(as.POSIXct(as_of), "%Y-%m-%d %H:%M:%S"))
+  }
+
+  if (is.character(as_of) && length(as_of) == 1 && nzchar(as_of)) {
+    parsed <- as.POSIXct(
+      as_of,
+      tz = "UTC",
+      tryFormats = c(
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d"
+      )
+    )
+
+    if (!is.na(parsed)) {
+      return(format(parsed, "%Y-%m-%d %H:%M:%S"))
+    }
+  }
+
+  cli::cli_abort(
+    c(
+      "Invalid Silver snapshot timestamp",
+      "x" = "{.arg as_of} must be NULL, Date, POSIXct, or a parseable datetime string",
+      "i" = "Examples: '2026-05-21', '2026-05-21 23:59:59'"
+    ),
+    class = c("xpipe_silver_config", "xpipe_error")
+  )
+}
+
 # Resolve canonical method for Silver-current
 # @noRd
 .resolve_silver_canonical_method <- function(stream_id, config) {
@@ -270,41 +323,64 @@ promote_to_silver <- function(
   s$canonical_method
 }
 
-.is_silver_up_to_date <- function(con, stream_id, method_id, anchor_tbl) {
+.is_silver_up_to_date <- function(con, stream_id, method_id, anchor_tbl, as_of = NULL) {
+
+  anchor_full <- paste0(stream_id, "__", method_id, "__", anchor_tbl)
+
+  bronze_anchor <- paste0(
+    "bronze.main.",
+    DBI::dbQuoteIdentifier(con, anchor_full)
+  )
+
+  where_sql <- if (is.null(as_of)) {
+    ""
+  } else {
+    paste0(
+      " WHERE __batch_created_at <= ",
+      DBI::dbQuoteLiteral(con, as_of)
+    )
+  }
 
   latest_bronze <- .silver_query(
     con,
     paste0(
-      "SELECT MAX(batch_id) AS batch_id
-       FROM bronze.main.__promotion_log
-       WHERE stream_id = ",
-      DBI::dbQuoteLiteral(con, stream_id),
-      " AND method_id = ",
-      DBI::dbQuoteLiteral(con, method_id)
+      "SELECT __batch_id AS batch_id
+       FROM ", bronze_anchor,
+      where_sql, "
+       ORDER BY __batch_created_at DESC, __batch_id DESC
+       LIMIT 1"
     )
-  )$batch_id[[1]]
+  )
+
+  latest_bronze <- if (nrow(latest_bronze) == 0) {
+    NA_character_
+  } else {
+    latest_bronze$batch_id[[1]]
+  }
 
   current_anchor <- paste0("current__", anchor_tbl)
 
   silver_latest <- if (current_anchor %in% DBI::dbListTables(con)) {
-    .silver_query(
+    out <- .silver_query(
       con,
       paste0(
-        "SELECT MAX(__batch_id) AS batch_id
-         FROM ", DBI::dbQuoteIdentifier(con, current_anchor)
+        "SELECT __batch_id AS batch_id
+         FROM ", DBI::dbQuoteIdentifier(con, current_anchor), "
+         ORDER BY __batch_created_at DESC, __batch_id DESC
+         LIMIT 1"
       )
-    )$batch_id[[1]]
+    )
+
+    if (nrow(out) == 0) NA_character_ else out$batch_id[[1]]
   } else {
     NA_character_
   }
-
 
   if (is.na(latest_bronze) || is.na(silver_latest)) {
     return(FALSE)
   }
 
   identical(latest_bronze, silver_latest)
-
 }
 
 ## Pipeline ----------------------------------------------------------------
@@ -325,12 +401,13 @@ promote_to_silver <- function(
 #'
 #' @return Invisibly TRUE on success.
 #' @keywords internal
-.promote_to_silver_current <- function(stream_id, config) {
+.promote_to_silver_current <- function(stream_id, config, as_of = NULL) {
 
   # 1. Preconditions
 
   checkmate::assert_string(stream_id)
   checkmate::assert_class(config, "xpipe_config")
+  as_of <- .normalize_silver_as_of(as_of)
 
   method_id <- .resolve_silver_canonical_method(stream_id, config)
 
@@ -449,20 +526,33 @@ promote_to_silver <- function(
 
   # 4. Up-to-date check
 
-  if (.is_silver_up_to_date(con_s, stream_id, method_id, anchor_tbl)) {
+  if (.is_silver_up_to_date(con_s, stream_id, method_id, anchor_tbl, as_of = as_of)) {
 
     if (!interactive()) {
-      cli::cli_inform(
-        "Silver-current for stream {.val {stream_id}} left unchanged (already up to date)."
-      )
+      if (is.null(as_of)) {
+        cli::cli_inform(
+          "Silver-current for stream {.val {stream_id}} left unchanged (already up to date)."
+        )
+      } else {
+        cli::cli_inform(
+          "Silver-current for stream {.val {stream_id}} left unchanged (already up to date for snapshot {.val {as_of}})."
+        )
+      }
       return(invisible(TRUE))
     }
 
     answer <- readline(
-      paste0(
-        "Silver-current is already up to date for stream ",
-        stream_id, ". Rebuild anyway? [y/N]: "
-      )
+      if (is.null(as_of)) {
+        paste0(
+          "Silver-current is already up to date for stream ",
+          stream_id, ". Rebuild anyway? [y/N]: "
+        )
+      } else {
+        paste0(
+          "Silver-current is already up to date for stream ",
+          stream_id, " as of ", as_of, ". Rebuild anyway? [y/N]: "
+        )
+      }
     )
 
     if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {
@@ -478,6 +568,15 @@ promote_to_silver <- function(
   }
 
   # 5. Transactional rebuild
+
+  anchor_where_sql <- if (is.null(as_of)) {
+    ""
+  } else {
+    paste0(
+      "WHERE a.__batch_created_at <= ",
+      DBI::dbQuoteLiteral(con_s, as_of)
+    )
+  }
 
   DBI::dbBegin(con_s)
 
@@ -497,6 +596,7 @@ promote_to_silver <- function(
                  ORDER BY __batch_created_at DESC, __batch_id DESC
                ) AS rn
              FROM ", bronze_anchor, " a
+             ", anchor_where_sql, "
            ) t
            WHERE rn = 1"
         )
@@ -537,9 +637,16 @@ promote_to_silver <- function(
 
       DBI::dbCommit(con_s)
 
-      cli::cli_alert_success(
-        "Silver-current rebuilt for stream {.val {stream_id}} using method {.val {method_id}}."
-      )
+      if (is.null(as_of)) {
+        cli::cli_alert_success(
+          "Silver-current rebuilt for stream {.val {stream_id}} using method {.val {method_id}}."
+        )
+      } else {
+        cli::cli_alert_success(
+          "Silver-current rebuilt for stream {.val {stream_id}} using method {.val {method_id}} as of ingestion snapshot {.val {as_of}}."
+        )
+      }
+
 
       invisible(TRUE)
     },
