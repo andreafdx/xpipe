@@ -1,9 +1,5 @@
 ---
-title: "Bronze contract"
-output: html_document
-editor_options: 
-  markdown: 
-    wrap: 72
+date: 2026-05-22
 ---
 
 # Bronze Layer Contract

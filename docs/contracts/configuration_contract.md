@@ -1,9 +1,5 @@
 ---
-title: "Configuration Contract"
-output: html_document
-editor_options:
-  markdown:
-    wrap: 72
+date: 2026-05-22
 ---
 
 # Configuration Contract

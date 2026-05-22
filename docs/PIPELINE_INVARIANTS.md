@@ -1,3 +1,7 @@
+---
+date: 2026-05-22
+---
+
 # Pipeline Invariants
 
 This document defines the non-negotiable invariants of the Batch →
