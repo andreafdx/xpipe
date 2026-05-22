@@ -346,12 +346,16 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
 #' @param method_id Character scalar. Method identifier.
 #' @param config xpipe_config.
 #' @param read_only Logical. Open Silver database read-only. Defaults to TRUE.
+#' @param as_of Optional ingestion snapshot timestamp. If provided, inspection
+#'   compares Silver-current against the latest Bronze anchor batch with
+#'   `__batch_created_at <= as_of`. This is ingestion time, not domain/event time.
 #'
 #' @return An object of class `xpipe_silver_current_inspection`.
 #' @export
 inspect_silver_current <- function(
     stream_id = NULL,
     method_id = NULL,
+    as_of = NULL,
     config = get_xpipe_config(),
     read_only = TRUE
 ) {
@@ -359,6 +363,7 @@ inspect_silver_current <- function(
   checkmate::assert_string(stream_id, null.ok = TRUE)
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_flag(read_only)
+  as_of <- .normalize_silver_as_of(as_of)
 
   if (is.null(stream_id)) {
     streams <- names(config$silver)
@@ -478,12 +483,19 @@ inspect_silver_current <- function(
 
   # Silver vs Bronze currency check
 
-  latest_bronze_batch <- NA_character_
+  # --- Silver vs Bronze currency check -------------------------------------
 
-  # Try to read Bronze promotion log if Bronze DB is available
+  latest_bronze_batch <- NA_character_
+  latest_silver_batch <- NA_character_
+
+  current_anchor <- paste0("current__", anchor_tbl)
+
   bronze_db <- fs::path(config$local$paths$bronze, paste0(stream_id, ".duckdb"))
+
   if (fs::file_exists(bronze_db)) {
     try({
+      try(DBI::dbExecute(con, "DETACH bronze"), silent = TRUE)
+
       DBI::dbExecute(
         con,
         paste0(
@@ -493,41 +505,75 @@ inspect_silver_current <- function(
         )
       )
 
-      latest_bronze_batch <- DBI::dbGetQuery(
-        con,
-        paste0(
-          "SELECT MAX(batch_id) AS batch_id
-         FROM bronze.main.__promotion_log
-         WHERE stream_id = ",
-          DBI::dbQuoteLiteral(con, stream_id),
-          " AND method_id = ",
-          DBI::dbQuoteLiteral(con, canonical_method)
-        )
-      )$batch_id[[1]]
+      on.exit(try(DBI::dbExecute(con, "DETACH bronze"), silent = TRUE), add = TRUE)
 
-      DBI::dbExecute(con, "DETACH bronze")
+      anchor_full <- paste0(stream_id, "__", method_id, "__", anchor_tbl)
+
+      bronze_tables <- DBI::dbGetQuery(
+        con,
+        "SELECT table_name
+       FROM duckdb_tables()
+       WHERE database_name = 'bronze'
+         AND schema_name = 'main'"
+      )$table_name
+
+      if (anchor_full %in% bronze_tables) {
+        where_sql <- if (is.null(as_of)) {
+          ""
+        } else {
+          paste0(
+            " WHERE __batch_created_at <= ",
+            DBI::dbQuoteLiteral(con, as_of)
+          )
+        }
+
+        latest_bronze <- DBI::dbGetQuery(
+          con,
+          paste0(
+            "SELECT __batch_id AS batch_id
+           FROM bronze.main.", DBI::dbQuoteIdentifier(con, anchor_full),
+            where_sql, "
+           ORDER BY __batch_created_at DESC, __batch_id DESC
+           LIMIT 1"
+          )
+        )
+
+        latest_bronze_batch <- if (nrow(latest_bronze) == 0) {
+          NA_character_
+        } else {
+          latest_bronze$batch_id[[1]]
+        }
+      }
     }, silent = TRUE)
   }
 
-  latest_silver_batch <- NA_character_
-  current_anchor <- paste0("current__", anchor_tbl)
-
   if (current_anchor %in% DBI::dbListTables(con)) {
-    latest_silver_batch <- DBI::dbGetQuery(
+    latest_silver <- DBI::dbGetQuery(
       con,
       paste0(
-        "SELECT MAX(__batch_id) AS batch_id
-       FROM ", DBI::dbQuoteIdentifier(con, current_anchor)
+        "SELECT __batch_id AS batch_id
+       FROM ", DBI::dbQuoteIdentifier(con, current_anchor), "
+       ORDER BY __batch_created_at DESC, __batch_id DESC
+       LIMIT 1"
       )
-    )$batch_id[[1]]
+    )
+
+    latest_silver_batch <- if (nrow(latest_silver) == 0) {
+      NA_character_
+    } else {
+      latest_silver$batch_id[[1]]
+    }
   }
 
-  silver_status <- dplyr::case_when(
-    is.na(latest_bronze_batch) ~ "UNKNOWN",
-    is.na(latest_silver_batch) ~ "STALE",
-    identical(latest_bronze_batch, latest_silver_batch) ~ "UP TO DATE",
-    TRUE ~ "STALE"
-  )
+  silver_status <- if (is.na(latest_bronze_batch)) {
+    "UNKNOWN"
+  } else if (is.na(latest_silver_batch)) {
+    "STALE"
+  } else if (identical(latest_bronze_batch, latest_silver_batch)) {
+    "UP TO DATE"
+  } else {
+    "STALE"
+  }
 
   tables <- DBI::dbListTables(con)
   current_tables <- tables[startsWith(tables, "current__")]
@@ -663,7 +709,8 @@ inspect_silver_current <- function(
       batch_distribution = batch_distribution,
       latest_bronze_batch = latest_bronze_batch,
       latest_silver_batch = latest_silver_batch,
-      silver_status = silver_status
+      silver_status = silver_status,
+      as_of = as_of
     ),
     class = "xpipe_silver_current_inspection"
   )
@@ -1212,9 +1259,11 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     paste0(pad("Database", 18), ": ", x$silver_db),
     paste0(pad("Anchor table", 18), ": ", x$anchor_table),
     paste0(pad("Anchor exists", 18), ": ", fmt_bool(x$anchor_exists)),
-    paste0(pad("Silver status", 18), ": ", x$silver_status),
-    paste0(pad("Latest Bronze batch", 18), ": ", x$latest_bronze_batch %||% "NA"),
-    paste0(pad("Latest Silver batch", 18), ": ", x$latest_silver_batch %||% "NA")
+    paste0(pad("---", 18)),
+    paste0(pad("Snapshot as_of", 18), ": ", if (is.null(x$as_of)) "latest" else x$as_of),
+    paste0(pad("Eligible Bronze", 18), ": ", x$latest_bronze_batch %||% "NA"),
+    paste0(pad("Silver batch", 18), ": ", x$latest_silver_batch %||% "NA"),
+    paste0(pad("Silver status", 18), ": ", x$silver_status)
   )
 
   cli::cat_boxx(
