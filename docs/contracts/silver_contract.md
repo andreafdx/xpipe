@@ -26,15 +26,14 @@ reproducible version‑selection rule.
 It is the first layer in the pipeline that makes a **semantic claim**
 about the data:
 
-> for each logical entity in the stream, this is the version that is
-> considered valid at a given snapshot ingestion time.
+> for each logical entity in the stream, this is the version selected as
+> current according to ingestion order, optionally limited by an ingestion
+> snapshot (`as_of`).
 
 Silver‑current does not perform analytical harmonization, cross‑stream
 integration, or domain interpretation beyond version validity.
 
 ### Canonical method selection
-
-#### Canonical method selection
 
 For each stream, Silver-current is built from exactly one canonical
 ingestion method.
@@ -102,23 +101,46 @@ by filtering secondary tables through the selected current anchor rows.
 
 ### Definition of “current”
 
-For each entity (identity keys), the current version is defined as:
+For each entity (`identity_keys`), Silver-current selects the row from
+the latest eligible imported batch containing that entity.
 
-> the version whose ingestion time (or equivalent version marker) is the
-> maximum value less than or equal to the requested snapshot time.
+Eligibility is determined by the optional ingestion snapshot `as_of`.
 
-If no snapshot time is provided, the reference point is the time of
-execution.
+If `as_of` is provided, only Bronze rows satisfying the following
+condition are eligible:
 
-The concept of “current” depends **only on ingestion order**, not on
-clinical dates, event dates, or stream anchor semantics.
+
+```sql
+__batch_created_at <= as_of
+```
+
+If `as_of` is absent, all Bronze rows for the canonical method are
+eligible.
+
+Currentness is determined among eligible rows only by ingestion lineage:
+
+```sql
+ROW_NUMBER() OVER (
+  PARTITION BY identity_keys
+  ORDER BY __batch_created_at DESC, __batch_id DESC
+)
+```
+
+The current anchor row is the row with `rn = 1`.
+
+`as_of` is an ingestion timestamp. It does not refer to clinical dates,
+event dates, discharge dates, admission dates, or stream anchor semantics.
+
+The concept of “current” depends **only on ingestion order**, not domain time.
 
 ### Anchor table behavior
 
 Version selection is applied **exclusively to the anchor table**.
 
-For each identity key: - exactly one anchor row is selected as current -
-that row determines the current version of the entity
+For each identity key: 
+
+- exactly one anchor row is selected as current 
+- that row determines the current version of the entity
 
 The anchor table is the sole table that participates in version
 selection.
@@ -170,8 +192,10 @@ Bronze table names follow the pattern:
 Silver-current does not inspect filesystem partitioning to determine
 lineage or currentness.
 
-Lineage is derived from Bronze table metadata columns and the Bronze
-promotion state.
+Lineage is derived from Bronze metadata columns (`__batch_id`,
+`__batch_created_at`, `__stream_id`, `__method_id`) and from the Bronze
+promotion log.
+
 
 
 ### Persistence and physical layout
