@@ -230,96 +230,374 @@ Physical partitioning is not part of the current Silver-current
 contract. If introduced later, it must not alter the definition of
 currentness.
 
-## Silver‑harmonized
+## Silver-harmonized
 
-Silver-harmonized is part of the long-term Silver contract, but it is not
-implemented in the current branch.
+Silver-harmonized represents the analytical form of a stream.
 
-The implemented Silver behavior currently covers Silver-current only.
+It is derived exclusively from Silver-current and lives in the same stream
+DuckDB database as the `current__*` table family.
 
-### Purpose and scope
+Silver-harmonized does not redefine currentness, does not read Bronze
+directly, and does not choose among ingestion methods. All versioning,
+canonical method selection, and ingestion snapshot decisions are inherited
+from Silver-current.
 
-Silver‑harmonized represents the **analytical form** of a stream,
-derived from Silver‑current by applying explicit normalization and
-enrichment rules.
+---
 
-Its purpose is to provide a **stable, method‑agnostic interface** for
-analysis, indicators, and downstream pipelines.
+## Purpose and scope
 
-Silver‑harmonized does not redefine versioning logic and does not
-re‑evaluate “currentness”.
+Silver-harmonized provides stable, analysis-oriented tables derived from
+the current state of a stream.
 
-### Input and dependency
+Its role is to make the data easier to use for recurring analysis,
+indicators, reporting, and downstream pipelines.
 
-Silver‑harmonized is built **exclusively from Silver‑current**.
+Silver-harmonized **may**:
 
-All versioning, deduplication, and entity selection decisions are
-inherited unchanged.
+- normalize table names
+- normalize column names
+- apply deterministic type normalization
+- add small, explicitly implemented derived columns
+- perform controlled joins among `current__*` tables
+- reshape data where this improves common analytical use
 
-Silver‑harmonized may integrate auxiliary Silver‑current streams, but
-only through explicitly declared joins.
+Silver-harmonized **must not**:
 
-### Schema stability and evolution
+- re-evaluate currentness
+- read Bronze directly
+- mix methods
+- change entity identity
+- apply opaque business rules
+- silently infer transformations not declared by code or contract
 
-Silver‑harmonized exposes a **canonical analytical schema**.
+---
 
-This schema is expected to evolve over time, but under strict rules: -
-existing columns must not be renamed or removed - semantic meaning of
-existing columns must not change - new columns may be added
+## Physical layout
 
-Schema evolution is versioned and deliberate.
+Silver-harmonized is persisted in the same DuckDB database as
+Silver-current.
 
-### Column semantics and roles
+The physical layout is:
 
-Silver‑harmonized may assign **semantic roles** to selected columns
-(e.g. entity identifier, event start, event end).
+```text
+data/silver/<stream_id>.duckdb
+  current__<source_table_name>
+  harmonized__<table_name>
+```
 
-Semantic roles are optional and stream‑specific. Only a stable entity
-identifier is mandatory.
+Example:
 
-Roles are declarative metadata and do not impose computation or
-filtering by themselves.
+```text
+data/silver/sdo.duckdb
+  current__ricovero
+  current__diagnosi
+  current__procedure
+  harmonized__ricoveri
+```
 
-### Transformations
+Harmonized tables use the naming pattern:
 
-Silver‑harmonized may apply:
+```text
+harmonized__<table_name>
+```
 
--   column renaming
--   type normalization
--   light derivations
--   controlled joins
+Harmonized tables are rebuilt using `CREATE OR REPLACE TABLE`.
 
-Transformations must be deterministic and explicitly specified.
+They must not append across runs and must not retain partial state from
+previous builds.
 
-Silver‑harmonized must not:
+---
 
--   infer version validity
--   reinterpret stream anchor semantics
--   apply business rules that change entity identity
+## Dependency on Silver-current
 
-### Temporal scope and persistence
+Silver-harmonized is built **only** from `current__*` tables.
 
-Silver‑harmonized is typically persisted, but may cover a **limited
-temporal window** (e.g. recent years only).
+It must not read Bronze tables and must not inspect the Bronze promotion
+log.
 
-Unlike Silver‑current, Silver‑harmonized is not required to represent
-full historical coverage.
+If Silver-current was built with an ingestion snapshot (`as_of`),
+Silver-harmonized must be built from that same Silver-current state.
 
-### Guarantees provided by Silver‑harmonized
+Silver-harmonized must never be more current than the `current__*` tables
+from which it is derived.
 
-A valid Silver‑harmonized dataset guarantees:
+---
 
--   method‑agnostic structure
--   stable analytical semantics
--   compatibility with downstream indicators
--   insulation of analysis from ingestion mechanics
+## Promotion phases
 
-### What Silver‑harmonized does not guarantee
+`promote_to_silver()` is the public orchestration entry point for Silver.
 
-Silver‑harmonized does not guarantee:
+The supported phases are:
 
--   completeness across all historical time
--   correctness of domain interpretation beyond declared transformations
--   immutability of future schema extensions
+```text
+phase = "current"
+phase = "harmonized"
+phase = "all"
+```
 
-Those responsibilities belong to governance and Gold layers.
+`phase = "all"` is the default operational mode.
+
+It rebuilds Silver-current first and then Silver-harmonized, when
+harmonization is enabled for the stream.
+
+`phase = "current"` rebuilds only the `current__*` table family.  
+This may make existing `harmonized__*` tables stale.
+
+`phase = "harmonized"` rebuilds only the `harmonized__*` table family from
+the existing `current__*` tables.
+
+It must not read Bronze directly.
+
+If `as_of` is provided with `phase = "all"`, the same ingestion snapshot
+is used for both phases.
+
+If `as_of` is provided with `phase = "harmonized"`, the existing
+Silver-current state must be compatible with that snapshot. If alignment
+cannot be verified, promotion must abort.
+
+---
+
+## Configuration
+
+Silver-harmonized is configured in `data/shared/silver.json`.
+
+The `harmonized` block declares whether harmonization is enabled and which
+harmonization profile should be used.
+
+Example:
+
+```json
+{
+  "streams": {
+    "sdo": {
+      "canonical_method": "xml_campania_2026",
+      "current": {
+        "enabled": true
+      },
+      "harmonized": {
+        "enabled": true,
+        "profile": "sdo_harmonized_v1",
+        "tables": {
+          "ricoveri": {
+            "source": "ricovero",
+            "columns": {
+              "codice_istituto": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "codice_paziente": "codice_paziente",
+              "diagnosi_principale": "diagnosi_principale",
+              "diagnosi_secondarie": "diagnosi_secondarie",
+              "procedura_principale": "procedura_principale",
+              "tutte_le_procedure": "tutte_le_procedure"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+The JSON contract describes normalization and profile selection.
+
+It does **not** describe complex semantic transformations as a declarative
+mini-language.
+
+---
+
+## Normalization vs transformation
+
+Silver-harmonized separates normalization from transformation.
+
+**Normalization** is declarative and lives in `silver.json`.
+
+Normalization includes:
+
+- harmonized table names
+- final column names
+- inclusion of expected output columns
+- mapping from intermediate column names to final analytical names
+
+**Transformation** is code-driven and implemented in registered
+harmonization profiles.
+
+Transformations may include:
+
+- joining `current__*` tables
+- moving selected values from secondary tables into a main analytical
+  table
+- creating list-columns
+- deriving convenience columns for frequent analysis
+
+Transformation functions operate on Silver-current legacy column names
+**before** final normalization is applied.
+
+This avoids conflicts caused by renaming columns before profile-specific
+logic has run.
+
+---
+
+## Harmonization profiles
+
+Each stream may declare a harmonization profile.
+
+A harmonization profile is a code-driven transformation strategy selected
+by `silver.json`.
+
+Example:
+
+```json
+{
+  "harmonized": {
+    "enabled": true,
+    "profile": "sdo_harmonized_v1"
+  }
+}
+```
+
+The profile owns stream-specific transformation logic.
+
+For SDO, the initial profile is expected to produce an analytical
+`harmonized__ricoveri` table.
+
+The profile may define internal helper functions such as:
+
+```text
+.add_codice_paziente_to_ricoveri()
+.add_diagnosi_to_ricoveri()
+.add_procedure_to_ricoveri()
+```
+
+These helpers are implementation details, not configuration fields.
+
+---
+
+## SDO harmonized `ricoveri` table
+
+For the SDO stream, the first harmonized analytical table is:
+
+```text
+harmonized__ricoveri
+```
+
+It is derived from `current__ricovero` and may be enriched from other
+`current__*` tables.
+
+The initial SDO harmonized profile should support at least:
+
+```text
+codice_paziente
+diagnosi_principale
+diagnosi_secondarie
+procedura_principale
+tutte_le_procedure
+```
+
+The intended semantics are:
+
+```text
+diagnosi_principale
+  diagnosis marked as principal
+
+diagnosi_secondarie
+  all diagnoses excluding the principal diagnosis
+
+procedura_principale
+  procedure marked as principal
+
+tutte_le_procedure
+  all procedures, including the principal procedure
+
+codice_paziente
+  patient code joined from the current anagrafica table or equivalent
+  current source table
+```
+
+`diagnosi_secondarie` and `tutte_le_procedure` may be represented as
+list-columns when this best preserves the analytical meaning.
+
+---
+
+## Build metadata
+
+Silver may maintain an internal metadata table:
+
+```sql
+CREATE TABLE IF NOT EXISTS __silver_log (
+  phase TEXT,
+  stream_id TEXT,
+  method_id TEXT,
+  as_of TEXT,
+  built_at TIMESTAMP,
+  source_tables TEXT,
+  output_tables TEXT
+);
+```
+
+`__silver_log` records build metadata for Silver-current and
+Silver-harmonized.
+
+It is used to inspect whether `current__*` and `harmonized__*` table
+families are aligned.
+
+It is not a source of domain truth.
+
+---
+
+## Alignment and staleness
+
+Silver-harmonized is **aligned** when it has been built from the current
+Silver-current state for the same stream, canonical method, and ingestion
+snapshot.
+
+If `current__*` tables are rebuilt and `harmonized__*` tables are not
+rebuilt afterwards, harmonized tables may be **stale**.
+
+Inspection should be able to report whether Silver-current and
+Silver-harmonized are aligned, stale, or unknown.
+
+---
+
+## Schema stability and evolution
+
+Silver-harmonized exposes analytical schemas intended to be more stable
+than source schemas.
+
+Schema evolution is allowed but deliberate.
+
+Existing harmonized columns should not be renamed or removed without a
+contract change.
+
+The semantic meaning of an existing harmonized column must not change
+silently.
+
+New columns may be added when needed for recurring analytical use.
+
+---
+
+## Guarantees provided by Silver-harmonized
+
+A valid Silver-harmonized table family guarantees:
+
+- it was built from Silver-current, not directly from Bronze
+- it inherits currentness from Silver-current
+- it uses the canonical method selected for the stream
+- it applies deterministic, code-driven transformations
+- it applies declarative normalization from `silver.json`
+- it persists results as `harmonized__*` tables in the stream Silver
+  DuckDB database
+- it does not silently redefine entity identity or currentness
+
+---
+
+## What Silver-harmonized does not guarantee
+
+Silver-harmonized does not guarantee:
+
+- completeness across all possible analytical use cases
+- correctness of domain interpretation beyond declared transformations
+- automatic synchronization if only `phase = "current"` is run
+- immutability of future schema extensions
+- Gold-layer indicators or dashboard-ready marts
+
+Those responsibilities belong to governance, future Silver extensions, or
+Gold-layer products.
