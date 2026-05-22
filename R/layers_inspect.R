@@ -1259,10 +1259,11 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     paste0(pad("Database", 18), ": ", x$silver_db),
     paste0(pad("Anchor table", 18), ": ", x$anchor_table),
     paste0(pad("Anchor exists", 18), ": ", fmt_bool(x$anchor_exists)),
-    paste0(pad("Silver status", 18), ": ", x$silver_status),
+    paste0(pad("---", 18)),
     paste0(pad("Snapshot as_of", 18), ": ", if (is.null(x$as_of)) "latest" else x$as_of),
     paste0(pad("Eligible Bronze", 18), ": ", x$latest_bronze_batch %||% "NA"),
-    paste0(pad("Silver batch", 18), ": ", x$latest_silver_batch %||% "NA")
+    paste0(pad("Silver batch", 18), ": ", x$latest_silver_batch %||% "NA"),
+    paste0(pad("Silver status", 18), ": ", x$silver_status)
   )
 
   cli::cat_boxx(
