@@ -112,19 +112,20 @@ from Silver-current.
 
 ### Harmonized preserves the current table family
 
-Every `current__*` table should have a corresponding harmonized table,
-unless explicitly excluded by the harmonization contract.
+Silver-harmonized preserves the Silver-current table family.
 
-The harmonized layer is not limited to one wide analytical table.
+Every relevant `current__*` table is promoted to a corresponding
+`harmonized__*` table, unless explicitly excluded by contract.
 
-For SDO, `harmonized__ricoveri` may intentionally repeat selected
-information from diagnoses and procedures for frequent analytical use,
-while extended diagnosis and procedure tables remain available as
-separate harmonized tables.
+Some harmonized tables may be enriched through code-driven
+transformations. For example, `harmonized__ricoveri` may intentionally
+duplicate selected diagnosis and procedure information to support common
+analytical workflows.
 
-This duplication is intentional. It improves common analysis workflows
-without removing the normalized table family needed for advanced
-analysis.
+This duplication does not replace the detailed harmonized tables.
+Detailed tables such as `harmonized__diagnosi` and
+`harmonized__procedure` remain available for row-level analyses.
+
 
 ### `promote_to_silver()` remains the single public API
 
