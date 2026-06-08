@@ -383,6 +383,24 @@ promote_to_silver <- function(
   identical(latest_bronze, silver_latest)
 }
 
+
+# Harmonization registry --------------------------------------------------
+
+.silver_harmonized_profile_registry <- list(
+  sdo_harmonized_v1 = .silver_profile_sdo_harmonized_v1
+)
+
+.silver_profile_sdo_harmonized_v1 <- function(con, stream_id, method_id, config) {
+  # Stub: WP2 wiring only
+  # - no transformations yet
+  # - no renaming yet
+  # - must not read Bronze
+  # - must read only current__*
+
+  invisible(TRUE)
+}
+
+
 ## Pipeline ----------------------------------------------------------------
 
 
