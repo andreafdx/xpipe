@@ -126,7 +126,6 @@ This duplication does not replace the detailed harmonized tables.
 Detailed tables such as `harmonized__diagnosi` and
 `harmonized__procedure` remain available for row-level analyses.
 
-
 ### `promote_to_silver()` remains the single public API
 
 No new public wrapper is introduced.
@@ -237,7 +236,10 @@ Notes:
 
 -   `profile` selects code-driven harmonization logic
 -   `tables` declares the final harmonized table family
--   `columns` declares final names and expected intermediate columns
+-   `columns` declares final names and expected intermediate columns.
+    The absence of a column in `silver.json` does not imply that the
+    source table is not promoted; it only means the column is not part
+    of the harmonized analytical schema.
 -   derived or intermediate columns are produced by the harmonization
     profile before final normalization
 
@@ -332,7 +334,7 @@ At minimum, each relevant `current__*` table should have a corresponding
 
 For SDO, the first analytical focus is:
 
-```text
+``` text
 harmonized__ricoveri
 ```
 
@@ -449,14 +451,15 @@ normalization.
 -   `tutte_le_procedure` includes the principal procedure
 -   no Bronze table is read
 -   currentness is inherited from `current__*`
-- Every relevant `current__*` source table is either promoted to a
-  corresponding `harmonized__*` table or explicitly excluded by contract.
-- `harmonized__ricoveri` intentionally duplicates selected diagnosis and
-  procedure information for common analyses.
-- `harmonized__diagnosi` remains available for detailed diagnosis-level
-  analyses.
-- `harmonized__procedure` remains available for detailed procedure-level
-  analyses.
+-   Every relevant `current__*` source table is either promoted to a
+    corresponding `harmonized__*` table or explicitly excluded by
+    contract.
+-   `harmonized__ricoveri` intentionally duplicates selected diagnosis
+    and procedure information for common analyses.
+-   `harmonized__diagnosi` remains available for detailed
+    diagnosis-level analyses.
+-   `harmonized__procedure` remains available for detailed
+    procedure-level analyses.
 
 ------------------------------------------------------------------------
 
