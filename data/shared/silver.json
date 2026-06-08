@@ -1,7 +1,7 @@
 {
   "_meta": {
     "type": "silver_contract",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "streams": {
     "sdo": {
@@ -10,8 +10,128 @@
         "enabled": true
       },
       "harmonized": {
-        "enabled": false
+        "enabled": true,
+        "profile": "sdo_harmonized_v1",
+        "tables": {
+          "accessi_dh": {
+            "source": "accessi_dh",
+            "columns": {
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "num_accesso": "numAccesso",
+              "data_accesso": "dataAccesso"
+            }
+          },
+
+          "anagrafica": {
+            "source": "anagrafica",
+            "columns": {
+              "trasmissione_tipo": "trasmissione_tipo",
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "sesso": "sesso",
+              "data_nascita": "dataNascita",
+              "livello_istruzione": "livelloIstruzione",
+              "stato_civile": "statoCivile",
+              "comune_residenza": "comuneResidenza",
+              "cittadinanza": "cittadinanza",
+              "identificativo_paziente": "identificativoPaziente",
+              "tip_id_paziente_in_ver_val": "tipIdPazienteInVerVal",
+              "regione_residenza": "regioneResidenza",
+              "asl_residenza": "aslResidenza",
+              "cognome": "cognome",
+              "nome": "nome",
+              "comune_nascita": "comuneNascita",
+              "quartiere": "quartiere",
+              "numero_sdo_puerpera": "numeroSDOpuerpera",
+              "num_id_istituzione_team": "numIdIstituzioneTEAM"
+            }
+          },
+
+          "diagnosi": {
+            "source": "diagnosi",
+            "columns": {
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "tipo_diagnosi": "tipoDiagnosi",
+              "num_diagnosi": "numDiagnosi",
+              "diagnosi_dimissione": "diagnosiDimissione",
+              "presente_al_ricovero": "presenteAlRicovero",
+              "lateralita": "Lateralita",
+              "stadiazione_condensata": "stadiazioneCondensata"
+            }
+          },
+
+          "procedure": {
+            "source": "procedure",
+            "columns": {
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "tipo_intervento": "tipoIntervento",
+              "num_intervento": "numIntervento",
+              "intervento": "intervento",
+              "intervento_esterno": "interventoEsterno",
+              "data_intervento": "dataIntervento",
+              "ora_intervento": "oraIntervento",
+              "chirurgo_intervento": "chirurgoIntervento",
+              "anestesista_intervento": "anestesistaIntervento",
+              "ck_list_sala_operatoria_intervento": "ckListSalaOperatoriaIntervento",
+              "lateralita": "Lateralita",
+              "flag_robot": "flagRobot",
+              "udi": "UDI"
+            }
+          },
+
+          "ricovero": {
+            "source": "ricovero",
+            "columns": {
+              "trasmissione_tipo": "trasmissione_tipo",
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "regime_ricovero": "regimeRicovero",
+              "data_prenotazione": "dataPrenotazione",
+              "classe_priorita": "classePriorita",
+              "data_ricovero": "dataRicovero",
+              "ora_ricovero": "oraRicovero",
+              "unita_operativa_ammissione": "unitaOperativaAmmissione",
+              "onere_degenza": "onereDegenza",
+              "provenienza_paziente": "provenienzaPaziente",
+              "tipo_ricovero": "tipoRicovero",
+              "rilevazione_dolore": "rilevazioneDolore",
+              "drg": "DRG",
+              "tariffa": "tariffa",
+              "dim_unita_operativa_dimissione": "dim_unitaOperativaDimissione",
+              "dim_data_dimissione_morte": "dim_dataDimissioneMorte",
+              "dim_ora_dimissione_morte": "dim_oraDimissioneMorte",
+              "dim_modalita_dimissione": "dim_modalitaDimissione",
+              "dim_flag_i_ciclo_cura": "dim_FlagICicloCura",
+              "traumatismi_intossicazioni": "traumatismiIntossicazioni",
+              "codice_causa_esterna": "codiceCausaEsterna",
+              "pressione_arteriosa_sistolica": "pressioneArteriosaSistolica",
+              "riscontro_autoptico": "riscontroAutoptico",
+              "espianto": "espianto",
+              "motivo_ricovero_regime_diurno": "motivoRicoveroRegimeDiurno",
+              "num_giornate_ricovero_diurno": "numGiornateRicoveroDiurno",
+              "peso_nascita": "pesoNascita",
+              "eta_gestazionale": "etaGestazionale",
+              "creatinina_serica": "creatininaSerica"
+            }
+          },
+
+          "trasferimenti": {
+            "source": "trasferimenti",
+            "columns": {
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "num_trasferimento": "numTrasferimento",
+              "data_trasferimento": "dataTrasferimento",
+              "ora_trasferimento": "oraTrasferimento",
+              "unita_trasferimento": "unitaTrasferimento"
+            }
+          }
+        }
       }
+
     }
   }
 }

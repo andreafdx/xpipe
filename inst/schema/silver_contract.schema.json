@@ -52,8 +52,46 @@
             "properties": {
               "enabled": {
                 "type": "boolean"
+              },
+              "profile": {
+                "type": "string",
+                "description": "Code-driven harmonization profile identifier"
+              },
+              "tables": {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "object",
+                  "required": ["source", "columns"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "source": {
+                      "type": "string",
+                      "description": "Name of the Silver-current source table (without current__ prefix)"
+                    },
+                    "columns": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "description": "Mapping from harmonized column name to intermediate column name"
+                      }
+                    }
+                  }
+                }
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "enabled": { "const": true }
+                  }
+                },
+                "then": {
+                  "required": ["profile", "tables"]
+                }
+              }
+            ]
           }
         }
       }
