@@ -115,6 +115,22 @@ promote_to_silver <- function(
   invisible(TRUE)
 }
 
+# Harmonization profile registry -------------------------------------------
+
+.silver_profile_sdo_harmonized_v1 <- function(con, stream_id, method_id, config) {
+  # Stub: WP2 wiring only
+  # - no transformations yet
+  # - no renaming yet
+  # - must not read Bronze
+  # - must read only current__*
+
+  invisible(TRUE)
+}
+
+.silver_harmonized_profile_registry <- list(
+  sdo_harmonized_v1 = .silver_profile_sdo_harmonized_v1
+)
+
 # Helpers -----------------------------------------------------------------
 
 
@@ -383,22 +399,92 @@ promote_to_silver <- function(
   identical(latest_bronze, silver_latest)
 }
 
+# This function just copies all content of the current__ table to the
+# harmonized__ table,
+.promote_single_harmonized_table <- function(
+    con,
+    source_table,
+    target_table,
+    column_map
+) {
+  # column_map: named list new_name -> old_name
 
-# Harmonization registry --------------------------------------------------
+  # 1. build rename expressions
+  rename_sql <- character(0)
 
-.silver_harmonized_profile_registry <- list(
-  sdo_harmonized_v1 = .silver_profile_sdo_harmonized_v1
-)
+  if (length(column_map)) {
+    rename_sql <- vapply(
+      names(column_map),
+      function(new_name) {
+        old_name <- column_map[[new_name]]
+        paste0(
+          DBI::dbQuoteIdentifier(con, old_name),
+          " AS ",
+          DBI::dbQuoteIdentifier(con, new_name)
+        )
+      },
+      character(1)
+    )
+  }
 
-.silver_profile_sdo_harmonized_v1 <- function(con, stream_id, method_id, config) {
-  # Stub: WP2 wiring only
-  # - no transformations yet
-  # - no renaming yet
-  # - must not read Bronze
-  # - must read only current__*
+  # 2. final SQL:
+  #    - SELECT * passthrough
+  #    - explicit renames override names
+  sql <- paste0(
+    "CREATE OR REPLACE TABLE ",
+    DBI::dbQuoteIdentifier(con, target_table),
+    " AS SELECT ",
+    paste(c(rename_sql, "*"), collapse = ", "),
+    " FROM ",
+    DBI::dbQuoteIdentifier(con, source_table)
+  )
+
+  DBI::dbExecute(con, sql)
+}
+
+
+.apply_harmonized_enrichments <- function(
+    con,
+    stream_id,
+    method_id,
+    table_name
+) {
+  # WP4+
+  # no-op for now
+  invisible(TRUE)
+}
+
+
+.promote_all_harmonized_tables <- function(con, stream_id, config) {
+  hcfg <- config$silver[[stream_id]]$harmonized
+  tables <- hcfg$tables
+
+  for (tbl_name in names(tables)) {
+    src <- tables[[tbl_name]]$source
+    colmap <- tables[[tbl_name]]$columns %||% list()
+
+    source_table <- paste0("current__", src)
+    target_table <- paste0("harmonized__", tbl_name)
+
+    .promote_single_harmonized_table(
+      con = con,
+      source_table = source_table,
+      target_table = target_table,
+      column_map = colmap
+    )
+
+    .apply_harmonized_enrichments(
+      con = con,
+      stream_id = stream_id,
+      method_id = config$silver[[stream_id]]$canonical_method,
+      table_name = tbl_name
+    )
+  }
 
   invisible(TRUE)
 }
+
+
 
 
 ## Pipeline ----------------------------------------------------------------
@@ -682,6 +768,53 @@ promote_to_silver <- function(
   )
 }
 
+
+.promote_to_silver_harmonized <- function(stream_id, config, as_of = NULL) {
+  checkmate::assert_string(stream_id)
+  checkmate::assert_class(config, "xpipe_config")
+
+  s <- config$silver[[stream_id]]
+  if (is.null(s) || !isTRUE(s$harmonized$enabled)) {
+    cli::cli_inform("Silver-harmonized disabled for stream {.val {stream_id}}.")
+    return(invisible(TRUE))
+  }
+
+  profile_id <- s$harmonized$profile
+  profile_fn <- .silver_harmonized_profile_registry[[profile_id]]
+
+  if (is.null(profile_fn)) {
+    cli::cli_abort(
+      c(
+        "Unknown Silver harmonization profile",
+        "x" = "Profile {.val {profile_id}} is not registered"
+      ),
+      class = c("xpipe_silver_error", "xpipe_error")
+    )
+  }
+
+  silver_db <- fs::path(config$local$paths$silver, paste0(stream_id, ".duckdb"))
+  stopifnot(fs::file_exists(silver_db))
+
+  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = as.character(silver_db), read_only = FALSE)
+  on.exit(DBI::dbDisconnect(con, shutdown = FALSE), add = TRUE)
+
+  # WP3: passthrough + renaming
+  .promote_all_harmonized_tables(
+    con = con,
+    stream_id = stream_id,
+    config = config
+  )
+
+  # WP4+: enrichment stub
+  profile_fn(
+    con,
+    stream_id,
+    s$canonical_method,
+    config
+  )
+
+  invisible(TRUE)
+}
 
 ## CLI ---------------------------------------------------------------------
 
