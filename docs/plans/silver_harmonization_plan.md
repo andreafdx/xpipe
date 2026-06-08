@@ -191,6 +191,9 @@ profiles, similarly to XML parsing profiles.
 This avoids building a fragile JSON DSL that would still require
 profile-specific code to interpret correctly.
 
+Columns not explicitly listed in the harmonized column mapping are
+propagated unchanged.
+
 ------------------------------------------------------------------------
 
 ## Proposed `silver.json` shape
