@@ -41,7 +41,7 @@
 promote_to_silver <- function(
     config = get_xpipe_config(),
     stream = NULL,
-    phase = "current",
+    phase = "all",
     as_of = NULL,
     dry_run = FALSE,
     confirm = interactive()
@@ -63,11 +63,11 @@ promote_to_silver <- function(
     )
   }
 
-  if (!identical(phase, "current")) {
+  if (!phase %in% c("current", "harmonized", "all")) {
     cli::cli_abort(
       c(
         "Unsupported Silver phase",
-        "x" = "Only {.val {'current'}} is supported in this branch."
+        "x" = "Phase must be one of {.val {'current'}}, {.val {'harmonized'}}, {.val {'all'}}."
       ),
       class = c("xpipe_silver_error", "xpipe_error")
     )
@@ -105,11 +105,22 @@ promote_to_silver <- function(
   .confirm_silver_promotion(confirm)
 
   for (sid in targets) {
-    .promote_to_silver_current(
-      stream_id = sid,
-      config = config,
-      as_of = as_of
-    )
+
+    if (phase %in% c("current", "all")) {
+      .promote_to_silver_current(
+        stream_id = sid,
+        config = config,
+        as_of = as_of
+      )
+    }
+
+    if (phase %in% c("harmonized", "all")) {
+      .promote_to_silver_harmonized(
+        stream_id = sid,
+        config = config,
+        as_of = as_of
+      )
+    }
   }
 
   invisible(TRUE)
@@ -132,11 +143,107 @@ promote_to_silver <- function(
 #' @return Invisibly TRUE.
 #' @keywords internal
 .silver_profile_sdo_harmonized_v1 <- function(con, stream_id, method_id, config) {
-  # Stub: WP2 wiring only
-  # - no transformations yet
-  # - no renaming yet
-  # - must not read Bronze
-  # - must read only current__*
+
+  ricovero <- "harmonized__ricovero"
+  diagnosi <- "harmonized__diagnosi"
+
+  # Add Diagnosi principale as a column to ricovero
+  diag_principale_sql <- "
+    SELECT
+      codice_istituto_di_cura,
+      progressivo_sdo,
+      diagnosi_dimissione AS diagnosi_principale
+    FROM harmonized__diagnosi
+    WHERE tipo_diagnosi = 'principale'
+  "
+
+  # Add Diagnosi secondarie as a list column to ricovero, ordered by num_diagnosi
+  diag_secondarie_sql <- "
+    SELECT
+      codice_istituto_di_cura,
+      progressivo_sdo,
+      LIST(diagnosi_dimissione ORDER BY num_diagnosi) AS diagnosi_secondarie
+    FROM harmonized__diagnosi
+    WHERE tipo_diagnosi <> 'principale'
+    GROUP BY codice_istituto_di_cura, progressivo_sdo
+  "
+
+
+  # Add all diagnosis in Tutte le diagnosi (principale + secondarie) to ricovero as a list column, ordered by num_diagnosi
+  tutte_diagnosi_sql <- "
+    SELECT
+      codice_istituto_di_cura,
+      progressivo_sdo,
+      LIST(diagnosi_dimissione ORDER BY num_diagnosi) AS tutte_le_diagnosi
+    FROM harmonized__diagnosi
+    GROUP BY codice_istituto_di_cura, progressivo_sdo
+  "
+
+  # Add Procedura principale as a column to ricovero
+  proc_principale_sql <- "
+    SELECT
+      codice_istituto_di_cura,
+      progressivo_sdo,
+      intervento AS procedura_principale
+    FROM harmonized__procedure
+    WHERE tipo_intervento = 'principale'
+  "
+
+  # Add all procedure in Tutte le procedure to ricovero as a list column, ordered by num_intervento
+  tutte_procedure_sql <- "
+    SELECT
+      codice_istituto_di_cura,
+      progressivo_sdo,
+      LIST(intervento ORDER BY num_intervento) AS tutte_le_procedure
+    FROM harmonized__procedure
+    GROUP BY codice_istituto_di_cura, progressivo_sdo
+  "
+
+  # Add identificativo_paziente from anagrafica to ricovero
+  id_paziente_sql <- "
+    SELECT
+      codice_istituto_di_cura,
+      progressivo_sdo,
+      identificativo_paziente AS identificativo_paziente
+    FROM harmonized__anagrafica
+  "
+
+  # Final rebuild ricovero
+  sql <- paste0(
+    "CREATE OR REPLACE TABLE harmonized__ricovero AS
+     SELECT
+       r.*,
+       dp.diagnosi_principale,
+       ds.diagnosi_secondarie,
+       td.tutte_le_diagnosi,
+       pp.procedura_principale,
+       tp.tutte_le_procedure,
+       a.identificativo_paziente
+     FROM ", ricovero, " r
+     LEFT JOIN (", diag_principale_sql, ") dp
+       ON r.codice_istituto_di_cura = dp.codice_istituto_di_cura
+      AND r.progressivo_sdo = dp.progressivo_sdo
+     LEFT JOIN (", diag_secondarie_sql, ") ds
+       ON r.codice_istituto_di_cura = ds.codice_istituto_di_cura
+      AND r.progressivo_sdo = ds.progressivo_sdo
+     LEFT JOIN (", tutte_diagnosi_sql, ") td
+       ON r.codice_istituto_di_cura = td.codice_istituto_di_cura
+      AND r.progressivo_sdo = td.progressivo_sdo
+     LEFT JOIN (", proc_principale_sql, ") pp
+       ON r.codice_istituto_di_cura = pp.codice_istituto_di_cura
+      AND r.progressivo_sdo = pp.progressivo_sdo
+     LEFT JOIN (", tutte_procedure_sql, ") tp
+       ON r.codice_istituto_di_cura = tp.codice_istituto_di_cura
+      AND r.progressivo_sdo = tp.progressivo_sdo
+     LEFT JOIN (", id_paziente_sql, ") a
+       ON r.codice_istituto_di_cura = a.codice_istituto_di_cura
+      AND r.progressivo_sdo = a.progressivo_sdo"
+  )
+
+
+
+  DBI::dbExecute(con, sql)
+
 
   invisible(TRUE)
 }
@@ -329,6 +436,80 @@ promote_to_silver <- function(
     class = c("xpipe_silver_config", "xpipe_error")
   )
 }
+
+#' Assert that Silver-current build is compatible with requested as_of
+#'
+#' Ensures that phase="harmonized" is rebuilt from a Silver-current state
+#' consistent with the requested ingestion snapshot as_of.
+#'
+#' Uses __silver_log as the authoritative source of build metadata.
+#'
+#' @param con DuckDB connection to the Silver DB.
+#' @param stream_id Stream identifier.
+#' @param as_of Optional ingestion snapshot timestamp (normalized string or NULL).
+#'
+#' @return Invisibly TRUE or aborts.
+#' @keywords internal
+.assert_current_as_of_compatible <- function(con, stream_id, as_of) {
+  # If no snapshot requested, any current state is acceptable.
+  if (is.null(as_of)) return(invisible(TRUE))
+
+  # If __silver_log doesn't exist, we cannot prove compatibility.
+  tabs <- DBI::dbGetQuery(con, "SHOW TABLES")$name
+  if (!("__silver_log" %in% tabs)) {
+    cli::cli_abort(
+      c(
+        "Cannot verify Silver-current snapshot compatibility",
+        "x" = "__silver_log is missing",
+        "i" = "Run {.code promote_to_silver(stream = stream_id, phase = 'current', as_of = as_of)} first"
+      ),
+      class = c("xpipe_silver_error", "xpipe_error")
+    )
+  }
+
+  cur <- DBI::dbGetQuery(
+    con,
+    "
+    SELECT as_of, built_at
+    FROM __silver_log
+    WHERE stream_id = ?
+      AND phase = 'current'
+    ORDER BY built_at DESC
+    LIMIT 1
+    ",
+    params = list(stream_id)
+  )
+
+  if (nrow(cur) == 0) {
+    cli::cli_abort(
+      c(
+        "Cannot verify Silver-current snapshot compatibility",
+        "x" = "No Silver-current build found in __silver_log",
+        "i" = "Run {.code promote_to_silver(stream = stream_id, phase = 'current', as_of = as_of)} first"
+      ),
+      class = c("xpipe_silver_error", "xpipe_error")
+    )
+  }
+
+  current_as_of <- cur$as_of[[1]]
+  # In your log writer, NULL is stored as NA_character_. Normalize that to NULL-like.
+  if (is.na(current_as_of)) current_as_of <- NULL
+
+  if (!identical(current_as_of, as_of)) {
+    cli::cli_abort(
+      c(
+        "Silver-current snapshot mismatch",
+        "x" = "Requested as_of = {.val {as_of}} but latest Silver-current build is as_of = {.val {current_as_of %||% 'latest'}}",
+        "i" = "Rebuild Silver-current with the same snapshot, or run phase = 'all'"
+      ),
+      class = c("xpipe_silver_error", "xpipe_error")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
 
 # Resolve canonical method for Silver-current
 # @noRd
@@ -946,14 +1127,17 @@ promote_to_silver <- function(
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = as.character(silver_db), read_only = FALSE)
   on.exit(DBI::dbDisconnect(con, shutdown = FALSE), add = TRUE)
 
-  # WP3: passthrough + renaming
+  as_of <- .normalize_silver_as_of(as_of)
+  .assert_current_as_of_compatible(con, stream_id, as_of)
+
+  #  passthrough + renaming
   .promote_all_harmonized_tables(
     con = con,
     stream_id = stream_id,
     config = config
   )
 
-  # WP4+: enrichment stub
+  #  enrichment stub
   profile_fn(
     con,
     stream_id,

@@ -221,7 +221,7 @@ Example:
             "columns": {
               "codice_istituto": "codiceIstitutoDiCura",
               "progressivo_sdo": "progressivoSDO",
-              "codice_paziente": "codice_paziente",
+              "identificativo_paziente": "identificativo_paziente",
               "diagnosi_principale": "diagnosi_principale",
               "diagnosi_secondarie": "diagnosi_secondarie",
               "procedura_principale": "procedura_principale",
@@ -380,7 +380,7 @@ include selected repeated information from related current tables.
 It should include at least:
 
 ``` text
-codice_paziente
+identificativo_paziente
 diagnosi_principale
 diagnosi_secondarie
 procedura_principale
@@ -407,7 +407,7 @@ procedura_principale
 tutte_le_procedure
   all procedures, including the principal procedure
 
-codice_paziente
+identificativo_paziente
   patient code joined from current anagrafica or equivalent current
   source table
 ```
@@ -424,7 +424,7 @@ codice_paziente
 ``` r
 .silver_profile_sdo_harmonized_v1 <- function(con, stream_id, method_id, config) {
   # 1. read current__ricovero
-  # 2. add codice_paziente
+  # 2. add identificativo_paziente
   # 3. add diagnosi_principale / diagnosi_secondarie
   # 4. add procedura_principale / tutte_le_procedure
   # 5. apply normalization declared in silver.json
@@ -435,7 +435,7 @@ codice_paziente
 Suggested helpers:
 
 ``` r
-.add_codice_paziente_to_ricoveri()
+.add_identificativo_paziente_to_ricoveri()
 .add_diagnosi_to_ricoveri()
 .add_procedure_to_ricoveri()
 .apply_harmonized_column_normalization()
@@ -686,7 +686,7 @@ This branch is complete when:
     stream Silver DuckDB
 -   a first SDO `harmonized__ricoveri` table is produced
 -   `diagnosi_principale`, `diagnosi_secondarie`,
-    `procedura_principale`, `tutte_le_procedure`, and `codice_paziente`
+    `procedura_principale`, `tutte_le_procedure`, and `identificativo_paziente`
     are available in `harmonized__ricoveri`
 -   transformations are code-driven through a registered harmonization
     profile
