@@ -117,6 +117,20 @@ promote_to_silver <- function(
 
 # Harmonization profile registry -------------------------------------------
 
+
+#' SDO Silver-harmonized profile (stub)
+#'
+#' Code-driven harmonization profile for the SDO stream.
+#' In WP3 this is a no-op stub: no enrichment or transformation is applied.
+#' Future versions will add SDO-specific enrichments (e.g. diagnoses, procedures).
+#'
+#' @param con DuckDB connection to the Silver database.
+#' @param stream_id Stream identifier.
+#' @param method_id Canonical method identifier.
+#' @param config xpipe_config object.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
 .silver_profile_sdo_harmonized_v1 <- function(con, stream_id, method_id, config) {
   # Stub: WP2 wiring only
   # - no transformations yet
@@ -127,6 +141,11 @@ promote_to_silver <- function(
   invisible(TRUE)
 }
 
+
+#' Silver-harmonized profile registry
+#'
+#' Internal registry mapping harmonization profile identifiers
+#' (as declared in silver.json) to code-driven profile functions.
 .silver_harmonized_profile_registry <- list(
   sdo_harmonized_v1 = .silver_profile_sdo_harmonized_v1
 )
@@ -399,8 +418,22 @@ promote_to_silver <- function(
   identical(latest_bronze, silver_latest)
 }
 
-# This function just copies all content of the current__ table to the
-# harmonized__ table,
+
+#' Promote a single Silver-current table to Silver-harmonized
+#'
+#' Creates or replaces a harmonized__* table from the corresponding
+#' current__* table by:
+#' - renaming explicitly mapped columns
+#' - passing through all other columns unchanged
+#' - always preserving lineage columns (__*)
+#'
+#' @param con DuckDB connection.
+#' @param source_table Name of the current__* source table.
+#' @param target_table Name of the harmonized__* target table.
+#' @param column_map Named list mapping new_name -> old_name.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
 .promote_single_harmonized_table <- function(
     con,
     source_table,
@@ -443,6 +476,18 @@ promote_to_silver <- function(
 }
 
 
+#' Apply harmonized enrichments (stub)
+#'
+#' Placeholder for future Silver-harmonized enrichments.
+#' In WP3 this function is a no-op.
+#'
+#' @param con DuckDB connection.
+#' @param stream_id Stream identifier.
+#' @param method_id Canonical method identifier.
+#' @param table_name Harmonized table name.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
 .apply_harmonized_enrichments <- function(
     con,
     stream_id,
@@ -455,6 +500,17 @@ promote_to_silver <- function(
 }
 
 
+#' Promote all Silver-harmonized tables for a stream
+#'
+#' Iterates over the harmonized table definitions declared in silver.json
+#' and promotes each corresponding current__* table to harmonized__*.
+#'
+#' @param con DuckDB connection.
+#' @param stream_id Stream identifier.
+#' @param config xpipe_config object.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
 .promote_all_harmonized_tables <- function(con, stream_id, config) {
   hcfg <- config$silver[[stream_id]]$harmonized
   tables <- hcfg$tables
@@ -485,6 +541,75 @@ promote_to_silver <- function(
 }
 
 
+#' Ensure Silver build log exists
+#'
+#' Creates the __silver_log table if it does not already exist.
+#'
+#' @param con DuckDB connection.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
+.ensure_silver_log <- function(con) {
+  DBI::dbExecute(
+    con,
+    "
+    CREATE TABLE IF NOT EXISTS __silver_log (
+      phase TEXT,
+      stream_id TEXT,
+      method_id TEXT,
+      as_of TEXT,
+      built_at TIMESTAMP,
+      source_tables TEXT,
+      output_tables TEXT
+    )
+    "
+  )
+}
+
+
+#' Write a Silver build log entry
+#'
+#' Records metadata about a Silver build (current or harmonized),
+#' including phase, stream, method, snapshot, and produced tables.
+#'
+#' @param con DuckDB connection.
+#' @param phase Build phase ("current" or "harmonized").
+#' @param stream_id Stream identifier.
+#' @param method_id Canonical method identifier.
+#' @param as_of Optional ingestion snapshot timestamp.
+#' @param source_tables Character vector of source table names.
+#' @param output_tables Character vector of output table names.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
+.write_silver_log <- function(
+    con,
+    phase,
+    stream_id,
+    method_id,
+    as_of,
+    source_tables,
+    output_tables
+) {
+  .ensure_silver_log(con)
+
+  DBI::dbExecute(
+    con,
+    "
+    INSERT INTO __silver_log
+    (phase, stream_id, method_id, as_of, built_at, source_tables, output_tables)
+    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+    ",
+    params = list(
+      phase,
+      stream_id,
+      method_id,
+      as_of %||% NA_character_,
+      jsonlite::toJSON(source_tables, auto_unbox = TRUE),
+      jsonlite::toJSON(output_tables, auto_unbox = TRUE)
+    )
+  )
+}
 
 
 ## Pipeline ----------------------------------------------------------------
@@ -739,6 +864,15 @@ promote_to_silver <- function(
         )
       }
 
+      .write_silver_log(
+        con = con_s,
+        phase = "current",
+        stream_id = stream_id,
+        method_id = method_id,
+        as_of = as_of,
+        source_tables = paste0("bronze__", anchor_tbl),
+        output_tables = paste0("current__", method_tables)
+      )
       DBI::dbCommit(con_s)
 
       if (is.null(as_of)) {
@@ -769,6 +903,20 @@ promote_to_silver <- function(
 }
 
 
+
+#' Promote Silver-current data to Silver-harmonized
+#'
+#' Orchestrates the Silver-harmonized phase for a stream by:
+#' - promoting all declared harmonized tables
+#' - applying profile-specific enrichments (if any)
+#' - recording build metadata in __silver_log
+#'
+#' @param stream_id Stream identifier.
+#' @param config xpipe_config object.
+#' @param as_of Optional ingestion snapshot timestamp.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
 .promote_to_silver_harmonized <- function(stream_id, config, as_of = NULL) {
   checkmate::assert_string(stream_id)
   checkmate::assert_class(config, "xpipe_config")
@@ -811,6 +959,17 @@ promote_to_silver <- function(
     stream_id,
     s$canonical_method,
     config
+  )
+
+  # write silver log for harmonized
+  .write_silver_log(
+    con = con,
+    phase = "harmonized",
+    stream_id = stream_id,
+    method_id = s$canonical_method,
+    as_of = as_of,
+    source_tables = paste0("current__", names(s$harmonized$tables)),
+    output_tables = paste0("harmonized__", names(s$harmonized$tables))
   )
 
   invisible(TRUE)

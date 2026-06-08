@@ -483,8 +483,6 @@ inspect_silver_current <- function(
 
   # Silver vs Bronze currency check
 
-  # --- Silver vs Bronze currency check -------------------------------------
-
   latest_bronze_batch <- NA_character_
   latest_silver_batch <- NA_character_
 
@@ -716,7 +714,81 @@ inspect_silver_current <- function(
   )
 }
 
+#' Inspect Silver alignment between current and harmonized
+#'
+#' Determines whether Silver-harmonized is aligned with Silver-current
+#' based exclusively on __silver_log metadata.
+#'
+#' @param stream_id Stream identifier.
+#' @param config xpipe_config object.
+#'
+#' @return A list with current, harmonized and alignment status.
+#' @export
+inspect_silver_alignment <- function(stream_id, config = get_xpipe_config()) {
+  checkmate::assert_string(stream_id)
+  checkmate::assert_class(config, "xpipe_config")
 
+  silver_db <- fs::path(config$local$paths$silver, paste0(stream_id, ".duckdb"))
+  if (!fs::file_exists(silver_db)) {
+    cli::cli_abort(
+      c(
+        "Silver database not found",
+        "x" = "Expected {.file {silver_db}} to exist"
+      ),
+      class = c("xpipe_silver_state", "xpipe_error")
+    )
+  }
+
+  con <- DBI::dbConnect(
+    duckdb::duckdb(),
+    dbdir = as.character(silver_db),
+    read_only = TRUE
+  )
+  on.exit(DBI::dbDisconnect(con, shutdown = FALSE), add = TRUE)
+
+  if (!("__silver_log" %in% DBI::dbGetQuery(con, "SHOW TABLES")$name)) {
+    return(list(
+      status = "UNKNOWN",
+      reason = "__silver_log not found"
+    ))
+  }
+
+  log <- DBI::dbGetQuery(
+    con,
+    "
+    SELECT phase, as_of, built_at
+    FROM __silver_log
+    WHERE stream_id = ?
+    ORDER BY built_at DESC
+    ",
+    params = list(stream_id)
+  )
+
+  current <- log[log$phase == "current", , drop = FALSE]
+  harmonized <- log[log$phase == "harmonized", , drop = FALSE]
+
+  if (nrow(current) == 0 || nrow(harmonized) == 0) {
+    return(list(
+      status = "UNKNOWN",
+      current = if (nrow(current)) current[1, ] else NULL,
+      harmonized = if (nrow(harmonized)) harmonized[1, ] else NULL
+    ))
+  }
+
+  current_latest <- current[1, ]
+  harmonized_latest <- harmonized[1, ]
+
+  aligned <- (
+    harmonized_latest$built_at >= current_latest$built_at &&
+      identical(harmonized_latest$as_of, current_latest$as_of)
+  )
+
+  list(
+    status = if (aligned) "ALIGNED" else "STALE",
+    current = current_latest,
+    harmonized = harmonized_latest
+  )
+}
 
 ## S3 Print Methods ----------------------------------------------------------
 
