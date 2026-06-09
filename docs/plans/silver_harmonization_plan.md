@@ -686,8 +686,8 @@ This branch is complete when:
     stream Silver DuckDB
 -   a first SDO `harmonized__ricoveri` table is produced
 -   `diagnosi_principale`, `diagnosi_secondarie`,
-    `procedura_principale`, `tutte_le_procedure`, and `identificativo_paziente`
-    are available in `harmonized__ricoveri`
+    `procedura_principale`, `tutte_le_procedure`, and
+    `identificativo_paziente` are available in `harmonized__ricoveri`
 -   transformations are code-driven through a registered harmonization
     profile
 -   final naming normalization is driven by `silver.json`

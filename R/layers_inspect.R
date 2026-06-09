@@ -251,7 +251,7 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
     dbdir = as.character(bronze_db),
     read_only = read_only
   )
-  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = FALSE), add = TRUE)
 
   tables <- DBI::dbListTables(con)
   has_log <- "__promotion_log" %in% tables
@@ -479,7 +479,7 @@ inspect_silver_current <- function(
     dbdir = as.character(silver_db),
     read_only = read_only
   )
-  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = FALSE), add = TRUE)
 
   # Silver vs Bronze currency check
 
