@@ -10,10 +10,10 @@
 # table using identity keys plus __batch_id.
 #
 # Public API: promote_to_silver()
-# Internals: .promote_to_silver_current(), .silver_exec(), .silver_query(),
+# Internals: .promote_to_silver_current(),
 #            .resolve_silver_canonical_method(), .normalize_silver_as_of(),
 #            .is_silver_up_to_date(), .confirm_silver_promotion(),
-#            .promote_single_harmonized_table(), .apply_harmonized_enrichments(),
+#            .promote_single_harmonized_table(),
 #            .promote_all_harmonized_tables(), .ensure_silver_log(), .write_silver_log()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -77,146 +77,7 @@ promote_to_silver <- function(
     )
   }
 
-  # This function encapsulates the logic for selecting which Silver streams to promote
-  # based on the config, requested phase, and optional explicit stream argument.
-  select_silver_promotion_targets <- function(
-    config,
-    stream = NULL,
-    phase = "all"
-  ) {
-
-    silver_streams <- names(config$silver)
-
-    if (length(silver_streams) == 0) {
-      cli::cli_abort(
-        c(
-          "Silver contract not loaded",
-          "x" = "No streams found in silver.json."
-        ),
-        class = c("xpipe_config_error", "xpipe_error")
-      )
-    }
-
-    # Required phases for selection
-    is_current_needed <- phase %in% c("current", "all")
-    is_harmonized_needed <- phase %in% c("harmonized", "all")
-
-    # POLICY: harmonized always requires current to be enabled, because it reads current__*
-    current_required <- is_current_needed || is_harmonized_needed
-
-    # We use 'is_enabled' as a helper to pre-filter streams for interactive selection,
-    # and also to validate an explicit stream argument.
-    # 'enabled' is the subset of silver_streams that meet the phase requirements.
-    is_enabled <- function(stream_id) {
-      s <- config$silver[[stream_id]]
-      ok_current <- if (!current_required) TRUE else isTRUE(s$current$enabled)
-      ok_harmonized <- if (!is_harmonized_needed) TRUE else isTRUE(s$harmonized$enabled)
-      ok_current && ok_harmonized
-    }
-
-    enabled <- silver_streams[vapply(silver_streams, is_enabled, logical(1))]
-
-    # Case 1: Explicit stream provided: validate and return if compliant with phase requirements
-    #
-    # The stream is checked against silver.json settings for the stream itself,
-    # but also for the requested phase requirements.
-    # For example, if phase="harmonized" is requested, we check that the stream
-    # has harmonized enabled, but also that current is enabled
-    # (because harmonized depends on current).
-    if (!is.null(stream)) {
-      if (!(stream %in% silver_streams)) {
-        cli::cli_abort(
-          c(
-            "Invalid Silver stream",
-            "x" = "Stream {.val {stream}} not found in silver.json"
-          ),
-          class = c("xpipe_config_error", "xpipe_error")
-        )
-      }
-
-      s <- config$silver[[stream]]
-
-      if (current_required && !isTRUE(s$current$enabled)) {
-        cli::cli_abort(
-          c(
-            "Silver-current disabled",
-            "x" = "Silver-current is disabled for stream {.val {stream}}"
-          ),
-          class = c("xpipe_config_error", "xpipe_error")
-        )
-      }
-
-      if (is_harmonized_needed && !isTRUE(s$harmonized$enabled)) {
-        cli::cli_abort(
-          c(
-            "Silver-harmonized disabled",
-            "x" = "Silver-harmonized is disabled for stream {.val {stream}}"
-          ),
-          class = c("xpipe_config_error", "xpipe_error")
-        )
-      }
-
-      return(stream)
-    }
-
-    # Case 2: No explicit stream: select from enabled set (if any)
-    #
-    # At this point, we know stream is NULL (not provided), so we want to select from the enabled set.
-    # 'enabled' is the set of streams that meet the phase requirements.
-    # They are "pre-checked" as they are generated.
-    if (length(enabled) == 0) {
-      return(character(0))
-    }
-
-    # Non-interactive: return enabled set
-    if (!interactive()) {
-      return(enabled)
-    }
-
-    choices <- c("All enabled streams", enabled, "Abort")
-
-    choice <- NULL
-    if (requireNamespace("climenu", quietly = TRUE)) {
-      choice <- tryCatch(
-        climenu::select(choices, prompt = "Select Silver stream to promote"),
-        error = function(e) NULL
-      )
-    }
-
-    if (is.null(choice)) {
-      cat("\nSelect Silver stream to promote\n\n")
-      for (i in seq_along(choices)) {
-        cat(sprintf(" %d. %s\n", i, choices[[i]]))
-      }
-      cat("\n")
-
-      k <- suppressWarnings(as.integer(readline("Enter number: ")))
-
-      if (is.na(k) || k < 1 || k > length(choices)) {
-        cli::cli_abort(
-          "Invalid selection.",
-          class = c("xpipe_silver_abort", "xpipe_silver_error", "xpipe_error")
-        )
-      }
-
-      choice <- choices[[k]]
-    }
-
-    if (identical(choice, "Abort")) {
-      cli::cli_abort(
-        "Silver promotion aborted by user.",
-        class = c("xpipe_silver_abort", "xpipe_silver_error", "xpipe_error")
-      )
-    }
-
-    if (identical(choice, "All enabled streams")) {
-      return(enabled)
-    }
-
-    choice
-  }
-
-  targets <- select_silver_promotion_targets(config = config, stream = stream, phase = phase)
+  targets <- .select_silver_promotion_targets(config = config, stream = stream, phase = phase)
 
   if (length(targets) == 0) {
     cli::cli_inform("No Silver streams enabled for phase {.val {phase}}.")
@@ -279,11 +140,11 @@ promote_to_silver <- function(
 # Harmonization profile registry -------------------------------------------
 
 
-#' SDO Silver-harmonized profile (stub)
+#' SDO Silver-harmonized profile
 #'
 #' Code-driven harmonization profile for the SDO stream.
-#' In WP3 this is a no-op stub: no enrichment or transformation is applied.
-#' Future versions will add SDO-specific enrichments (e.g. diagnoses, procedures).
+#' Consolidates diagnoses, procedures, and patient demographics into the
+#' primary hospitalization table using single-pass aggregations.
 #'
 #' @param con DuckDB connection to the Silver database.
 #' @param stream_id Stream identifier.
@@ -294,120 +155,71 @@ promote_to_silver <- function(
 #' @keywords internal
 .silver_profile_sdo_harmonized_v1 <- function(con, stream_id, method_id, config) {
 
-  ricovero <- "harmonized__ricovero"
-  diagnosi <- "harmonized__diagnosi"
-
-  # Add Diagnosi principale as a column to ricovero
-  diag_principale_sql <- "
+  # 1. Aggregate all diagnosis classifications in a single pass
+  diag_aggregated_sql <- "
     SELECT
       codice_istituto_di_cura,
       progressivo_sdo,
-      diagnosi_dimissione
-    AS diagnosi_principale
-    FROM harmonized__diagnosi
-    WHERE tipo_diagnosi = 'principale'
-    QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY codice_istituto_di_cura, progressivo_sdo
-        ORDER BY num_diagnosi
-    ) = 1
-  "
-
-  # Add Diagnosi secondarie as a list column to ricovero, ordered by num_diagnosi
-  diag_secondarie_sql <- "
-    SELECT
-      codice_istituto_di_cura,
-      progressivo_sdo,
-      LIST(diagnosi_dimissione ORDER BY num_diagnosi) AS diagnosi_secondarie
-    FROM harmonized__diagnosi
-    WHERE tipo_diagnosi <> 'principale'
-    GROUP BY codice_istituto_di_cura, progressivo_sdo
-  "
-
-
-  # Add all diagnosis in Tutte le diagnosi (principale + secondarie) to ricovero as a list column, ordered by num_diagnosi
-  tutte_diagnosi_sql <- "
-    SELECT
-      codice_istituto_di_cura,
-      progressivo_sdo,
+      -- Extract the first element of the sorted list where type is principal
+      (LIST(diagnosi_dimissione ORDER BY num_diagnosi) FILTER (WHERE tipo_diagnosi = 'principale'))[1] AS diagnosi_principale,
+      -- Collect all secondary diagnoses into a list column
+      LIST(diagnosi_dimissione ORDER BY num_diagnosi) FILTER (WHERE tipo_diagnosi <> 'principale') AS diagnosi_secondarie,
+      -- Collect all diagnoses into a comprehensive list column
       LIST(diagnosi_dimissione ORDER BY num_diagnosi) AS tutte_le_diagnosi
     FROM harmonized__diagnosi
     GROUP BY codice_istituto_di_cura, progressivo_sdo
   "
 
-  # Add Procedura principale as a column to ricovero
-  proc_principale_sql <- "
+  # 2. Aggregate all surgical/diagnostic procedures in a single pass
+  proc_aggregated_sql <- "
     SELECT
       codice_istituto_di_cura,
       progressivo_sdo,
-      intervento AS procedura_principale
-    FROM harmonized__procedure
-    WHERE tipo_intervento = 'principale'
-    QUALIFY ROW_NUMBER() OVER (
-      PARTITION BY codice_istituto_di_cura, progressivo_sdo
-      ORDER BY num_intervento
-    ) = 1
-
-  "
-
-  # Add all procedure in Tutte le procedure to ricovero as a list column, ordered by num_intervento
-  tutte_procedure_sql <- "
-    SELECT
-      codice_istituto_di_cura,
-      progressivo_sdo,
+      -- Extract the first element of the sorted list where type is principal
+      (LIST(intervento ORDER BY num_intervento) FILTER (WHERE tipo_intervento = 'principale'))[1] AS procedura_principale,
+      -- Collect all procedures into a comprehensive list column
       LIST(intervento ORDER BY num_intervento) AS tutte_le_procedure
     FROM harmonized__procedure
     GROUP BY codice_istituto_di_cura, progressivo_sdo
   "
 
-  # Add identificativo_paziente from anagrafica to ricovero
+  # 3. Clean pass to fetch patient demographics from anagrafica
   id_paziente_sql <- "
     SELECT
       codice_istituto_di_cura,
       progressivo_sdo,
-      identificativo_paziente AS identificativo_paziente
+      identificativo_paziente
     FROM harmonized__anagrafica
   "
 
-  # Final rebuild ricovero
+  # 4. Rebuild the master ricovero table via streamlined left joins
   sql <- paste0(
     "CREATE OR REPLACE TABLE harmonized__ricovero AS
      SELECT
        r.*,
        dp.diagnosi_principale,
-       ds.diagnosi_secondarie,
-       td.tutte_le_diagnosi,
+       dp.diagnosi_secondarie,
+       dp.tutte_le_diagnosi,
        pp.procedura_principale,
-       tp.tutte_le_procedure,
+       pp.tutte_le_procedure,
        a.identificativo_paziente
-     FROM ", ricovero, " r
-     LEFT JOIN (", diag_principale_sql, ") dp
+     FROM harmonized__ricovero r
+     LEFT JOIN (", diag_aggregated_sql, ") dp
        ON r.codice_istituto_di_cura = dp.codice_istituto_di_cura
       AND r.progressivo_sdo = dp.progressivo_sdo
-     LEFT JOIN (", diag_secondarie_sql, ") ds
-       ON r.codice_istituto_di_cura = ds.codice_istituto_di_cura
-      AND r.progressivo_sdo = ds.progressivo_sdo
-     LEFT JOIN (", tutte_diagnosi_sql, ") td
-       ON r.codice_istituto_di_cura = td.codice_istituto_di_cura
-      AND r.progressivo_sdo = td.progressivo_sdo
-     LEFT JOIN (", proc_principale_sql, ") pp
+     LEFT JOIN (", proc_aggregated_sql, ") pp
        ON r.codice_istituto_di_cura = pp.codice_istituto_di_cura
       AND r.progressivo_sdo = pp.progressivo_sdo
-     LEFT JOIN (", tutte_procedure_sql, ") tp
-       ON r.codice_istituto_di_cura = tp.codice_istituto_di_cura
-      AND r.progressivo_sdo = tp.progressivo_sdo
      LEFT JOIN (", id_paziente_sql, ") a
        ON r.codice_istituto_di_cura = a.codice_istituto_di_cura
       AND r.progressivo_sdo = a.progressivo_sdo"
   )
 
-
-
+  # Execute the consolidated pipeline query
   DBI::dbExecute(con, sql)
-
 
   invisible(TRUE)
 }
-
 
 #' Silver-harmonized profile registry
 #'
@@ -420,44 +232,9 @@ promote_to_silver <- function(
 # Helpers -----------------------------------------------------------------
 
 
-#' Execute a Silver SQL statement and always clear the result
-#'
-#' @param con DBI connection.
-#' @param sql SQL statement.
-#' @param params Optional query parameters.
-#'
-#' @return Invisibly returns rows affected.
-#' @keywords internal
-.silver_exec <- function(con, sql, params = NULL) {
-  res <- NULL
-  on.exit({
-    if (!is.null(res)) try(DBI::dbClearResult(res), silent = TRUE)
-  }, add = TRUE)
 
-  res <- DBI::dbSendStatement(con, sql, params = params)
-  invisible(DBI::dbGetRowsAffected(res))
-}
-
-#' Run a Silver SQL query and always clear the result
-#'
-#' @param con DBI connection.
-#' @param sql SQL query.
-#' @param params Optional query parameters.
-#'
-#' @return A data.frame.
-#' @keywords internal
-.silver_query <- function(con, sql, params = NULL) {
-  res <- NULL
-  on.exit({
-    if (!is.null(res)) try(DBI::dbClearResult(res), silent = TRUE)
-  }, add = TRUE)
-
-  res <- DBI::dbSendQuery(con, sql, params = params)
-  DBI::dbFetch(res)
-}
-
-
-# to be deleted --------
+# This function encapsulates the logic for selecting which Silver streams to promote
+# based on the config, requested phase, and optional explicit stream argument.
 .select_silver_promotion_targets <- function(
     config,
     stream = NULL,
@@ -466,16 +243,6 @@ promote_to_silver <- function(
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_string(stream, null.ok = TRUE)
   checkmate::assert_string(phase)
-
-  if (!phase %in% c("current", "harmonized", "all")) {
-    cli::cli_abort(
-      c(
-        "Unsupported Silver phase",
-        "x" = "Phase must be one of {.val {'current'}}, {.val {'harmonized'}}, {.val {'all'}}."
-      ),
-      class = c("xpipe_silver_error", "xpipe_error")
-    )
-  }
 
   silver_streams <- names(config$silver)
 
@@ -489,23 +256,25 @@ promote_to_silver <- function(
     )
   }
 
-  # Required phases for selection
-  is_current_needed <- phase %in% c("current", "all")
   is_harmonized_needed <- phase %in% c("harmonized", "all")
 
-  # POLICY: harmonized always requires current to be enabled, because it reads current__*
-  current_required <- is_current_needed || is_harmonized_needed
-
-  is_enabled <- function(sid) {
-    s <- config$silver[[sid]]
-    ok_current <- if (!current_required) TRUE else isTRUE(s$current$enabled)
-    ok_harmonized <- if (!is_harmonized_needed) TRUE else isTRUE(s$harmonized$enabled)
-    ok_current && ok_harmonized
+  # We use 'is_enabled' as a helper to pre-filter streams for interactive selection,
+  # and also to validate an explicit stream argument.
+  # 'enabled' is the subset of silver_streams that meet the phase requirements.
+  is_enabled <- function(stream_id) {
+    s <- config$silver[[stream_id]]
+    isTRUE(s$current$enabled) && (!is_harmonized_needed || isTRUE(s$harmonized$enabled))
   }
 
   enabled <- silver_streams[vapply(silver_streams, is_enabled, logical(1))]
 
-  # Explicit stream: validate against requested phase policy
+  # Case 1: Explicit stream provided: validate and return if compliant with phase requirements
+  #
+  # The stream is checked against silver.json settings for the stream itself,
+  # but also for the requested phase requirements.
+  # For example, if phase="harmonized" is requested, we check that the stream
+  # has harmonized enabled, but also that current is enabled
+  # (because harmonized depends on current).
   if (!is.null(stream)) {
     if (!(stream %in% silver_streams)) {
       cli::cli_abort(
@@ -519,7 +288,7 @@ promote_to_silver <- function(
 
     s <- config$silver[[stream]]
 
-    if (current_required && !isTRUE(s$current$enabled)) {
+    if (!isTRUE(s$current$enabled)) {
       cli::cli_abort(
         c(
           "Silver-current disabled",
@@ -542,6 +311,11 @@ promote_to_silver <- function(
     return(stream)
   }
 
+  # Case 2: No explicit stream: select from enabled set (if any)
+  #
+  # At this point, we know stream is NULL (not provided), so we want to select from the enabled set.
+  # 'enabled' is the set of streams that meet the phase requirements.
+  # They are "pre-checked" as they are generated.
   if (length(enabled) == 0) {
     return(character(0))
   }
@@ -594,9 +368,6 @@ promote_to_silver <- function(
   choice
 }
 
-
-# Keep this independent since it is called by main wrapper and promotion sub-functions
-# (redundant, but solid)
 .normalize_silver_as_of <- function(as_of = NULL) {
   if (is.null(as_of)) return(NULL)
 
@@ -630,7 +401,7 @@ promote_to_silver <- function(
       "x" = "{.arg as_of} must be NULL, Date, POSIXct, or a parseable datetime string",
       "i" = "Examples: '2026-05-21', '2026-05-21 23:59:59'"
     ),
-    class = c("xpipe_silver_config", "xpipe_error")
+    class = c("xpipe_silver_config", "xpipe_silver_error", "xpipe_error")
   )
 }
 
@@ -760,7 +531,7 @@ promote_to_silver <- function(
     )
   }
 
-  latest_bronze <- .silver_query(
+  latest_bronze <- DBI::dbGetQuery(
     con,
     paste0(
       "SELECT __batch_id AS batch_id
@@ -780,7 +551,7 @@ promote_to_silver <- function(
   current_anchor <- paste0("current__", anchor_tbl)
 
   silver_latest <- if (current_anchor %in% DBI::dbListTables(con)) {
-    out <- .silver_query(
+    out <- DBI::dbGetQuery(
       con,
       paste0(
         "SELECT __batch_id AS batch_id
@@ -849,36 +620,13 @@ promote_to_silver <- function(
     "CREATE OR REPLACE TABLE ", DBI::dbQuoteIdentifier(con, target_table),
     " AS SELECT ",
     paste(rename_sql, collapse = ", "),
-    ", * FROM (SELECT * EXCLUDE (", exclude_sql, ") FROM ",
-    DBI::dbQuoteIdentifier(con, source_table),
-    ")"
+    ", * EXCLUDE (", exclude_sql, ") FROM ",
+    DBI::dbQuoteIdentifier(con, source_table)
   )
 
   DBI::dbExecute(con, sql)
   invisible(TRUE)
 }
-
-
-#' Apply harmonized enrichments (stub)
-#'
-#' Placeholder for future Silver-harmonized enrichments.
-#'
-#' @param con DuckDB connection.
-#' @param stream_id Stream identifier.
-#' @param method_id Canonical method identifier.
-#' @param table_name Harmonized table name.
-#'
-#' @return Invisibly TRUE.
-#' @keywords internal
-.apply_harmonized_enrichments <- function(
-    con,
-    stream_id,
-    method_id,
-    table_name
-) {
-  invisible(TRUE)
-}
-
 
 #' Promote all Silver-harmonized tables for a stream
 #'
@@ -897,7 +645,7 @@ promote_to_silver <- function(
 
   for (tbl_name in names(tables)) {
     src <- tables[[tbl_name]]$source
-    colmap <- tables[[tbl_name]]$columns %||% list()
+    colmap <- unlist(tables[[tbl_name]]$columns) %||% character(0)
 
     source_table <- paste0("current__", src)
     target_table <- paste0("harmonized__", tbl_name)
@@ -909,12 +657,6 @@ promote_to_silver <- function(
       column_map = colmap
     )
 
-    .apply_harmonized_enrichments(
-      con = con,
-      stream_id = stream_id,
-      method_id = config$silver[[stream_id]]$canonical_method,
-      table_name = tbl_name
-    )
   }
 
   invisible(TRUE)
@@ -1016,7 +758,9 @@ promote_to_silver <- function(
 
   checkmate::assert_string(stream_id)
   checkmate::assert_class(config, "xpipe_config")
-  as_of <- .normalize_silver_as_of(as_of)
+  # Internal. Always called via promote_to_silver(), which normalizes as_of.
+  # Do not call directly.
+  # as_of <- .normalize_silver_as_of(as_of)
 
   method_id <- .resolve_silver_canonical_method(stream_id, config)
 
@@ -1083,13 +827,12 @@ promote_to_silver <- function(
   )
 
   on.exit({
-    try(.silver_exec(con_s, "DETACH bronze"), silent = TRUE)
-    DBI::dbDisconnect(con_s, shutdown = FALSE)
+    try(DBI::dbExecute(con_s, "DETACH bronze"), silent = TRUE)
+    DBI::dbDisconnect(con_s, shutdown = TRUE)
   }, add = TRUE)
 
-  try(.silver_exec(con_s, "DETACH bronze"), silent = TRUE)
 
-  .silver_exec(
+  DBI::dbExecute(
     con_s,
     paste0(
       "ATTACH ",
@@ -1103,7 +846,7 @@ promote_to_silver <- function(
   prefix <- paste0(stream_id, "__", method_id, "__")
   anchor_full <- paste0(prefix, anchor_tbl)
 
-  bronze_tables <- .silver_query(
+  bronze_tables <- DBI::dbGetQuery(
     con_s,
     "SELECT table_name
      FROM duckdb_tables()
@@ -1119,7 +862,7 @@ promote_to_silver <- function(
         "Anchor table not found in Bronze",
         "x" = "Expected {.val {anchor_full}} to exist"
       ),
-      class = c("xpipe_silver_anchor", "xpipe_error")
+      class = c("xpipe_silver_anchor", "xpipe_silver_error", "xpipe_error")
     )
   }
 
@@ -1191,7 +934,7 @@ promote_to_silver <- function(
 
   rlang::try_fetch(
     {
-      .silver_exec(
+      DBI::dbExecute(
         con_s,
         paste0(
           "CREATE OR REPLACE TABLE ",
@@ -1230,7 +973,7 @@ promote_to_silver <- function(
           collapse = " AND "
         )
 
-        .silver_exec(
+        DBI::dbExecute(
           con_s,
           paste0(
             "CREATE OR REPLACE TABLE ",
@@ -1244,15 +987,19 @@ promote_to_silver <- function(
         )
       }
 
+      # Define the actual short names created by stripping the prefix
+      short_names <- sub(prefix, "", method_tables, fixed = TRUE)
+
       .write_silver_log(
         con = con_s,
         phase = "current",
         stream_id = stream_id,
         method_id = method_id,
         as_of = as_of,
-        source_tables = paste0("bronze__", anchor_tbl),
-        output_tables = paste0("current__", method_tables)
+        source_tables = paste0("bronze__", method_tables),
+        output_tables = paste0("current__", short_names)
       )
+
       DBI::dbCommit(con_s)
 
       if (is.null(as_of)) {
@@ -1300,6 +1047,8 @@ promote_to_silver <- function(
 .promote_to_silver_harmonized <- function(stream_id, config, as_of = NULL) {
   checkmate::assert_string(stream_id)
   checkmate::assert_class(config, "xpipe_config")
+  # Internal. Always called via promote_to_silver(), which normalizes as_of.
+  # Do not call directly.
 
   s <- config$silver[[stream_id]]
   if (is.null(s) || !isTRUE(s$harmonized$enabled)) {
@@ -1321,41 +1070,71 @@ promote_to_silver <- function(
   }
 
   silver_db <- fs::path(config$local$paths$silver, paste0(stream_id, ".duckdb"))
-  stopifnot(fs::file_exists(silver_db))
+
+  if (!fs::file_exists(silver_db)) {
+    cli::cli_abort(
+      c(
+        "Silver database not found",
+        "x" = "Expected {.file {silver_db}} to exist",
+        "i" = "Run {.code promote_to_silver(stream = '{stream_id}', phase = 'current')} first"
+      ),
+      class = c("xpipe_silver_state", "xpipe_silver_error", "xpipe_error")
+    )
+  }
 
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = as.character(silver_db), read_only = FALSE)
-  on.exit(DBI::dbDisconnect(con, shutdown = FALSE), add = TRUE)
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
-  as_of <- .normalize_silver_as_of(as_of)
+  #as_of <- .normalize_silver_as_of(as_of)
   .assert_current_as_of_compatible(con, stream_id, s$canonical_method, as_of)
 
-  #  passthrough + renaming
-  .promote_all_harmonized_tables(
-    con = con,
-    stream_id = stream_id,
-    config = config
-  )
+  DBI::dbBegin(con)
 
-  #  enrichment stub
-  profile_fn(
-    con,
-    stream_id,
-    s$canonical_method,
-    config
-  )
+  rlang::try_fetch(
+    {
+      .promote_all_harmonized_tables(
+        con = con,
+        stream_id = stream_id,
+        config = config
+      )
 
-  # write silver log for harmonized
-  .write_silver_log(
-    con = con,
-    phase = "harmonized",
-    stream_id = stream_id,
-    method_id = s$canonical_method,
-    as_of = as_of,
-    source_tables = paste0("current__", names(s$harmonized$tables)),
-    output_tables = paste0("harmonized__", names(s$harmonized$tables))
-  )
+      profile_fn(
+        con,
+        stream_id,
+        s$canonical_method,
+        config
+      )
 
-  invisible(TRUE)
+      .write_silver_log(
+        con = con,
+        phase = "harmonized",
+        stream_id = stream_id,
+        method_id = s$canonical_method,
+        as_of = as_of,
+        source_tables = paste0("current__", names(s$harmonized$tables)),
+        output_tables = paste0("harmonized__", names(s$harmonized$tables))
+      )
+
+      DBI::dbCommit(con)
+
+      cli::cli_alert_success(
+        "Silver-harmonized rebuilt for stream {.val {stream_id}} using method {.val {s$canonical_method}}."
+      )
+
+      invisible(TRUE)
+    },
+    error = function(e) {
+      try(DBI::dbRollback(con), silent = TRUE)
+      cli::cli_abort(
+        c(
+          "Silver-harmonized promotion failed",
+          "x" = "Harmonized tables were not rebuilt successfully."
+        ),
+        parent = e,
+        class = c("xpipe_silver_error", "xpipe_error")
+      )
+    }
+  )
 }
 
 ## CLI ---------------------------------------------------------------------

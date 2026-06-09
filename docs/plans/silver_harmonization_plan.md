@@ -10,13 +10,13 @@ The Batch → Bronze → Silver-current control plane is complete.
 
 The system currently provides:
 
--   immutable Batch materialization
--   DuckDB-native Bronze with authoritative `__promotion_log`
--   DuckDB-native Silver-current inside `data/silver/<stream_id>.duckdb`
--   canonical Silver-current method selection through `silver.json`
--   optional Silver-current ingestion snapshot rebuild through `as_of`
--   shape-aware privacy rules applied in Batch before Parquet writing
--   explicit inspection for Batch, Bronze, and Silver-current
+- immutable Batch materialization
+- DuckDB-native Bronze with authoritative `__promotion_log`
+- DuckDB-native Silver-current inside `data/silver/<stream_id>.duckdb`
+- canonical Silver-current method selection through `silver.json`
+- optional Silver-current ingestion snapshot rebuild through `as_of`
+- shape-aware privacy rules applied in Batch before Parquet writing
+- explicit inspection for Batch, Bronze, and Silver-current
 
 Silver-current already defines currentness by ingestion order:
 
@@ -42,27 +42,27 @@ configuration contract.
 
 ### In scope
 
--   Extend `silver.json` to configure Silver-harmonized
--   Add harmonization profile selection
--   Add a minimal code-driven SDO harmonization profile
--   Persist `harmonized__*` tables in the same stream Silver DuckDB
--   Extend `promote_to_silver()` with:
-    -   `phase = "all"` as default
-    -   `phase = "current"`
-    -   `phase = "harmonized"`
--   Add Silver build metadata through `__silver_log`
--   Add basic inspection support for current/harmonized alignment
+- Extend `silver.json` to configure Silver-harmonized
+- Add harmonization profile selection
+- Add a minimal code-driven SDO harmonization profile
+- Persist `harmonized__*` tables in the same stream Silver DuckDB
+- Extend `promote_to_silver()` with:
+  - `phase = "all"` as default
+  - `phase = "current"`
+  - `phase = "harmonized"`
+- Add Silver build metadata through `__silver_log`
+- Add basic inspection support for current/harmonized alignment
 
 ### Out of scope
 
--   Gold-layer indicators
--   dashboard marts
--   export formats
--   complex semantic mappings
--   vocabulary standardization
--   fiscal year enrichment
--   cross-stream integration
--   generic declarative transformation DSL
+- Gold-layer indicators
+- dashboard marts
+- export formats
+- complex semantic mappings
+- vocabulary standardization
+- fiscal year enrichment
+- cross-stream integration
+- generic declarative transformation DSL
 
 ------------------------------------------------------------------------
 
@@ -101,11 +101,11 @@ Silver-harmonized reads only `current__*` tables.
 
 It must not:
 
--   read Bronze directly
--   inspect the Bronze `__promotion_log`
--   re-evaluate currentness
--   choose among methods
--   mix methods
+- read Bronze directly
+- inspect the Bronze `__promotion_log`
+- re-evaluate currentness
+- choose among methods
+- mix methods
 
 All currentness, canonical method, and `as_of` decisions are inherited
 from Silver-current.
@@ -176,11 +176,11 @@ phase = "harmonized"
 
 `silver.json` declares:
 
--   whether harmonization is enabled
--   harmonization profile selection
--   harmonized table names
--   final column names
--   mapping from intermediate columns to final names
+- whether harmonization is enabled
+- harmonization profile selection
+- harmonized table names
+- final column names
+- mapping from intermediate columns to final names
 
 It does **not** describe complex semantic transformations as a
 mini-language.
@@ -237,14 +237,14 @@ Example:
 
 Notes:
 
--   `profile` selects code-driven harmonization logic
--   `tables` declares the final harmonized table family
--   `columns` declares final names and expected intermediate columns.
-    The absence of a column in `silver.json` does not imply that the
-    source table is not promoted; it only means the column is not part
-    of the harmonized analytical schema.
--   derived or intermediate columns are produced by the harmonization
-    profile before final normalization
+- `profile` selects code-driven harmonization logic
+- `tables` declares the final harmonized table family
+- `columns` declares final names and expected intermediate columns. The
+  absence of a column in `silver.json` does not imply that the source
+  table is not promoted; it only means the column is not part of the
+  harmonized analytical schema.
+- derived or intermediate columns are produced by the harmonization
+  profile before final normalization
 
 ------------------------------------------------------------------------
 
@@ -257,25 +257,25 @@ configuration.
 
 ### Tasks
 
--   Update `silver_contract.schema.json`
--   Allow `harmonized.enabled`
--   Add optional `harmonized.profile`
--   Add optional `harmonized.tables`
--   If `harmonized.enabled = true`, require:
-    -   `profile`
-    -   at least one harmonized table
--   Keep `current.enabled` unchanged
--   Keep `canonical_method` unchanged
+- Update `silver_contract.schema.json`
+- Allow `harmonized.enabled`
+- Add optional `harmonized.profile`
+- Add optional `harmonized.tables`
+- If `harmonized.enabled = true`, require:
+  - `profile`
+  - at least one harmonized table
+- Keep `current.enabled` unchanged
+- Keep `canonical_method` unchanged
 
 ### Acceptance checks
 
--   `load_xpipe_config()` accepts current-only streams
--   `load_xpipe_config()` accepts harmonized-enabled streams with a
-    valid profile and tables
--   `load_xpipe_config()` aborts if `harmonized.enabled = true` but
-    `profile` is missing
--   `load_xpipe_config()` aborts if `harmonized.enabled = true` but no
-    harmonized tables are declared
+- `load_xpipe_config()` accepts current-only streams
+- `load_xpipe_config()` accepts harmonized-enabled streams with a valid
+  profile and tables
+- `load_xpipe_config()` aborts if `harmonized.enabled = true` but
+  `profile` is missing
+- `load_xpipe_config()` aborts if `harmonized.enabled = true` but no
+  harmonized tables are declared
 
 ------------------------------------------------------------------------
 
@@ -306,20 +306,20 @@ exact return shape may be refined during implementation.
 
 A harmonization profile:
 
--   owns stream-specific transformation logic
--   reads only `current__*` tables
--   uses current legacy column names
--   produces intermediate analytical tables or columns
--   does not perform final naming normalization unless explicitly
-    designed to do so
--   does not read Bronze
--   does not re-evaluate currentness
+- owns stream-specific transformation logic
+- reads only `current__*` tables
+- uses current legacy column names
+- produces intermediate analytical tables or columns
+- does not perform final naming normalization unless explicitly designed
+  to do so
+- does not read Bronze
+- does not re-evaluate currentness
 
 ### Acceptance checks
 
--   unknown harmonization profile aborts
--   disabled harmonization does nothing
--   profile functions are internal and registered explicitly
+- unknown harmonization profile aborts
+- disabled harmonization does nothing
+- profile functions are internal and registered explicitly
 
 ------------------------------------------------------------------------
 
@@ -414,10 +414,10 @@ identificativo_paziente
 
 ### Structural notes
 
--   `diagnosi_secondarie` may be a list-column
--   `tutte_le_procedure` may be a list-column
--   `tutte_le_procedure` includes the principal procedure
--   `diagnosi_secondarie` excludes the principal diagnosis
+- `diagnosi_secondarie` may be a list-column
+- `tutte_le_procedure` may be a list-column
+- `tutte_le_procedure` includes the principal procedure
+- `diagnosi_secondarie` excludes the principal diagnosis
 
 ### Suggested internal transformation pipeline
 
@@ -446,23 +446,23 @@ normalization.
 
 ### Acceptance checks
 
--   `harmonized__ricoveri` is created
--   the table is rebuilt using `CREATE OR REPLACE TABLE`
--   `diagnosi_principale` is scalar
--   `diagnosi_secondarie` excludes the principal diagnosis
--   `procedura_principale` is scalar
--   `tutte_le_procedure` includes the principal procedure
--   no Bronze table is read
--   currentness is inherited from `current__*`
--   Every relevant `current__*` source table is either promoted to a
-    corresponding `harmonized__*` table or explicitly excluded by
-    contract.
--   `harmonized__ricoveri` intentionally duplicates selected diagnosis
-    and procedure information for common analyses.
--   `harmonized__diagnosi` remains available for detailed
-    diagnosis-level analyses.
--   `harmonized__procedure` remains available for detailed
-    procedure-level analyses.
+- `harmonized__ricoveri` is created
+- the table is rebuilt using `CREATE OR REPLACE TABLE`
+- `diagnosi_principale` is scalar
+- `diagnosi_secondarie` excludes the principal diagnosis
+- `procedura_principale` is scalar
+- `tutte_le_procedure` includes the principal procedure
+- no Bronze table is read
+- currentness is inherited from `current__*`
+- Every relevant `current__*` source table is either promoted to a
+  corresponding `harmonized__*` table or explicitly excluded by
+  contract.
+- `harmonized__ricoveri` intentionally duplicates selected diagnosis and
+  procedure information for common analyses.
+- `harmonized__diagnosi` remains available for detailed diagnosis-level
+  analyses.
+- `harmonized__procedure` remains available for detailed procedure-level
+  analyses.
 
 ------------------------------------------------------------------------
 
@@ -488,25 +488,25 @@ CREATE TABLE IF NOT EXISTS __silver_log (
 
 ### Semantics
 
--   `__silver_log` records build metadata
--   it is not a source of domain truth
--   it is used to inspect whether `current__*` and `harmonized__*` are
-    aligned
+- `__silver_log` records build metadata
+- it is not a source of domain truth
+- it is used to inspect whether `current__*` and `harmonized__*` are
+  aligned
 
 ### Rules
 
--   current rebuild writes a `phase = "current"` entry
--   harmonized rebuild writes a `phase = "harmonized"` entry
--   `phase = "all"` produces both entries
--   `as_of` must be recorded as `NULL` or a normalized timestamp string
--   `source_tables` and `output_tables` are JSON strings
+- current rebuild writes a `phase = "current"` entry
+- harmonized rebuild writes a `phase = "harmonized"` entry
+- `phase = "all"` produces both entries
+- `as_of` must be recorded as `NULL` or a normalized timestamp string
+- `source_tables` and `output_tables` are JSON strings
 
 ### Acceptance checks
 
--   `__silver_log` exists after Silver promotion
--   current builds are logged
--   harmonized builds are logged
--   inspection can compare latest current and harmonized build metadata
+- `__silver_log` exists after Silver promotion
+- current builds are logged
+- harmonized builds are logged
+- inspection can compare latest current and harmonized build metadata
 
 ------------------------------------------------------------------------
 
@@ -528,34 +528,34 @@ Implement internal harmonized promotion.
 
 ### Responsibilities
 
--   resolve canonical method
--   verify `harmonized.enabled`
--   resolve harmonization profile
--   open `data/silver/<stream_id>.duckdb`
--   verify required `current__*` tables exist
--   verify current state is compatible with requested `as_of`
--   run harmonization profile
--   write `harmonized__*` tables
--   write `__silver_log`
+- resolve canonical method
+- verify `harmonized.enabled`
+- resolve harmonization profile
+- open `data/silver/<stream_id>.duckdb`
+- verify required `current__*` tables exist
+- verify current state is compatible with requested `as_of`
+- run harmonization profile
+- write `harmonized__*` tables
+- write `__silver_log`
 
 ### Must abort if
 
--   harmonized is disabled
--   profile is missing
--   profile is unknown
--   required `current__*` table is missing
--   current state is incompatible with requested `as_of`
--   profile output does not contain declared intermediate columns
--   final normalization cannot be applied
--   output table has zero columns
+- harmonized is disabled
+- profile is missing
+- profile is unknown
+- required `current__*` table is missing
+- current state is incompatible with requested `as_of`
+- profile output does not contain declared intermediate columns
+- final normalization cannot be applied
+- output table has zero columns
 
 ### Acceptance checks
 
--   `phase = "harmonized"` rebuilds harmonized tables from existing
-    current
--   it does not rebuild current
--   it aborts if current tables are missing
--   it aborts if current was built for a different `as_of`
+- `phase = "harmonized"` rebuilds harmonized tables from existing
+  current
+- it does not rebuild current
+- it aborts if current tables are missing
+- it aborts if current was built for a different `as_of`
 
 ------------------------------------------------------------------------
 
@@ -596,20 +596,20 @@ phase = "all"
 
 Dry-run should show:
 
--   stream
--   canonical method
--   requested phase
--   `as_of`
--   whether harmonized is enabled
--   output table families that would be rebuilt
+- stream
+- canonical method
+- requested phase
+- `as_of`
+- whether harmonized is enabled
+- output table families that would be rebuilt
 
 ### Acceptance checks
 
--   `promote_to_silver(stream = "sdo")` defaults to `phase = "all"`
--   `phase = "current"` rebuilds only `current__*`
--   `phase = "harmonized"` rebuilds only `harmonized__*`
--   `phase = "all"` rebuilds both in correct order
--   `as_of` is propagated consistently
+- `promote_to_silver(stream = "sdo")` defaults to `phase = "all"`
+- `phase = "current"` rebuilds only `current__*`
+- `phase = "harmonized"` rebuilds only `harmonized__*`
+- `phase = "all"` rebuilds both in correct order
+- `as_of` is propagated consistently
 
 ------------------------------------------------------------------------
 
@@ -637,24 +637,24 @@ For this branch, a minimal update is sufficient.
 
 ### Inspection should report
 
--   latest current build from `__silver_log`
--   latest harmonized build from `__silver_log`
--   current `as_of`
--   harmonized `as_of`
--   alignment status:
-    -   `ALIGNED`
-    -   `STALE`
-    -   `UNKNOWN`
+- latest current build from `__silver_log`
+- latest harmonized build from `__silver_log`
+- current `as_of`
+- harmonized `as_of`
+- alignment status:
+  - `ALIGNED`
+  - `STALE`
+  - `UNKNOWN`
 
 Existing Silver-current status vs Bronze remains unchanged.
 
 ### Acceptance checks
 
--   if current was rebuilt after harmonized, inspection reports `STALE`
--   if both were rebuilt with the same `as_of`, inspection reports
-    `ALIGNED`
--   if `__silver_log` is missing, inspection reports `UNKNOWN` rather
-    than guessing
+- if current was rebuilt after harmonized, inspection reports `STALE`
+- if both were rebuilt with the same `as_of`, inspection reports
+  `ALIGNED`
+- if `__silver_log` is missing, inspection reports `UNKNOWN` rather than
+  guessing
 
 ------------------------------------------------------------------------
 
@@ -662,14 +662,14 @@ Existing Silver-current status vs Bronze remains unchanged.
 
 This branch does not implement:
 
--   generic SQL DSL in `silver.json`
--   arbitrary joins declared in JSON
--   full vocabulary harmonization
--   fiscal year derivation
--   Gold indicators
--   export views
--   dashboards
--   retention policies
+- generic SQL DSL in `silver.json`
+- arbitrary joins declared in JSON
+- full vocabulary harmonization
+- fiscal year derivation
+- Gold indicators
+- export views
+- dashboards
+- retention policies
 
 ------------------------------------------------------------------------
 
@@ -677,20 +677,19 @@ This branch does not implement:
 
 This branch is complete when:
 
--   `silver.json` supports harmonized configuration
--   `phase = "all"` is the default for `promote_to_silver()`
--   `phase = "current"` remains available for manual control
--   `phase = "harmonized"` rebuilds harmonized tables from current
-    tables
--   harmonized tables are written as `harmonized__*` in the existing
-    stream Silver DuckDB
--   a first SDO `harmonized__ricoveri` table is produced
--   `diagnosi_principale`, `diagnosi_secondarie`,
-    `procedura_principale`, `tutte_le_procedure`, and
-    `identificativo_paziente` are available in `harmonized__ricoveri`
--   transformations are code-driven through a registered harmonization
-    profile
--   final naming normalization is driven by `silver.json`
--   `__silver_log` records current and harmonized builds
--   inspection can detect current/harmonized alignment or staleness
--   no harmonized logic reads Bronze directly
+- `silver.json` supports harmonized configuration
+- `phase = "all"` is the default for `promote_to_silver()`
+- `phase = "current"` remains available for manual control
+- `phase = "harmonized"` rebuilds harmonized tables from current tables
+- harmonized tables are written as `harmonized__*` in the existing
+  stream Silver DuckDB
+- a first SDO `harmonized__ricoveri` table is produced
+- `diagnosi_principale`, `diagnosi_secondarie`, `procedura_principale`,
+  `tutte_le_procedure`, and `identificativo_paziente` are available in
+  `harmonized__ricoveri`
+- transformations are code-driven through a registered harmonization
+  profile
+- final naming normalization is driven by `silver.json`
+- `__silver_log` records current and harmonized builds
+- inspection can detect current/harmonized alignment or staleness
+- no harmonized logic reads Bronze directly

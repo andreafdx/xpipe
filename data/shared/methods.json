@@ -50,7 +50,7 @@
     "partition_column": "dim_dataDimissioneMorte",
     "privacy": {
       "hash": {
-        "ricovero": {
+        "anagrafica": {
           "identificativoPaziente": "scalar",
           "codiceFiscale": "scalar"
         },
@@ -60,7 +60,7 @@
         }
       },
       "skip": {
-        "ricovero": {
+        "anagrafica": {
           "nome": "scalar",
           "cognome": "scalar"
         }
