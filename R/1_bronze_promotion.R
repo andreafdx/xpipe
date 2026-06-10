@@ -148,34 +148,11 @@ promote_to_bronze <- function(
 
 
 # Helpers -----------------------------------------------------------------
-#' Execute a statement and always clear the DBI result
-#' @keywords internal
-.db_exec <- function(con, sql, params = NULL) {
-  res <- NULL
-  on.exit({
-    if (!is.null(res)) try(DBI::dbClearResult(res), silent = TRUE)
-  }, add = TRUE)
-
-  res <- DBI::dbSendStatement(con, sql, params = params)
-  invisible(DBI::dbGetRowsAffected(res))
-}
-
-#' Fetch a query and always clear the DBI result
-#' @keywords internal
-.db_query <- function(con, sql, params = NULL) {
-  res <- NULL
-  on.exit({
-    if (!is.null(res)) try(DBI::dbClearResult(res), silent = TRUE)
-  }, add = TRUE)
-
-  res <- DBI::dbSendQuery(con, sql, params = params)
-  DBI::dbFetch(res)
-}
 
 #' Fetch a single scalar (first row/col) and clear the result
 #' @keywords internal
 .db_scalar <- function(con, sql, params = NULL) {
-  out <- .db_query(con, sql, params = params)
+  out <- DBI::dbGetQuery(con, sql, params = params)
   if (nrow(out) == 0 || ncol(out) == 0) return(NA)
   out[[1]][[1]]
 }
@@ -211,7 +188,7 @@ promote_to_bronze <- function(
 
   pq_lit <- DBI::dbQuoteLiteral(con, as.character(parquet_path))
 
-  incoming_schema <- .db_query(
+  incoming_schema <- DBI::dbGetQuery(
     con,
     paste0("DESCRIBE SELECT * FROM read_parquet(", pq_lit, ")")
   )
@@ -232,7 +209,7 @@ promote_to_bronze <- function(
       "Schema evolution: adding column {.val {col}} ({dtype}) to {.val {table_name}}"
     )
 
-    .db_exec(
+    DBI::dbExecute(
       con,
       paste0(
         "ALTER TABLE ",
@@ -666,7 +643,7 @@ promote_to_bronze <- function(
         bronze_table <- paste0(stream_id, "__", method_id, "__", tbl)
         tbl_ident <- DBI::dbQuoteIdentifier(con, bronze_table)
 
-        .db_exec(
+        DBI::dbExecute(
           con,
           paste0(
             "CREATE TABLE IF NOT EXISTS ", tbl_ident, " AS
@@ -688,7 +665,7 @@ promote_to_bronze <- function(
           parquet_path = parquet_path
         )
 
-        .db_exec(
+        DBI::dbExecute(
           con,
           paste0(
             "INSERT INTO ", tbl_ident, " BY NAME
@@ -707,7 +684,7 @@ promote_to_bronze <- function(
         promoted_tables <- c(promoted_tables, bronze_table)
       }
 
-      .db_exec(
+      DBI::dbExecute(
         con,
         "INSERT INTO __promotion_log
        (batch_id, stream_id, method_id, promoted_at, batch_created_at,
@@ -726,7 +703,7 @@ promote_to_bronze <- function(
       invisible(TRUE)
     },
     error = function(e) {
-      try(.db_exec(con, "ROLLBACK"), silent = TRUE)
+      try(DBI::dbExecute(con, "ROLLBACK"), silent = TRUE)
       if (inherits(e, "xpipe_bronze_append_only")) stop(e)
       cli::cli_abort(
         c("Bronze batch promotion failed",
