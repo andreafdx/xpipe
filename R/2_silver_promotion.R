@@ -209,11 +209,23 @@ promote_to_silver <- function(
     FROM harmonized__anagrafica
   "
 
-  # 4. Rebuild the master ricovero table via streamlined left joins
+
+  # 4. DRG normalization expression
+  drg_normalized_expr <- "
+    CASE
+      WHEN r.drg IS NULL OR trim(r.drg) = '' THEN NULL
+      WHEN length(trim(r.drg)) > 3 THEN trim(r.drg)
+      ELSE lpad(trim(r.drg), 3, '0')
+    END
+  "
+
+
+  # Rebuild the master ricovero table via streamlined left joins
+
   sql <- paste0(
     "CREATE OR REPLACE TABLE harmonized__ricovero AS
      SELECT
-       r.*,
+       r.* REPLACE (", drg_normalized_expr, " AS drg),
        d.diagnosi_principale,
        d.diagnosi_secondarie,
        d.tutte_le_diagnosi,
@@ -231,6 +243,7 @@ promote_to_silver <- function(
        ON r.codice_istituto_di_cura = a.codice_istituto_di_cura
       AND r.progressivo_sdo = a.progressivo_sdo"
   )
+
 
   DBI::dbExecute(con, sql)
 
