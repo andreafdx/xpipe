@@ -71,6 +71,13 @@ test_that("EMUR silver promotion and harmonization works end-to-end", {
     expect_true("tutte_le_procedure" %in% colnames(df))
     expect_true("codice_fiscale" %in% colnames(df))
     expect_true("problema_principale_obi" %in% colnames(df))
+    expect_true("t0" %in% colnames(df))
+    expect_true("t1" %in% colnames(df))
+    expect_true("t2" %in% colnames(df))
+    expect_true("t3" %in% colnames(df))
+    expect_true("t4" %in% colnames(df))
+    expect_true("t5" %in% colnames(df))
+    expect_s3_class(df$t0, "POSIXt")
 
     # Restore base config
     assign("config", base_cfg, envir = xpipe:::.xpipe_env)

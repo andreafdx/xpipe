@@ -266,7 +266,22 @@ promote_to_silver <- function(
 #' @noRd
 .silver_profile_emur_harmonized_v1 <- function(con, stream_id, method_id, config) {
 
-  sql_select <- "ps.*"
+  # Helper to build timestamp SQL expression safely
+  sql_timestamp <- function(date_col, time_col) {
+    paste0(
+      "CASE WHEN ", date_col, " IS NULL OR trim(", date_col, ") = '' ",
+      "OR ", time_col, " IS NULL OR trim(", time_col, ") = '' THEN NULL ",
+      "ELSE TRY_CAST(", date_col, " || ' ' || ", time_col, " AS TIMESTAMP) END"
+    )
+  }
+
+  sql_select <- paste0(
+    "ps.*, ",
+    sql_timestamp("ps.data_entrata", "ps.ora_entrata"), " AS t0, ",
+    sql_timestamp("ps.data_presa_in_carico", "ps.ora_presa_in_carico"), " AS t1, ",
+    "NULL::TIMESTAMP AS t2, ",
+    sql_timestamp("ps.data_uscita", "ps.ora_uscita"), " AS t3"
+  )
   sql_joins  <- ""
 
   # 1. Aggregate and join procedures if present
@@ -345,13 +360,20 @@ promote_to_silver <- function(
       ", o.ora_ingresso_obi",
       ", o.data_uscita_obi",
       ", o.ora_uscita_obi",
-      ", o.esito_obi"
+      ", o.esito_obi, ",
+      sql_timestamp("o.data_ingresso_obi", "o.ora_ingresso_obi"), " AS t4, ",
+      sql_timestamp("o.data_uscita_obi", "o.ora_uscita_obi"), " AS t5"
     )
     sql_joins  <- paste0(
       sql_joins,
       " LEFT JOIN (", obi_sql, ") o
          ON ps.codice_struttura_erogatore = o.codice_struttura_erogatore
         AND ps.progressivo = o.progressivo"
+    )
+  } else {
+    sql_select <- paste0(
+      sql_select,
+      ", NULL::TIMESTAMP AS t4, NULL::TIMESTAMP AS t5"
     )
   }
 
