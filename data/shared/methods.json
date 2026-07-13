@@ -43,6 +43,7 @@
         "ricovero"
       ],
       "optional": [
+        "anagrafica",
         "diagnosi",
         "procedure",
         "trasferimenti",
@@ -129,6 +130,7 @@
         "ps"
       ],
       "optional": [
+        "anagrafica",
         "procedure",
         "obi"
       ]
@@ -153,9 +155,30 @@
       }
     },
     "column_types": {
+      "anagrafica": {
+        "Struttura_CodStrutturaErog": "character",
+        "Struttura_Progressivo": "character",
+        "Assistito_LuogoResidenza": "character",
+        "Assistito_ASLResidenza": "character",
+        "Assistito_RegioneResidenza": "character"
+      },
       "ps": {
         "Struttura_CodStrutturaErog": "character",
-        "Struttura_Progressivo": "character"
+        "Struttura_Progressivo": "character",
+        "DatiSanitari_DiagnosiPrincipale": "character",
+        "DatiSanitari_PrestazionePrincipale": "character"
+      },
+      "procedure": {
+        "Struttura_CodStrutturaErog": "character",
+        "Struttura_Progressivo": "character",
+        "Prestazione": "character"
+      },
+      "obi": {
+        "Struttura_CodStrutturaErog": "character",
+        "Struttura_Progressivo": "character",
+        "ProblemaPrincipaleOBI": "character",
+        "DiagnosiPrincipaleUscitaOBI": "character",
+        "PrestazionePrincipaleOBI": "character"
       }
     }
   }
