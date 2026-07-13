@@ -4,24 +4,14 @@
 \alias{inspect_batch_layer}
 \title{Inspect the Batch layer}
 \usage{
-inspect_batch_layer(config)
+inspect_batch_layer(config = get_xpipe_config())
 }
 \arguments{
-\item{config}{An \code{xpipe_config} object.}
+\item{config}{xpipe_config object.}
 }
 \value{
-An object of class \code{xpipe_batch_layer} containing:
-\itemize{
-\item \code{root} - batch layer root path
-\item \code{count} - number of batch directories found
-\item \code{batches} - named list of batch metadata
-}
+xpipe_batch_layer
 }
 \description{
-Scans the local Batch layer directory and returns a structured
-representation of all discovered batches and their metadata.
-}
-\details{
-Incomplete batches (missing \code{_batch_metadata.json}) are recorded
-but marked as such and excluded from detailed inspection.
+Inspect the Batch layer
 }

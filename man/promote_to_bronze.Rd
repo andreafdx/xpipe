@@ -5,7 +5,7 @@
 \title{Promote materialized batches to the Bronze layer}
 \usage{
 promote_to_bronze(
-  config,
+  config = get_xpipe_config(),
   stream = NULL,
   dry_run = FALSE,
   confirm = interactive()

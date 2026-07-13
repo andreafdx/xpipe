@@ -6,11 +6,6 @@
 \usage{
 \method{print}{xpipe_batch_layer}(x, ...)
 }
-\arguments{
-\item{x}{An object of class \code{xpipe_batch_layer}.}
-
-\item{...}{Additional arguments (ignored).}
-}
 \description{
 Print Method for xpipe_batch_layer
 }

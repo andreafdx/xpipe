@@ -4,7 +4,7 @@
 \alias{extract_access_db}
 \title{Extract Access Database}
 \usage{
-extract_access_db(job, path)
+extract_access_db(ctx)
 }
 \arguments{
 \item{job}{Batch job object.}
@@ -15,5 +15,5 @@ extract_access_db(job, path)
 A named list of data frames.
 }
 \description{
-Extracts tables configured in the method component list from an Access Database.
+Extracts tables configured in the method source_tables list from an Access Database.
 }

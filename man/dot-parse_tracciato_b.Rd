@@ -15,4 +15,3 @@ list of data frames
 \description{
 Top-level dispatcher for Tracciato B batch extraction.
 }
-\keyword{internal}

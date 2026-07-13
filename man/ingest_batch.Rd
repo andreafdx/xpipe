@@ -8,7 +8,7 @@ ingest_batch(
   filename,
   stream,
   method,
-  config,
+  config = get_xpipe_config(),
   batch_id = NULL,
   confirm = interactive(),
   dry_run = FALSE
