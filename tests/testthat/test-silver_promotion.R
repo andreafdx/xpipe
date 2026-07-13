@@ -69,8 +69,8 @@ test_that("EMUR silver promotion and harmonization works end-to-end", {
     expect_s3_class(df, "data.frame")
     expect_true("procedura_principale" %in% colnames(df))
     expect_true("tutte_le_procedure" %in% colnames(df))
-    expect_true("Assistito_CodFiscaleAssistito" %in% colnames(df))
-    expect_true("ProblemaPrincipaleOBI" %in% colnames(df))
+    expect_true("codice_fiscale" %in% colnames(df))
+    expect_true("problema_principale_obi" %in% colnames(df))
 
     # Restore base config
     assign("config", base_cfg, envir = xpipe:::.xpipe_env)

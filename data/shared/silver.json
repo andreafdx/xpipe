@@ -143,19 +143,89 @@
         "tables": {
           "anagrafica": {
             "source": "anagrafica",
-            "columns": {}
+            "columns": {
+              "anno": "Struttura_Anno",
+              "codice_struttura_erogatore": "Struttura_CodStrutturaErog",
+              "progressivo": "Struttura_Progressivo",
+              "codice_regione": "Ente_CodRegione",
+              "codice_usl": "Ente_CodUslErog",
+              "cognome": "Assistito_CognomeAssistito",
+              "nome": "Assistito_NomeAssistito",
+              "codice_fiscale": "Assistito_CodFiscaleAssistito",
+              "sesso": "Assistito_Sesso",
+              "data_nascita": "Assistito_DataNascita",
+              "luogo_residenza": "Assistito_LuogoResidenza",
+              "asl_residenza": "Assistito_ASLResidenza",
+              "regione_residenza": "Assistito_RegioneResidenza",
+              "stato_estero": "Assistito_StatoEstero"
+            }
           },
           "ps": {
             "source": "ps",
-            "columns": {}
+            "columns": {
+              "codice_regione": "Ente_CodRegione",
+              "codice_usl": "Ente_CodUslErog",
+              "anno": "Struttura_Anno",
+              "codice_struttura_erogatore": "Struttura_CodStrutturaErog",
+              "progressivo": "Struttura_Progressivo",
+              "tipo_trasmissione": "Struttura_TipoTrasmissione",
+              "data_entrata": "Accesso_DataEntrata",
+              "ora_entrata": "Accesso_OraEntrata",
+              "modalita_arrivo": "Accesso_ModArrivo",
+              "responsabile_invio": "InfPreAccesso_RespInvio",
+              "problema_principale": "InfPreAccesso_ProblemaPrincipale",
+              "triage_accesso": "InformazioniPS_TriageAccesso",
+              "violenza_triage": "InformazioniPS_ViolenzaTriage",
+              "data_presa_in_carico": "PresaInCarico_DataPresaInCarico",
+              "ora_presa_in_carico": "PresaInCarico_OraPresaInCarico",
+              "esito_trattamento": "Dimissione_EsitoTrattamento",
+              "data_dest": "Dimissione_DataDest",
+              "ora_dest": "Dimissione_OraDest",
+              "data_uscita": "Dimissione_DataUscita",
+              "ora_uscita": "Dimissione_OraUscita",
+              "livello_appropriatezza_accesso": "Dimissione_LivelloAppropriatezzaAccesso",
+              "regime_erogazione": "Importo_RegimeErogazione",
+              "importo_lordo": "Importo_ImpLordo",
+              "pos_assistito_ticket": "Importo_PosAssistitoTicket",
+              "importo_ticket": "Importo_ImpTicket",
+              "diagnosi_principale": "DatiSanitari_DiagnosiPrincipale",
+              "prestazione_principale": "DatiSanitari_PrestazionePrincipale",
+              "eta_presunta": "DatiSanitari_EtaPresunta",
+              "rilevazione_violenza": "Violenza_RilevazioneViolenza",
+              "trauma": "InformazioniPS_Trauma",
+              "codice_specialita_reparto": "Ricovero_CodiceSpecialitaReparto",
+              "prog_ricovero": "Ricovero_progRicovero",
+              "identificativo_co": "CentraleOperativa_IdentificativoCO",
+              "cod_missione": "CentraleOperativa_CodMissione",
+              "motivo_trasferimento": "Trasferimento_MotivoTrasferimento",
+              "istituto_trasferimento": "Trasferimento_IstitutoTrasferimento",
+              "istituto_provenienza": "InfPreAccesso_IstitutoProvenienza"
+            }
           },
           "procedure": {
             "source": "procedure",
-            "columns": {}
+            "columns": {
+              "codice_struttura_erogatore": "Struttura_CodStrutturaErog",
+              "progressivo": "Struttura_Progressivo",
+              "prestazione": "Prestazione",
+              "tipo_prestazione": "TipoPrestazione",
+              "num_procedura": "numProcedura"
+            }
           },
           "obi": {
             "source": "obi",
-            "columns": {}
+            "columns": {
+              "codice_struttura_erogatore": "Struttura_CodStrutturaErog",
+              "progressivo": "Struttura_Progressivo",
+              "problema_principale_obi": "ProblemaPrincipaleOBI",
+              "diagnosi_principale_uscita_obi": "DiagnosiPrincipaleUscitaOBI",
+              "prestazione_principale_obi": "PrestazionePrincipaleOBI",
+              "data_ingresso_obi": "DataIngressoOBI",
+              "ora_ingresso_obi": "OraIngressoOBI",
+              "data_uscita_obi": "DataUscitaOBI",
+              "ora_uscita_obi": "OraUscitaOBI",
+              "esito_obi": "EsitoOBI"
+            }
           }
         }
       }

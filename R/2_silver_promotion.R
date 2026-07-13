@@ -273,19 +273,19 @@ promote_to_silver <- function(
   if ("harmonized__procedure" %in% DBI::dbListTables(con)) {
     proc_aggregated_sql <- "
       SELECT
-        Struttura_CodStrutturaErog,
-        Struttura_Progressivo,
-        (LIST(Prestazione ORDER BY numProcedura) FILTER (WHERE TipoPrestazione = 'principale'))[1] AS procedura_principale,
-        LIST(Prestazione ORDER BY numProcedura) AS tutte_le_procedure
+        codice_struttura_erogatore,
+        progressivo,
+        (LIST(prestazione ORDER BY num_procedura) FILTER (WHERE tipo_prestazione = 'principale'))[1] AS procedura_principale,
+        LIST(prestazione ORDER BY num_procedura) AS tutte_le_procedure
       FROM harmonized__procedure
-      GROUP BY Struttura_CodStrutturaErog, Struttura_Progressivo
+      GROUP BY codice_struttura_erogatore, progressivo
     "
     sql_select <- paste0(sql_select, ", p.procedura_principale, p.tutte_le_procedure")
     sql_joins  <- paste0(
       sql_joins,
       " LEFT JOIN (", proc_aggregated_sql, ") p
-         ON ps.Struttura_CodStrutturaErog = p.Struttura_CodStrutturaErog
-        AND ps.Struttura_Progressivo = p.Struttura_Progressivo"
+         ON ps.codice_struttura_erogatore = p.codice_struttura_erogatore
+        AND ps.progressivo = p.progressivo"
     )
   }
 
@@ -293,30 +293,30 @@ promote_to_silver <- function(
   if ("harmonized__anagrafica" %in% DBI::dbListTables(con)) {
     id_paziente_sql <- "
       SELECT
-        Struttura_CodStrutturaErog,
-        Struttura_Progressivo,
-        Assistito_CodFiscaleAssistito,
-        Assistito_Sesso,
-        Assistito_DataNascita,
-        Assistito_LuogoResidenza,
-        Assistito_ASLResidenza,
-        Assistito_RegioneResidenza
+        codice_struttura_erogatore,
+        progressivo,
+        codice_fiscale,
+        sesso,
+        data_nascita,
+        luogo_residenza,
+        asl_residenza,
+        regione_residenza
       FROM harmonized__anagrafica
     "
     sql_select <- paste0(
       sql_select,
-      ", a.Assistito_CodFiscaleAssistito",
-      ", a.Assistito_Sesso",
-      ", a.Assistito_DataNascita",
-      ", a.Assistito_LuogoResidenza",
-      ", a.Assistito_ASLResidenza",
-      ", a.Assistito_RegioneResidenza"
+      ", a.codice_fiscale",
+      ", a.sesso",
+      ", a.data_nascita",
+      ", a.luogo_residenza",
+      ", a.asl_residenza",
+      ", a.regione_residenza"
     )
     sql_joins  <- paste0(
       sql_joins,
       " LEFT JOIN (", id_paziente_sql, ") a
-         ON ps.Struttura_CodStrutturaErog = a.Struttura_CodStrutturaErog
-        AND ps.Struttura_Progressivo = a.Struttura_Progressivo"
+         ON ps.codice_struttura_erogatore = a.codice_struttura_erogatore
+        AND ps.progressivo = a.progressivo"
     )
   }
 
@@ -324,34 +324,34 @@ promote_to_silver <- function(
   if ("harmonized__obi" %in% DBI::dbListTables(con)) {
     obi_sql <- "
       SELECT
-        Struttura_CodStrutturaErog,
-        Struttura_Progressivo,
-        ProblemaPrincipaleOBI,
-        DiagnosiPrincipaleUscitaOBI,
-        PrestazionePrincipaleOBI,
-        DataIngressoOBI,
-        OraIngressoOBI,
-        DataUscitaOBI,
-        OraUscitaOBI,
-        EsitoOBI
+        codice_struttura_erogatore,
+        progressivo,
+        problema_principale_obi,
+        diagnosi_principale_uscita_obi,
+        prestazione_principale_obi,
+        data_ingresso_obi,
+        ora_ingresso_obi,
+        data_uscita_obi,
+        ora_uscita_obi,
+        esito_obi
       FROM harmonized__obi
     "
     sql_select <- paste0(
       sql_select,
-      ", o.ProblemaPrincipaleOBI",
-      ", o.DiagnosiPrincipaleUscitaOBI",
-      ", o.PrestazionePrincipaleOBI",
-      ", o.DataIngressoOBI",
-      ", o.OraIngressoOBI",
-      ", o.DataUscitaOBI",
-      ", o.OraUscitaOBI",
-      ", o.EsitoOBI"
+      ", o.problema_principale_obi",
+      ", o.diagnosi_principale_uscita_obi",
+      ", o.prestazione_principale_obi",
+      ", o.data_ingresso_obi",
+      ", o.ora_ingresso_obi",
+      ", o.data_uscita_obi",
+      ", o.ora_uscita_obi",
+      ", o.esito_obi"
     )
     sql_joins  <- paste0(
       sql_joins,
       " LEFT JOIN (", obi_sql, ") o
-         ON ps.Struttura_CodStrutturaErog = o.Struttura_CodStrutturaErog
-        AND ps.Struttura_Progressivo = o.Struttura_Progressivo"
+         ON ps.codice_struttura_erogatore = o.codice_struttura_erogatore
+        AND ps.progressivo = o.progressivo"
     )
   }
 
@@ -607,6 +607,12 @@ promote_to_silver <- function(
 #' @noRd
 .promote_single_harmonized_table <- function(con, source_table, target_table, column_map) {
 
+  if (length(column_map) > 0) {
+    actual_cols <- DBI::dbListFields(con, source_table)
+    keep_mask <- vapply(column_map, function(old_name) old_name %in% actual_cols, logical(1))
+    column_map <- column_map[keep_mask]
+  }
+
   if (length(column_map) == 0) {
     sql <- paste0(
       "CREATE OR REPLACE TABLE ", DBI::dbQuoteIdentifier(con, target_table),
@@ -616,7 +622,7 @@ promote_to_silver <- function(
     return(invisible(TRUE))
   }
 
-  old_cols <- unname(column_map)
+  old_cols <- unname(unlist(column_map))
   exclude_sql <- paste(DBI::dbQuoteIdentifier(con, old_cols), collapse = ", ")
 
   rename_sql <- vapply(
