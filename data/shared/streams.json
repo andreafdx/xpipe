@@ -33,5 +33,14 @@
     "anchor": "start",
     "valid_from": "2000-01-01",
     "valid_to": null
+  },
+  "emur": {
+    "label": "EMUR",
+    "description": "Pronto Soccorso e OBI",
+    "schema_domain": "emur",
+    "partition_granularity": "year",
+    "anchor": "end",
+    "valid_from": "2000-01-01",
+    "valid_to": null
   }
 }

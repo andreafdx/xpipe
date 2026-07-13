@@ -131,7 +131,12 @@
           }
         }
       }
-
+    },
+    "emur": {
+      "canonical_method": "xml_emur_campania_2026",
+      "current": {
+        "enabled": true
+      }
     }
   }
 }

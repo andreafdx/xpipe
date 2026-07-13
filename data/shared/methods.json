@@ -10,7 +10,9 @@
       "TblSchedaTrasferimenti"
     ],
     "anchor_table": "TblScheda",
-    "identity_keys": ["i_IDScheda"],
+    "identity_keys": [
+      "i_IDScheda"
+    ],
     "partition_column": "d_DataDimissione",
     "privacy": {
       "hash": {
@@ -27,32 +29,36 @@
       }
     }
   },
-
   "xml_campania_2026": {
     "schema_domain": "sdo",
     "type": "xml",
     "input_type": "directory",
     "xml_profile": "sdo_tracciato_abcd",
-
     "input_files": {
       "file_a": "*_A.xml",
       "file_b": "*_B.xml"
     },
-
     "output_tables": {
-      "required": ["ricovero"],
-      "optional": ["diagnosi", "procedure", "trasferimenti", "accessi_dh"]
+      "required": [
+        "ricovero"
+      ],
+      "optional": [
+        "diagnosi",
+        "procedure",
+        "trasferimenti",
+        "accessi_dh"
+      ]
     },
-
-
     "anchor_table": "ricovero",
-    "identity_keys": ["codiceIstitutoDiCura", "progressivoSDO"],
+    "identity_keys": [
+      "codiceIstitutoDiCura",
+      "progressivoSDO"
+    ],
     "partition_column": "dim_dataDimissioneMorte",
     "privacy": {
       "hash": {
         "anagrafica": {
-          "identificativoPaziente": "scalar",
-          "codiceFiscale": "scalar"
+          "identificativoPaziente": "scalar"
         },
         "procedure": {
           "chirurgoIntervento": "list",
@@ -84,15 +90,16 @@
         "progressivoSDO": "character",
         "intervento": "character"
       }
-}
+    }
   },
-
   "ps_csv": {
     "schema_domain": "ps",
     "type": "csv",
     "input_type": "file",
     "anchor_table": "data",
-    "identity_keys": ["id_accesso"],
+    "identity_keys": [
+      "id_accesso"
+    ],
     "partition_column": "data_ingresso",
     "privacy": {
       "hash": {
@@ -105,6 +112,50 @@
           "nome": "scalar",
           "cognome": "scalar"
         }
+      }
+    }
+  },
+  "xml_emur_campania_2026": {
+    "schema_domain": "emur",
+    "type": "xml",
+    "input_type": "directory",
+    "xml_profile": "emur_tracciato_ab",
+    "input_files": {
+      "file_a": "*_ana.xml",
+      "file_b": "*_san.xml"
+    },
+    "output_tables": {
+      "required": [
+        "ps"
+      ],
+      "optional": [
+        "procedure",
+        "obi"
+      ]
+    },
+    "anchor_table": "ps",
+    "identity_keys": [
+      "Struttura_CodStrutturaErog",
+      "Struttura_Progressivo"
+    ],
+    "partition_column": "Dimissione_DataUscita",
+    "privacy": {
+      "hash": {
+        "anagrafica": {
+          "Assistito_CodFiscaleAssistito": "scalar"
+        }
+      },
+      "skip": {
+        "anagrafica": {
+          "Assistito_CognomeAssistito": "scalar",
+          "Assistito_NomeAssistito": "scalar"
+        }
+      }
+    },
+    "column_types": {
+      "ps": {
+        "Struttura_CodStrutturaErog": "character",
+        "Struttura_Progressivo": "character"
       }
     }
   }

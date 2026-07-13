@@ -4,7 +4,7 @@ load_xpipe_config()
 
 # First ensure the target folder exists
 
-target_folder <- "xml 3-1"
+target_folder <- "emur"
 .cfg <- get_xpipe_config()
 inbox_path <- fs::path(.cfg$local$paths$inbox, target_folder)
 if (!fs::dir_exists(inbox_path)) {
@@ -17,8 +17,8 @@ if (!fs::dir_exists(inbox_path)) {
 # Call the public API
 ingest_batch(
   filename = target_folder,
-  method   = "xml_campania_2026",
-  stream   = "sdo"
+  method   = "xml_emur_campania_2026",
+  stream   = "emur"
 )
 
 # print(inspect_batch_layer(.cfg))
@@ -26,5 +26,6 @@ ingest_batch(
 promote_to_bronze()
 
 promote_to_silver(
-  stream = "sdo"
+  phase="current",
+  stream = "emur"
 )

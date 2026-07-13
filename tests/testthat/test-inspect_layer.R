@@ -33,9 +33,9 @@ test_that("inspect_batch_layer correctly identifies complete and incomplete batc
 
     expect_s3_class(inspection, "xpipe_batch_layer")
     expect_equal(inspection$count, 2)
-    expect_equal(inspection$batches$batch_corrupt$.status, "incomplete")
+    expect_equal(inspection$batches$batch_corrupt$status, "incomplete")
     expect_equal(inspection$batches$batch_healthy$batch_id, "batch_healthy")
-    expect_null(inspection$batches$batch_healthy$.status)
+    expect_equal(inspection$batches$batch_healthy$status, "ok")
   })
 })
 
