@@ -37,7 +37,7 @@
 #' @param config xpipe_config object.
 #'
 #' @return A list with current, harmonized and alignment status.
-#' @keyword internal
+#' @keywords internal
 .inspect_silver_alignment <- function(stream_id, config = get_xpipe_config()) {
   checkmate::assert_string(stream_id)
   checkmate::assert_class(config, "xpipe_config")
@@ -428,7 +428,7 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
 #'   `__batch_created_at <= as_of`. This is ingestion time, not domain/event time.
 #'
 #' @return An object of class `xpipe_silver_current_inspection`.
-#' @keyword internal
+#' @export
 inspect_silver_current <- function(
     stream_id = NULL,
     method_id = NULL,
@@ -1301,13 +1301,6 @@ print.xpipe_bronze_inspection <- function(x, ...) {
 
 
 
-#' Print Silver-current inspection
-#'
-#' @param x An object returned by `inspect_silver_current()`.
-#' @param ... Ignored.
-#'
-#' @return Invisibly returns `x`.
-#' @export
 #' Print Silver-current inspection
 #'
 #' @param x An object returned by `inspect_silver_current()`.

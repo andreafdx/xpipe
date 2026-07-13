@@ -13,8 +13,6 @@
 }
 \value{
 Invisibly returns \code{x}.
-
-Invisibly returns \code{x}.
 }
 \description{
 Print Silver-current inspection

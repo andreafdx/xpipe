@@ -136,6 +136,28 @@
       "canonical_method": "xml_emur_campania_2026",
       "current": {
         "enabled": true
+      },
+      "harmonized": {
+        "enabled": true,
+        "profile": "emur_harmonized_v1",
+        "tables": {
+          "anagrafica": {
+            "source": "anagrafica",
+            "columns": {}
+          },
+          "ps": {
+            "source": "ps",
+            "columns": {}
+          },
+          "procedure": {
+            "source": "procedure",
+            "columns": {}
+          },
+          "obi": {
+            "source": "obi",
+            "columns": {}
+          }
+        }
       }
     }
   }

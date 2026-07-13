@@ -5,7 +5,7 @@
 \alias{.silver_harmonized_profile_registry}
 \title{Silver-harmonized profile registry}
 \format{
-An object of class \code{list} of length 1.
+An object of class \code{list} of length 2.
 }
 \usage{
 .silver_harmonized_profile_registry

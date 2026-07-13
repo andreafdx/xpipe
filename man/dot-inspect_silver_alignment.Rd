@@ -18,3 +18,4 @@ A list with current, harmonized and alignment status.
 Determines whether Silver-harmonized is aligned with Silver-current
 based exclusively on __silver_log metadata.
 }
+\keyword{internal}

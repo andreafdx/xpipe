@@ -15,8 +15,9 @@
 #            .resolve_silver_canonical_method(),
 #            .is_silver_up_to_date(),
 #            .promote_single_harmonized_table(),
-#            .promote_all_harmonized_tables(), .ensure_silver_log(), .write_silver_log()
-#            .confirm_silver_promotion(), .select_silver_promotion_targets()
+#            .promote_all_harmonized_tables(), .ensure_silver_log(), .write_silver_log(),
+#            .confirm_silver_promotion(), .select_silver_promotion_targets(),
+#            .silver_profile_sdo_harmonized_v1(), .silver_profile_emur_harmonized_v1()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
@@ -250,12 +251,129 @@ promote_to_silver <- function(
   invisible(TRUE)
 }
 
+#' EMUR Silver-harmonized profile
+#'
+#' Code-driven harmonization profile for the EMUR stream.
+#' Aggregates procedures and OBI details, and joins patient demographics.
+#'
+#' @param con DuckDB connection to the Silver database.
+#' @param stream_id Stream identifier.
+#' @param method_id Canonical method identifier.
+#' @param config xpipe_config object.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
+#' @noRd
+.silver_profile_emur_harmonized_v1 <- function(con, stream_id, method_id, config) {
+
+  sql_select <- "ps.*"
+  sql_joins  <- ""
+
+  # 1. Aggregate and join procedures if present
+  if ("harmonized__procedure" %in% DBI::dbListTables(con)) {
+    proc_aggregated_sql <- "
+      SELECT
+        Struttura_CodStrutturaErog,
+        Struttura_Progressivo,
+        (LIST(Prestazione ORDER BY numProcedura) FILTER (WHERE TipoPrestazione = 'principale'))[1] AS procedura_principale,
+        LIST(Prestazione ORDER BY numProcedura) AS tutte_le_procedure
+      FROM harmonized__procedure
+      GROUP BY Struttura_CodStrutturaErog, Struttura_Progressivo
+    "
+    sql_select <- paste0(sql_select, ", p.procedura_principale, p.tutte_le_procedure")
+    sql_joins  <- paste0(
+      sql_joins,
+      " LEFT JOIN (", proc_aggregated_sql, ") p
+         ON ps.Struttura_CodStrutturaErog = p.Struttura_CodStrutturaErog
+        AND ps.Struttura_Progressivo = p.Struttura_Progressivo"
+    )
+  }
+
+  # 2. Join patient demographics from anagrafica if present
+  if ("harmonized__anagrafica" %in% DBI::dbListTables(con)) {
+    id_paziente_sql <- "
+      SELECT
+        Struttura_CodStrutturaErog,
+        Struttura_Progressivo,
+        Assistito_CodFiscaleAssistito,
+        Assistito_Sesso,
+        Assistito_DataNascita,
+        Assistito_LuogoResidenza,
+        Assistito_ASLResidenza,
+        Assistito_RegioneResidenza
+      FROM harmonized__anagrafica
+    "
+    sql_select <- paste0(
+      sql_select,
+      ", a.Assistito_CodFiscaleAssistito",
+      ", a.Assistito_Sesso",
+      ", a.Assistito_DataNascita",
+      ", a.Assistito_LuogoResidenza",
+      ", a.Assistito_ASLResidenza",
+      ", a.Assistito_RegioneResidenza"
+    )
+    sql_joins  <- paste0(
+      sql_joins,
+      " LEFT JOIN (", id_paziente_sql, ") a
+         ON ps.Struttura_CodStrutturaErog = a.Struttura_CodStrutturaErog
+        AND ps.Struttura_Progressivo = a.Struttura_Progressivo"
+    )
+  }
+
+  # 3. Join OBI details if present
+  if ("harmonized__obi" %in% DBI::dbListTables(con)) {
+    obi_sql <- "
+      SELECT
+        Struttura_CodStrutturaErog,
+        Struttura_Progressivo,
+        ProblemaPrincipaleOBI,
+        DiagnosiPrincipaleUscitaOBI,
+        PrestazionePrincipaleOBI,
+        DataIngressoOBI,
+        OraIngressoOBI,
+        DataUscitaOBI,
+        OraUscitaOBI,
+        EsitoOBI
+      FROM harmonized__obi
+    "
+    sql_select <- paste0(
+      sql_select,
+      ", o.ProblemaPrincipaleOBI",
+      ", o.DiagnosiPrincipaleUscitaOBI",
+      ", o.PrestazionePrincipaleOBI",
+      ", o.DataIngressoOBI",
+      ", o.OraIngressoOBI",
+      ", o.DataUscitaOBI",
+      ", o.OraUscitaOBI",
+      ", o.EsitoOBI"
+    )
+    sql_joins  <- paste0(
+      sql_joins,
+      " LEFT JOIN (", obi_sql, ") o
+         ON ps.Struttura_CodStrutturaErog = o.Struttura_CodStrutturaErog
+        AND ps.Struttura_Progressivo = o.Struttura_Progressivo"
+    )
+  }
+
+  sql <- paste0(
+    "CREATE OR REPLACE TABLE harmonized__ps AS ",
+    "SELECT ", sql_select, " ",
+    "FROM harmonized__ps ps",
+    sql_joins
+  )
+
+  DBI::dbExecute(con, sql)
+
+  invisible(TRUE)
+}
+
 #' Silver-harmonized profile registry
 #'
 #' Internal registry mapping harmonization profile identifiers
 #' (as declared in silver.json) to code-driven profile functions.
 .silver_harmonized_profile_registry <- list(
-  sdo_harmonized_v1 = .silver_profile_sdo_harmonized_v1
+  sdo_harmonized_v1 = .silver_profile_sdo_harmonized_v1,
+  emur_harmonized_v1 = .silver_profile_emur_harmonized_v1
 )
 
 # Helpers -----------------------------------------------------------------
@@ -548,6 +666,11 @@ promote_to_silver <- function(
 
     source_table <- paste0("current__", src)
     target_table <- paste0("harmonized__", tbl_name)
+
+    if (!source_table %in% DBI::dbListTables(con)) {
+      .log_debug(paste0("Source table ", source_table, " not found in Silver database. Skipping harmonization for this table."))
+      next
+    }
 
     .promote_single_harmonized_table(
       con = con,
