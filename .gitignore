@@ -11,6 +11,13 @@ output/
 .agents/
 
 *.parquet
+*.duckdb
+*.duckdb.wal
+*.mdb
+*.accdb
+*.zip
+*.gz
+*.tar.gz
 !data/**/*.json
 !data/*.json
 
