@@ -799,8 +799,8 @@ promote_to_silver <- function(
 #' `__batch_created_at DESC, __batch_id DESC`.
 #'
 #' @param stream_id Character scalar. Stream identifier.
-#' @param method_id Character scalar. Method identifier.
 #' @param config xpipe_config.
+#' @param as_of Optional POSIXct. Only include Bronze batches created at or before this time.
 #'
 #' @return Invisibly TRUE on success.
 #' @keywords internal

@@ -235,7 +235,7 @@ promote_to_bronze <- function(
 #' with a given stream in the Bronze layer.
 #'
 #' The database file is located at:
-#'   {bronze_root}/{stream_id}.duckdb
+#'   \code{bronze_root/stream_id.duckdb}
 #'
 #' This function does not create tables and does not perform any writes
 #' by itself. It only establishes a DBI connection.

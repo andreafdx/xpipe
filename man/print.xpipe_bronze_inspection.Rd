@@ -6,6 +6,11 @@
 \usage{
 \method{print}{xpipe_bronze_inspection}(x, ...)
 }
+\arguments{
+\item{x}{An \code{xpipe_bronze_inspection} object.}
+
+\item{...}{Unused; included for S3 method compatibility.}
+}
 \description{
 Print Method for xpipe_bronze_inspection
 }

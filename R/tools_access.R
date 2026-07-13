@@ -58,8 +58,7 @@
 #'
 #' Extracts tables configured in the method source_tables list from an Access Database.
 #'
-#' @param job Batch job object.
-#' @param path Path to .mdb file.
+#' @param ctx Batch context object containing method_config and filepath.
 #' @return A named list of data frames.
 #' @export
 extract_access_db <- function(ctx) {

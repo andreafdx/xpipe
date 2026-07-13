@@ -9,3 +9,5 @@
 ^\.superpowers$
 ^\.positai$
 ^\.claude$
+^\.agents$
+^\.RDataTmp$

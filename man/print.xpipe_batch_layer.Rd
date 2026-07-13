@@ -6,6 +6,11 @@
 \usage{
 \method{print}{xpipe_batch_layer}(x, ...)
 }
+\arguments{
+\item{x}{An \code{xpipe_batch_layer} object.}
+
+\item{...}{Unused; included for S3 method compatibility.}
+}
 \description{
 Print Method for xpipe_batch_layer
 }

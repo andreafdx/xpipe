@@ -7,9 +7,7 @@
 extract_access_db(ctx)
 }
 \arguments{
-\item{job}{Batch job object.}
-
-\item{path}{Path to .mdb file.}
+\item{ctx}{Batch context object containing method_config and filepath.}
 }
 \value{
 A named list of data frames.

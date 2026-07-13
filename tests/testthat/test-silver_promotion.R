@@ -6,8 +6,21 @@
 
 test_that("EMUR silver promotion and harmonization works end-to-end", {
   proj_root <- fs::path_abs(testthat::test_path("../.."))
-  base_cfg <- load_xpipe_config(project_root = proj_root)
   inbox_src <- fs::path_abs(testthat::test_path("../../inbox/emur"))
+
+  # This is a full integration test that requires the real project directory
+  # structure (inbox/emur/, data/shared/). Skip gracefully when running under
+  # R CMD check or any other environment that doesn't have those paths.
+  skip_if_not(
+    fs::dir_exists(inbox_src),
+    "inbox/emur not found; skipping integration test"
+  )
+  skip_if_not(
+    fs::dir_exists(fs::path(proj_root, "data", "shared")),
+    "data/shared not found; skipping integration test"
+  )
+
+  base_cfg <- load_xpipe_config(project_root = proj_root)
 
   withr::with_tempdir({
     # Copy inbox emur to local tempdir

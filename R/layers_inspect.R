@@ -797,6 +797,8 @@ inspect_silver_current <- function(
 
 #' Print Method for xpipe_batch_layer
 #'
+#' @param x An `xpipe_batch_layer` object.
+#' @param ... Unused; included for S3 method compatibility.
 #' @export
 print.xpipe_batch_layer <- function(x, ...) {
   pad <- function(x, width) {
@@ -811,7 +813,7 @@ print.xpipe_batch_layer <- function(x, ...) {
   head_tail <- function(v, n = 12) {
     v <- as.character(v)
     if (length(v) <= n) return(v)
-    c(v[seq_len(n)], paste0("… +", length(v) - n, " more"))
+    c(v[seq_len(n)], paste0("... +", length(v) - n, " more"))
   }
 
   box_list <- function(v, header, border_col = "cyan") {
@@ -855,7 +857,7 @@ print.xpipe_batch_layer <- function(x, ...) {
 
     lines <- c(header_row, sep_row, body)
     if (nrow(df) > max_rows) {
-      lines <- c(lines, paste0("… +", nrow(df) - max_rows, " more"))
+      lines <- c(lines, paste0("... +", nrow(df) - max_rows, " more"))
     }
 
     cli::cat_boxx(
@@ -1151,6 +1153,8 @@ print.xpipe_batch_layer <- function(x, ...) {
 
 #' Print Method for xpipe_bronze_inspection
 #'
+#' @param x An `xpipe_bronze_inspection` object.
+#' @param ... Unused; included for S3 method compatibility.
 #' @export
 print.xpipe_bronze_inspection <- function(x, ...) {
   pad <- function(x, width) {
@@ -1163,7 +1167,7 @@ print.xpipe_bronze_inspection <- function(x, ...) {
   head_tail <- function(v, n = 12) {
     v <- as.character(v)
     if (length(v) <= n) return(v)
-    c(v[seq_len(n)], paste0("… +", length(v) - n, " more"))
+    c(v[seq_len(n)], paste0("... +", length(v) - n, " more"))
   }
 
   cli::cli_h2("Bronze stream inspection")
@@ -1241,7 +1245,7 @@ print.xpipe_bronze_inspection <- function(x, ...) {
   # Current tables row counts (top N)
   if (nrow(x$row_counts) > 0) {
     df <- x$row_counts[order(-x$row_counts$n), , drop = FALSE]
-    df <- head(df, 20)
+    df <- utils::head(df, 20)
 
     max_t <- max(nchar(df$table_name), nchar("table"))
     max_n <- max(nchar(as.character(df$n)), nchar("rows"))

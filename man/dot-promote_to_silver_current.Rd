@@ -11,7 +11,7 @@
 
 \item{config}{xpipe_config.}
 
-\item{method_id}{Character scalar. Method identifier.}
+\item{as_of}{Optional POSIXct. Only include Bronze batches created at or before this time.}
 }
 \value{
 Invisibly TRUE on success.
