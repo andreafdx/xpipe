@@ -8,9 +8,17 @@
 # Pseudonymization is deterministic (same input + pepper = same hash), which
 # allows downstream joins without exposing raw identifiers.
 #
-# Public API:  apply_privacy_rules()
-# Internal:    hash_phi(), .pseudonymize_cols()
+# Public API:  hash_phi()
+# Internals:   apply_privacy_rules(), .pseudonymize_cols()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Error Class Taxonomy ---------------------------------------------------------
+#
+#   xpipe_error
+#   ├── xpipe_runtime_error
+#   │   └── xpipe_runtime_pepper   # HMAC key (pepper) is missing or empty
+#   └── xpipe_batch_error
+#       └── xpipe_privacy          # Privacy rule shape mismatch or invalid rule
 
 
 # Private API ------------------------------------------------------------------

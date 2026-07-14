@@ -29,7 +29,7 @@ The control plane is defined by shared and local JSON contracts.
 | `local.json` | `inst/_xne/local.json` | Local infrastructure: paths and logging |
 | `streams.json` | `data/shared/streams.json` | Domain semantics: what the data represents |
 | `methods.json` | `data/shared/methods.json` | Ingestion mechanics: how source data is read and normalized into Batch |
-| `silver.json` | `data/shared/silver.json` | Silver-current configuration: canonical method selection per stream |
+| `silver.json` | `data/shared/silver.json` | Silver layer configuration: canonical method selection and harmonization profiles per stream |
 
 `local.json` is machine-specific and is not shared.
 
@@ -359,14 +359,12 @@ or input resolution require explicit governance review.
 When a change alters persisted data semantics or privacy treatment,
 re-ingestion from source is required for consistency.
 
-## silver.json — Silver-current Configuration
+## `silver.json` — Silver Layer Configuration
 
 ### Purpose
 
-Declares which method is canonical for Silver-current for each stream.
-
-Silver-current must not guess among multiple Bronze methods for the same
-stream.
+Declares which method is canonical for Silver-current for each stream,
+enables Silver-harmonized, and maps table/column-renaming normalizations.
 
 ### Required Structure
 
@@ -374,7 +372,7 @@ stream.
 {
   "_meta": {
     "type": "silver_contract",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "streams": {
     "sdo": {
@@ -383,7 +381,18 @@ stream.
         "enabled": true
       },
       "harmonized": {
-        "enabled": false
+        "enabled": true,
+        "profile": "sdo_harmonized_v1",
+        "tables": {
+          "ricovero": {
+            "source": "ricovero",
+            "columns": {
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "drg": "DRG"
+            }
+          }
+        }
       }
     }
   }
@@ -392,18 +401,18 @@ stream.
 
 ### Fields
 
-
 | Field | Required | Meaning |
 | :--- | :---: | :--- |
 | `_meta.type` | **Yes** | Must be `silver_contract`. |
 | `_meta.version` | **Yes** | Contract version. |
 | `streams.<stream_id>.canonical_method` | **Yes** | Method used to build Silver-current for that stream. |
 | `streams.<stream_id>.current.enabled` | **Yes** | Whether Silver-current is enabled for the stream. |
-| `streams.<stream_id>.harmonized.enabled` | **Yes** | Placeholder for future harmonized Silver; not implemented in this branch. |
+| `streams.<stream_id>.harmonized.enabled` | **Yes** | Whether Silver-harmonized is enabled for the stream. |
+| `streams.<stream_id>.harmonized.profile` | Yes if harmonized | Registered harmonization profile function to apply (e.g., `sdo_harmonized_v1`). |
+| `streams.<stream_id>.harmonized.tables` | Yes if harmonized | Map of harmonized output tables, their sources, and column mappings. |
 
 ### Rules
 
 * The canonical method must exist in `methods.json`.
 * The canonical method `schema_domain` must match the stream `schema_domain`.
-* Only `phase = "current"` is supported in this branch.
-* Harmonized settings are contractual placeholders only.
+* Both `phase = "current"` and `phase = "harmonized"` (or `phase = "all"`) are fully supported.

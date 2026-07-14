@@ -292,7 +292,7 @@ data/silver/sdo.duckdb
   current__ricovero
   current__diagnosi
   current__procedure
-  harmonized__ricoveri
+  harmonized__ricovero
 ```
 
 Harmonized tables use the naming pattern:
@@ -378,16 +378,12 @@ Example:
         "enabled": true,
         "profile": "sdo_harmonized_v1",
         "tables": {
-          "ricoveri": {
+          "ricovero": {
             "source": "ricovero",
             "columns": {
-              "codice_istituto": "codiceIstitutoDiCura",
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
               "progressivo_sdo": "progressivoSDO",
-              "codice_paziente": "codice_paziente",
-              "diagnosi_principale": "diagnosi_principale",
-              "diagnosi_secondarie": "diagnosi_secondarie",
-              "procedura_principale": "procedura_principale",
-              "tutte_le_procedure": "tutte_le_procedure"
+              "drg": "DRG"
             }
           }
         }
@@ -428,11 +424,11 @@ Transformations may include:
 - creating list-columns
 - deriving convenience columns for frequent analysis
 
-Transformation functions operate on Silver-current legacy column names
-**before** final normalization is applied.
+Transformation functions operate on Silver-harmonized column names
+**after** final normalization is applied.
 
-This avoids conflicts caused by renaming columns before profile-specific
-logic has run.
+This allows profile-specific logic to reference clean, normalized names
+instead of handling varying legacy field names.
 
 ---
 
@@ -456,38 +452,32 @@ Example:
 
 The profile owns stream-specific transformation logic.
 
-For SDO, the initial profile is expected to produce an analytical
-`harmonized__ricoveri` table.
+For SDO, the initial profile is expected to produce an enriched analytical
+`harmonized__ricovero` table.
 
-The profile may define internal helper functions such as:
-
-```text
-.add_codice_paziente_to_ricoveri()
-.add_diagnosi_to_ricoveri()
-.add_procedure_to_ricoveri()
-```
-
-These helpers are implementation details, not configuration fields.
+The registered profile functions are maintained inside the package's internal
+registry, e.g., `.silver_profile_sdo_harmonized_v1` and `.silver_profile_emur_harmonized_v1`.
 
 ---
 
-## SDO harmonized `ricoveri` table
+## SDO harmonized `ricovero` table
 
-For the SDO stream, the first harmonized analytical table is:
+For the SDO stream, the primary harmonized analytical table is:
 
 ```text
-harmonized__ricoveri
+harmonized__ricovero
 ```
 
-It is derived from `current__ricovero` and may be enriched from other
+It is derived from `current__ricovero` and enriched from other
 `current__*` tables.
 
-The initial SDO harmonized profile should support at least:
+The SDO harmonized profile supports at least:
 
 ```text
-codice_paziente
+identificativo_paziente
 diagnosi_principale
 diagnosi_secondarie
+tutte_le_diagnosi
 procedura_principale
 tutte_le_procedure
 ```
@@ -501,19 +491,68 @@ diagnosi_principale
 diagnosi_secondarie
   all diagnoses excluding the principal diagnosis
 
+tutte_le_diagnosi
+  all diagnoses, including the principal diagnosis
+
 procedura_principale
   procedure marked as principal
 
 tutte_le_procedure
   all procedures, including the principal procedure
 
-codice_paziente
-  patient code joined from the current anagrafica table or equivalent
-  current source table
+identificativo_paziente
+  patient identifier joined from the current anagrafica table
 ```
 
 `diagnosi_secondarie` and `tutte_le_procedure` may be represented as
 list-columns when this best preserves the analytical meaning.
+
+---
+
+## EMUR harmonized `ps` table
+
+For the EMUR stream, the primary harmonized analytical table is:
+
+```text
+harmonized__ps
+```
+
+It is derived from `current__ps` and enriched from other `current__*` tables.
+
+The EMUR harmonized profile (`emur_harmonized_v1`) supports:
+
+```text
+t0
+t1
+t2
+t3
+t4
+t5
+procedura_principale
+tutte_le_procedure
+codice_fiscale
+sesso
+data_nascita
+luogo_residenza
+asl_residenza
+regione_residenza
+problema_principale_obi
+diagnosi_principale_uscita_obi
+prestazione_principale_obi
+data_ingresso_obi
+ora_ingresso_obi
+data_uscita_obi
+ora_uscita_obi
+esito_obi
+```
+
+The temporal columns represent normalized timestamps derived from date and time fields:
+* `t0`: Entry timestamp (`data_entrata` + `ora_entrata`)
+* `t1`: Triage/take charge timestamp (`data_presa_in_carico` + `ora_presa_in_carico`)
+* `t2`: Examination timestamp (always NULL for v1)
+* `t3`: Exit timestamp (`data_uscita` + `ora_uscita`)
+* `t4`: OBI entry timestamp (`data_ingresso_obi` + `ora_ingresso_obi`)
+* `t5`: OBI exit timestamp (`data_uscita_obi` + `ora_uscita_obi`)
 
 ---
 

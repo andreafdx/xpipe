@@ -6,9 +6,22 @@
 # Approach: Scans the local filesystem for Batch layer directories,
 # parses metadata, and provides a structured representation for console display.
 #
-# Public API:  inspect_batch_layer()
-# Internals:   .format_datetime(), print.xpipe_batch_layer()
+# Public API:  inspect_batch_layer(), inspect_bronze(), inspect_silver_current()
+# Internals:   .format_datetime(), .inspect_silver_alignment()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Error Class Taxonomy --------------------------------------------------------
+#
+#   xpipe_error
+#   ├── xpipe_batch_error
+#   │   ├── xpipe_batch_config       # config is not xpipe_config
+#   │   └── xpipe_batch_paths        # batch root directory not found
+#   ├── xpipe_bronze_state           # bronze path or database not found
+#   ├── xpipe_methods_error          # methods contract validation failure
+#   └── xpipe_silver_error
+#       ├── xpipe_silver_config      # silver config lacks anchor table or keys
+#       ├── xpipe_silver_state       # silver path or database not found
+#       └── xpipe_silver_anchor      # silver anchor table key mismatch
 
 ## Helpers ----------------------------------------------------------------
 

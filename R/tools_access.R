@@ -11,6 +11,12 @@
 # Internals:   .connect_access_db()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Error Class Taxonomy --------------------------------------------------------
+#
+#   xpipe_error
+#   └── xpipe_batch_error
+#       └── xpipe_batch_config  # No source_tables defined in method config
+
 #' Connect to Access database using ODBC (Auto-detect Win/Linux)
 #'
 #' @param path_to_mdb Path to .mdb file.

@@ -22,8 +22,13 @@
 
 
 # Error Class Taxonomy ----------------------------------------------------
-
-
+#
+#   xpipe_error
+#   └── xpipe_silver_error
+#       ├── xpipe_silver_config   # silver.json missing, disabled, or invalid configuration
+#       ├── xpipe_silver_state    # Silver DB path or log validation failure
+#       ├── xpipe_silver_anchor   # Silver anchor table missing from Bronze
+#       └── xpipe_silver_abort    # user declined Silver promotion confirmation prompt
 
 # Public API --------------------------------------------------------------
 

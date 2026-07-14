@@ -14,7 +14,8 @@
 #              .resolve_inputs(), .normalize_or_generate_batch_id(),
 #              .build_batch_target_dir(), .prepare_batch_ingestion(),
 #              .assert_batch_materializable(), .resolve_extraction_instrument(),
-#              .run_extraction(), .persist_to_batch(), .materialize_batch()
+#              .run_extraction(), .persist_to_batch(), .materialize_batch(),
+#              .apply_batch_column_types()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Error Class Taxonomy --------------------------------------------------------
@@ -31,14 +32,16 @@
 #       ├── xpipe_batch_stream        # unknown stream identifier
 #       ├── xpipe_batch_path          # inbox path invalid or not found
 #       ├── xpipe_batch_input_type    # file vs directory requirement mismatch
-#       ├── xpipe_batch_input_files    # directory input file missing or ambiguous
+#       ├── xpipe_batch_input_files   # directory input file missing or ambiguous
 #       ├── xpipe_batch_id            # invalid explicit batch_id
 #       ├── xpipe_batch_collision     # target batch directory already exists
 #       ├── xpipe_batch_input         # input missing or empty at materialization
 #       ├── xpipe_batch_instrument    # extractor not registered or not loaded
 #       ├── xpipe_batch_extraction    # extractor returned invalid result
 #       ├── xpipe_batch_materialization # ctx or config invalid at materialization
-#       └── xpipe_batch_abort         # user declined confirmation prompt
+#       │   └── xpipe_batch_type_enforcement # column type coercion failed or is unsafe
+#       ├── xpipe_batch_abort         # user declined confirmation prompt
+#       └── xpipe_privacy             # PHI hashing / pseudonymization error or invalid shape
 
 # Public API --------------------------------------------------------------
 

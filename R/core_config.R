@@ -12,7 +12,7 @@
 # Internals:   .find_asset(), .validate_json_schema(), .read_json_safe(),
 #              .load_runtime_context(), .load_local_config(), .normalize_paths(),
 #              .validate_batch_layer(), .validate_batch_hash(), .load_batch_layer(),
-#              .load_streams_contract(), .load_methods_contract()
+#              .load_streams_contract(), .load_methods_contract(), .load_silver_contract()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 

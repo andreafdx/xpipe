@@ -7,11 +7,10 @@
 # deriving time partitions from anchor tables and enriching rows with metadata.
 #
 # Public API:  promote_to_bronze()
-# Internals:   .get_bronze_state(), .save_bronze_state(), .identify_pending_batches(),
-#              .validate_anchor_definitions(), .prepare_bronze_promotion_preview(),
-#              .apply_bronze_promotion(), .now_iso(), .make_key(),
-#              .promoted_batch_ids(), .make_promotion_event(),
-#              .print_bronze_preview(), .confirm_bronze_promotion()
+# Internals:   .db_scalar(), .parquet_has_columns(),
+#              .reconcile_bronze_columns_from_parquet(), .open_bronze_conn(),
+#              .ensure_bronze_promotion_log(), .promote_one_table_to_bronze(),
+#              .promote_batch_to_bronze(), .confirm_bronze_promotion()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Error Class Taxonomy --------------------------------------------------------

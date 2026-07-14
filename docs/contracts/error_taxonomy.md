@@ -69,7 +69,7 @@ xpipe_error                            # root — catch-all for the package
 ├── xpipe_asset_error
 │   └── xpipe_asset_not_found          # internal inst/ asset cannot be located
 │
-├── xpipe_batch_error                  # batch-layer errors from 0_batch_materialization.R
+├── xpipe_batch_error                  # batch-layer errors from 0_batch_materialization.R and core_config.R
 │   ├── xpipe_batch_config             # xpipe_config is missing required branches (paths, streams, methods)
 │   ├── xpipe_batch_schema_domain      # method and stream schema_domain mismatch
 │   ├── xpipe_batch_method             # unknown or invalid method identifier
@@ -77,21 +77,31 @@ xpipe_error                            # root — catch-all for the package
 │   ├── xpipe_batch_path               # input filename not found in inbox
 │   ├── xpipe_batch_paths              # batch layer directory missing or not configured
 │   ├── xpipe_batch_input_type         # method requires file but directory provided, or vice versa
-│   ├── xpipe_batch_components         # required component not found, or multiple matches (ambiguous)
+│   ├── xpipe_batch_input_files        # input files pattern resolving failed (missing or ambiguous files)
 │   ├── xpipe_batch_id                 # explicit batch_id is invalid (e.g. empty string)
 │   ├── xpipe_batch_collision          # target batch directory already exists (append-only guard)
 │   ├── xpipe_batch_input              # input file missing or empty at materialization time
 │   ├── xpipe_batch_instrument         # no extractor registered for method type, or function not loaded
 │   ├── xpipe_batch_extraction         # extractor failed or returned an invalid / empty result
 │   ├── xpipe_batch_materialization    # persistence phase failed (Parquet write or non-data.frame element)
-│   └── xpipe_batch_abort              # user declined confirmation prompt
+│   │   └── xpipe_batch_type_enforcement # column type enforcement failed or is unsafe (e.g. numeric to character coercion)
+│   ├── xpipe_batch_abort              # user declined confirmation prompt
+│   ├── xpipe_batch_metadata           # layer.json missing, invalid format, or failed to read/write during promotion
+│   ├── xpipe_batch_hash               # Batch layer integrity hash check failed
+│   └── xpipe_privacy                  # PHI hashing / pseudonymization error or invalid shape
 │
-└── xpipe_bronze_error                 # bronze-layer errors from 1_bronze_promotion.R
-    ├── xpipe_bronze_state             # layer.json missing, invalid format, or failed to write
-    ├── xpipe_bronze_anchor            # anchor table / column / key definition or join failure
-    ├── xpipe_bronze_partition         # unsupported partition granularity declared by stream
-    ├── xpipe_bronze_append_only       # Bronze shard already exists — refusing to overwrite
-    └── xpipe_bronze_abort             # user declined Bronze promotion confirmation prompt
+├── xpipe_bronze_error                 # bronze-layer errors from 1_bronze_promotion.R
+│   ├── xpipe_bronze_state             # layer.json missing, invalid format, or failed to write
+│   ├── xpipe_bronze_anchor            # anchor table / column / key definition or join failure
+│   ├── xpipe_bronze_partition         # unsupported partition granularity declared by stream
+│   ├── xpipe_bronze_append_only       # Bronze shard already exists — refusing to overwrite
+│   └── xpipe_bronze_abort             # user declined Bronze promotion confirmation prompt
+│
+└── xpipe_silver_error                 # silver-layer errors from 2_silver_promotion.R
+    ├── xpipe_silver_config            # silver.json missing, disabled, or invalid configuration
+    ├── xpipe_silver_state             # Silver DB path or log validation failure
+    ├── xpipe_silver_anchor            # Silver anchor table missing from Bronze
+    └── xpipe_silver_abort             # user declined Silver promotion confirmation prompt
 ```
 
 ---
