@@ -15,7 +15,6 @@
 #              .load_streams_contract(), .load_methods_contract(), .load_silver_contract()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-
 # Internal Environment ----------------------------------------------------
 #
 # This is to hold package state
@@ -76,24 +75,29 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
 
   config <- list()
 
-  config$runtime <- .config_step("initialize runtime context",
-                                 .load_runtime_context()
+  config$runtime <- .config_step(
+    "initialize runtime context",
+    .load_runtime_context()
   )
-  config$local   <- .config_step("load local configuration",
-                                 .load_local_config(path, project_root)
+  config$local <- .config_step(
+    "load local configuration",
+    .load_local_config(path, project_root)
   )
-  config$batch   <- .config_step("load Batch layer",
-                                 .load_batch_layer(config$local, config$runtime)
+  config$batch <- .config_step(
+    "load Batch layer",
+    .load_batch_layer(config$local, config$runtime)
   )
 
-  streams_contract <- .config_step("load Streams contract",
-                                   .load_streams_contract(config$local)
+  streams_contract <- .config_step(
+    "load Streams contract",
+    .load_streams_contract(config$local)
   )
   config$streams_meta <- streams_contract$meta
-  config$streams      <- streams_contract$streams
+  config$streams <- streams_contract$streams
 
-  config$methods <- .config_step("load Methods contract",
-                                 .load_methods_contract(config$local)
+  config$methods <- .config_step(
+    "load Methods contract",
+    .load_methods_contract(config$local)
   )
 
   silver_contract <- .config_step(
@@ -102,11 +106,11 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
   )
 
   config$silver_meta <- silver_contract$meta
-  config$silver      <- silver_contract$streams
+  config$silver <- silver_contract$streams
 
   # Validate schema domains consistency
-  stream_domains  <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
-  method_domains  <- unique(vapply(config$methods, `[[`, "", "schema_domain"))
+  stream_domains <- unique(vapply(config$streams, `[[`, "", "schema_domain"))
+  method_domains <- unique(vapply(config$methods, `[[`, "", "schema_domain"))
 
   unknown_domains <- setdiff(method_domains, stream_domains)
 
@@ -117,7 +121,11 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
         "x" = "Methods reference unknown schema_domain(s): {.val {unknown_domains}}",
         "i" = "Defined stream domains: {.val {stream_domains}}"
       ),
-      class = c("xpipe_config_schema_domain", "xpipe_config_error", "xpipe_error")
+      class = c(
+        "xpipe_config_schema_domain",
+        "xpipe_config_error",
+        "xpipe_error"
+      )
     )
   }
 
@@ -164,7 +172,6 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
 
 # Internal API ------------------------------------------------------------
 
-
 #' Retrieve Active xpipe Configuration
 #'
 #' @return An xpipe_config object.
@@ -184,7 +191,6 @@ get_xpipe_config <- function() {
 }
 
 
-
 # Main Helpers (steps) --------------------------------------------------------
 
 #' Load Runtime Context
@@ -201,13 +207,12 @@ get_xpipe_config <- function() {
 .load_runtime_context <- function() {
   runtime <- list(
     tool = list(
-      name    = "xpipe",
-      version =
-        if (requireNamespace("xpipe", quietly = TRUE)) {
-          as.character(utils::packageVersion("xpipe"))
-        } else {
-          "dev"
-        }
+      name = "xpipe",
+      version = if (requireNamespace("xpipe", quietly = TRUE)) {
+        as.character(utils::packageVersion("xpipe"))
+      } else {
+        "dev"
+      }
     ),
     pepper = Sys.getenv("XNE_PEPPER_KEY", unset = NA_character_),
     loaded_at = Sys.time()
@@ -297,7 +302,7 @@ get_xpipe_config <- function() {
   path <- fs::path(local_config$paths$shared, "streams.json")
 
   .validate_json_schema(
-    json_path  = path,
+    json_path = path,
     schema_name = "streams.schema.json",
     error_title = "Invalid streams.json",
     error_class = "xpipe_streams_error"
@@ -332,7 +337,11 @@ get_xpipe_config <- function() {
         "Invalid streams contract",
         "x" = "No stream definitions found"
       ),
-      class = c("xpipe_streams_definition", "xpipe_streams_error", "xpipe_error")
+      class = c(
+        "xpipe_streams_definition",
+        "xpipe_streams_error",
+        "xpipe_error"
+      )
     )
   }
 
@@ -351,7 +360,11 @@ get_xpipe_config <- function() {
           "Invalid stream definition",
           "x" = "Stream {.val {nm}} missing required fields: {.val {missing_fields}}"
         ),
-        class = c("xpipe_streams_definition", "xpipe_streams_error", "xpipe_error")
+        class = c(
+          "xpipe_streams_definition",
+          "xpipe_streams_error",
+          "xpipe_error"
+        )
       )
     }
 
@@ -362,13 +375,17 @@ get_xpipe_config <- function() {
           "x" = "Stream {.val {nm}} has invalid anchor: {.val {s$anchor}}",
           "i" = "Allowed: 'start', 'end'"
         ),
-        class = c("xpipe_streams_definition", "xpipe_streams_error", "xpipe_error")
+        class = c(
+          "xpipe_streams_definition",
+          "xpipe_streams_error",
+          "xpipe_error"
+        )
       )
     }
   }
 
   list(
-    meta    = meta,
+    meta = meta,
     streams = streams
   )
 }
@@ -416,7 +433,7 @@ get_xpipe_config <- function() {
   path <- fs::path(local_config$paths$shared, "silver.json")
 
   .validate_json_schema(
-    json_path   = path,
+    json_path = path,
     schema_name = "silver_contract.schema.json",
     error_title = "Invalid silver.json",
     error_class = "xpipe_config_error"
@@ -452,12 +469,10 @@ get_xpipe_config <- function() {
   }
 
   list(
-    meta    = meta,
+    meta = meta,
     streams = streams
   )
 }
-
-
 
 
 # Sub-helpers --------------------------------------------------------
@@ -492,12 +507,14 @@ get_xpipe_config <- function() {
 .config_step <- function(label, expr) {
   rlang::try_fetch(
     expr,
-    xpipe_error = function(e) cli::cli_abort(
-      "Failed to {label}",
-      parent = e,
-      call = NULL,
-      class = c("xpipe_config_error", "xpipe_error")
-    )
+    xpipe_error = function(e) {
+      cli::cli_abort(
+        "Failed to {label}",
+        parent = e,
+        call = NULL,
+        class = c("xpipe_config_error", "xpipe_error")
+      )
+    }
   )
 }
 
@@ -541,17 +558,26 @@ get_xpipe_config <- function() {
 #' @param class Error classes.
 #' @return Invisibly TRUE if valid.
 #' @noRd
-.validate_json_schema <- function(json_path, schema_name, error_title, error_class) {
+.validate_json_schema <- function(
+  json_path,
+  schema_name,
+  error_title,
+  error_class
+) {
   checkmate::assert_string(json_path)
   checkmate::assert_string(schema_name)
   checkmate::assert_string(error_title)
   checkmate::assert_string(error_class)
 
-
   if (!fs::file_exists(json_path)) {
     cli::cli_abort(
       c(error_title, "x" = "JSON file not found: {.file {json_path}}"),
-      class = c(error_class, "xpipe_json_not_found", "xpipe_json_error", "xpipe_error")
+      class = c(
+        error_class,
+        "xpipe_json_not_found",
+        "xpipe_json_error",
+        "xpipe_error"
+      )
     )
   }
 
@@ -572,7 +598,12 @@ get_xpipe_config <- function() {
         "i" = "Schema: {.file {schema_path}}",
         "i" = "File: {.file {json_path}}"
       ),
-      class = c(error_class, "xpipe_json_schema", "xpipe_json_error", "xpipe_error")
+      class = c(
+        error_class,
+        "xpipe_json_schema",
+        "xpipe_json_error",
+        "xpipe_error"
+      )
     )
   }
 
@@ -594,17 +625,29 @@ get_xpipe_config <- function() {
   if (!fs::file_exists(path)) {
     cli::cli_abort(
       c(error_title, "x" = "JSON file not found: {.file {path}}"),
-      class = c(error_class, "xpipe_json_not_found", "xpipe_json_error", "xpipe_error")
+      class = c(
+        error_class,
+        "xpipe_json_not_found",
+        "xpipe_json_error",
+        "xpipe_error"
+      )
     )
   }
 
   rlang::try_fetch(
     jsonlite::fromJSON(path, simplifyVector = TRUE),
-    error = function(e) cli::cli_abort(
-      c(error_title, "x" = "Invalid JSON syntax"),
-      parent = e,
-      class = c(error_class, "xpipe_json_invalid", "xpipe_json_error", "xpipe_error")
-    )
+    error = function(e) {
+      cli::cli_abort(
+        c(error_title, "x" = "Invalid JSON syntax"),
+        parent = e,
+        class = c(
+          error_class,
+          "xpipe_json_invalid",
+          "xpipe_json_error",
+          "xpipe_error"
+        )
+      )
+    }
   )
 }
 
@@ -633,12 +676,18 @@ get_xpipe_config <- function() {
 
   local_config$paths <- lapply(local_config$paths, function(p) {
     p <- fs::path_expand(p)
-    p <- if (fs::is_absolute_path(p)) fs::path_norm(p)
-    else fs::path_norm(fs::path(project_root, p))
+    p <- if (fs::is_absolute_path(p)) {
+      fs::path_norm(p)
+    } else {
+      fs::path_norm(fs::path(project_root, p))
+    }
 
     if (!fs::dir_exists(p)) {
       cli::cli_abort(
-        c("Invalid configuration path", "x" = "Path {.file {p}} does not exist"),
+        c(
+          "Invalid configuration path",
+          "x" = "Path {.file {p}} does not exist"
+        ),
         class = c("xpipe_local_paths", "xpipe_local_error", "xpipe_error")
       )
     }
@@ -672,7 +721,11 @@ get_xpipe_config <- function() {
 
   if (!checkmate::test_string(batch_path, min.chars = 1)) {
     cli::cli_abort(
-      c("Invalid configuration", "x" = "Batch layer path not set", "i" = "Expected field: paths.batch"),
+      c(
+        "Invalid configuration",
+        "x" = "Batch layer path not set",
+        "i" = "Expected field: paths.batch"
+      ),
       class = c("xpipe_batch_paths", "xpipe_batch_error", "xpipe_error")
     )
   }
@@ -701,7 +754,7 @@ get_xpipe_config <- function() {
   }
 
   .validate_json_schema(
-    json_path   = layer_json,
+    json_path = layer_json,
     schema_name = "batch_layer.schema.json",
     error_title = "Invalid Batch layer metadata",
     error_class = "xpipe_batch_metadata"
@@ -721,9 +774,9 @@ get_xpipe_config <- function() {
 #' @param test_string Internal test string.
 #' @noRd
 .validate_batch_hash <- function(
-    layer_options,
-    pepper,
-    test_string = "byut5f778DfOPth567"
+  layer_options,
+  pepper,
+  test_string = "byut5f778DfOPth567"
 ) {
   # Bypass hash check if environment variable is set
   if (Sys.getenv("XPIPE_SKIP_HASH_CHECK") == "TRUE") {
@@ -735,7 +788,10 @@ get_xpipe_config <- function() {
 
   if (!checkmate::test_string(expected_hash, min.chars = 1)) {
     cli::cli_abort(
-      c("Invalid Batch layer metadata", "x" = "Missing {.field expected_hash} in layer.json"),
+      c(
+        "Invalid Batch layer metadata",
+        "x" = "Missing {.field expected_hash} in layer.json"
+      ),
       class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
     )
   }
@@ -752,7 +808,6 @@ get_xpipe_config <- function() {
 
   invisible(TRUE)
 }
-
 
 
 #' Conditionally print debug information based on local.json
@@ -804,12 +859,10 @@ get_xpipe_config <- function() {
   # 1. RUNTIME CONTEXT
   cli::cli_h2("Runtime Context")
 
-
   cli::cli_bullets(c(
     "{pad_nbsp('Loaded at', 10)}: {.field {format(x$runtime$loaded_at)}}",
     "{pad_nbsp('Security', 10)}: HMAC-SHA256 (Masked Pepper: {.envvar {substr(x$runtime$pepper, 1, 4)}}...)"
   ))
-
 
   # 2. LOCAL INFRASTRUCTURE
   cli::cli_h2("Local Infrastructure")
@@ -833,8 +886,6 @@ get_xpipe_config <- function() {
     ))
   }
 
-
-
   if (!is.null(x$streams)) {
     nms <- names(x$streams)
     labels <- purrr::map_chr(x$streams, "label")
@@ -842,7 +893,7 @@ get_xpipe_config <- function() {
     anchors <- purrr::map_chr(x$streams, "anchor")
     parts <- purrr::map_chr(x$streams, "partition_granularity")
 
-    w_nm  <- max(nchar(nms), nchar("STREAM"))
+    w_nm <- max(nchar(nms), nchar("STREAM"))
     w_lbl <- max(nchar(labels), nchar("LABEL"))
     w_dom <- max(nchar(domains), nchar("DOMAIN"))
     w_anc <- max(nchar(anchors), nchar("ANCHOR"))
@@ -879,8 +930,6 @@ get_xpipe_config <- function() {
     )
   }
 
-
-
   # 4. METHODS CONTRACT (Ingestion Mechanics)
   cli::cli_h2("Methods Contract")
   if (!is.null(x$methods)) {
@@ -888,7 +937,7 @@ get_xpipe_config <- function() {
     domains <- purrr::map_chr(x$methods, "schema_domain")
     types <- purrr::map_chr(x$methods, "type")
 
-    w_nm  <- max(nchar(nms), nchar("METHOD"))
+    w_nm <- max(nchar(nms), nchar("METHOD"))
     w_dom <- max(nchar(domains), nchar("DOMAIN"))
 
     header <- cli::format_inline(
@@ -934,4 +983,3 @@ get_xpipe_config <- function() {
 print.xpipe_config <- function(x, ...) {
   .render_config(x, ...)
 }
-

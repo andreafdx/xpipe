@@ -50,12 +50,12 @@
 .xml_profile_emur_tracciato_ab <- function(doc, path, ctx) {
   root_name <- xml2::xml_name(xml2::xml_root(doc))
 
-  if (root_name == "EMUR_ANA_SETT") {
+  if (root_name == "EMUR_ANA") {
     .log_debug("Detected EMUR Tracciato A (Anagrafica) schema.")
     return(list(anagrafica = .parse_emur_a(doc)))
   }
 
-  if (root_name == "EMUR_SAN_SETT") {
+  if (root_name == "EMUR_SAN") {
     .log_debug("Detected EMUR Tracciato B (Sanitario) schema.")
     return(.parse_emur_b(doc))
   }
@@ -73,11 +73,10 @@
 # XML profile registry (code-driven)
 .xml_profile_registry <- list(
   sdo_tracciato_abcd = .xml_profile_sdo_tracciato_abcd,
-  emur_tracciato_ab  = .xml_profile_emur_tracciato_ab
+  emur_tracciato_ab = .xml_profile_emur_tracciato_ab
 )
 
 # Internal API ------------------------------------------------------------
-
 
 #' Extract XML Data (Profile Dispatcher)
 #' @export
@@ -135,7 +134,6 @@ extract_xml <- function(ctx) {
 }
 
 
-
 # Helpers ----------------------------------------------------------------
 
 #' Schema-safe row binder (base R)
@@ -147,12 +145,16 @@ extract_xml <- function(ctx) {
 #' @return data.frame with aligned columns
 #' @noRd
 .bind_rows_safe <- function(rows) {
-  if (length(rows) == 0) return(data.frame())
+  if (length(rows) == 0) {
+    return(data.frame())
+  }
 
   all_names <- unique(unlist(lapply(rows, names)))
   rows <- lapply(rows, function(r) {
     missing <- setdiff(all_names, names(r))
-    if (length(missing)) r[missing] <- NA_character_
+    if (length(missing)) {
+      r[missing] <- NA_character_
+    }
     r[all_names]
   })
 
@@ -168,7 +170,9 @@ extract_xml <- function(ctx) {
 #' @return data.frame
 #' @noRd
 .bind_rows_fast <- function(rows) {
-  if (!length(rows)) return(data.frame())
+  if (!length(rows)) {
+    return(data.frame())
+  }
 
   if (requireNamespace("data.table", quietly = TRUE)) {
     return(as.data.frame(data.table::rbindlist(rows, fill = TRUE)))
@@ -186,33 +190,39 @@ extract_xml <- function(ctx) {
 #' @noRd
 .get_record_context <- function(rec) {
   rec_children <- xml2::xml_children(rec)
-  rec_names    <- xml2::xml_name(rec_children)
+  rec_names <- xml2::xml_name(rec_children)
 
   info <- rec_children[rec_names == "informazioniRicovero"][[1]]
   info_children <- xml2::xml_children(info)
-  info_names    <- xml2::xml_name(info_children)
+  info_names <- xml2::xml_name(info_children)
 
   list(
-    info          = info,
+    info = info,
     info_children = info_children,
-    info_names    = info_names,
-    codice        = xml2::xml_attr(info, "codiceIstitutoDiCura"),
-    prog          = xml2::xml_attr(info, "progressivoSDO"),
-    trasm         = rec_children[rec_names == "trasmissione"]
+    info_names = info_names,
+    codice = xml2::xml_attr(info, "codiceIstitutoDiCura"),
+    prog = xml2::xml_attr(info, "progressivoSDO"),
+    trasm = rec_children[rec_names == "trasmissione"]
   )
 }
 
 # Bind data.frames preserving list-columns, aligning missing columns
 .rbind_fill_dfs <- function(dfs) {
   dfs <- dfs[!vapply(dfs, is.null, logical(1))]
-  if (length(dfs) == 0) return(NULL)
-  if (length(dfs) == 1) return(dfs[[1]])
+  if (length(dfs) == 0) {
+    return(NULL)
+  }
+  if (length(dfs) == 1) {
+    return(dfs[[1]])
+  }
 
   all_cols <- unique(unlist(lapply(dfs, names)))
   dfs2 <- lapply(dfs, function(d) {
     missing <- setdiff(all_cols, names(d))
     if (length(missing) > 0) {
-      for (m in missing) d[[m]] <- NA
+      for (m in missing) {
+        d[[m]] <- NA
+      }
     }
     d[all_cols]
   })
@@ -220,10 +230,7 @@ extract_xml <- function(ctx) {
 }
 
 
-
 # SDO ---------------------------------------------------------------------
-
-
 
 ## Tracciato A -------------------------------------------------------------
 
@@ -233,24 +240,22 @@ extract_xml <- function(ctx) {
 #' @return data.frame
 #' @noRd
 .parse_tracciato_a <- function(doc) {
-
   records <- xml2::xml_find_all(doc, ".//aInformazioniAnagrafiche")
   n <- length(records)
 
   rows <- vector("list", n)
 
   for (i in seq_len(n)) {
-
     rec <- records[[i]]
     rec_children <- xml2::xml_children(rec)
-    rec_names    <- xml2::xml_name(rec_children)
+    rec_names <- xml2::xml_name(rec_children)
 
     row <- list()
 
     trasm <- rec_children[rec_names == "trasmissione"]
     if (length(trasm) == 1) {
       t_children <- xml2::xml_children(trasm[[1]])
-      is_scalar  <- xml2::xml_length(t_children) == 0
+      is_scalar <- xml2::xml_length(t_children) == 0
       if (any(is_scalar)) {
         row[paste0("trasmissione_", xml2::xml_name(t_children[is_scalar]))] <-
           as.list(xml2::xml_text(t_children[is_scalar]))
@@ -260,7 +265,7 @@ extract_xml <- function(ctx) {
     info <- rec_children[rec_names == "informazioniAnagrafiche"][[1]]
 
     row$codiceIstitutoDiCura <- xml2::xml_attr(info, "codiceIstitutoDiCura")
-    row$progressivoSDO       <- xml2::xml_attr(info, "progressivoSDO")
+    row$progressivoSDO <- xml2::xml_attr(info, "progressivoSDO")
 
     info_children <- xml2::xml_children(info)
     is_scalar <- xml2::xml_length(info_children) == 0
@@ -283,12 +288,11 @@ extract_xml <- function(ctx) {
 #' @return named list
 #' @noRd
 .parse_b_ricovero <- function(ctx) {
-
   row <- list()
 
   if (length(ctx$trasm) == 1) {
     t_children <- xml2::xml_children(ctx$trasm[[1]])
-    is_scalar  <- xml2::xml_length(t_children) == 0
+    is_scalar <- xml2::xml_length(t_children) == 0
     if (any(is_scalar)) {
       row[paste0("trasmissione_", xml2::xml_name(t_children[is_scalar]))] <-
         as.list(xml2::xml_text(t_children[is_scalar]))
@@ -306,7 +310,7 @@ extract_xml <- function(ctx) {
   dim <- ctx$info_children[ctx$info_names == "dimissione"]
   if (length(dim) == 1) {
     d_children <- xml2::xml_children(dim[[1]])
-    is_scalar  <- xml2::xml_length(d_children) == 0
+    is_scalar <- xml2::xml_length(d_children) == 0
     if (any(is_scalar)) {
       row[paste0("dim_", xml2::xml_name(d_children[is_scalar]))] <-
         as.list(xml2::xml_text(d_children[is_scalar]))
@@ -322,19 +326,25 @@ extract_xml <- function(ctx) {
 #' @return list of named lists
 #' @noRd
 .parse_b_diagnosi <- function(ctx) {
-
   out <- list()
   codice <- ctx$codice
-  prog   <- ctx$prog
+  prog <- ctx$prog
 
   .normalize_diagnosi_cols <- function(nm) {
-    nm <- sub("^diagnosiPrincipaleDimissioneAlRicovero$", "presenteAlRicovero", nm)
-    nm <- sub("^diagnosiSecondarieDimissioneAlRicovero$", "presenteAlRicovero", nm)
+    nm <- sub(
+      "^diagnosiPrincipaleDimissioneAlRicovero$",
+      "presenteAlRicovero",
+      nm
+    )
+    nm <- sub(
+      "^diagnosiSecondarieDimissioneAlRicovero$",
+      "presenteAlRicovero",
+      nm
+    )
     nm <- sub("^diagnosiPrincipaleDimissione$", "diagnosiDimissione", nm)
     nm <- sub("^diagnosiSecondarieDimissione$", "diagnosiDimissione", nm)
     nm
   }
-
 
   dp <- ctx$info_children[ctx$info_names == "diagnosiPrincipale"]
   if (length(dp) == 1) {
@@ -343,9 +353,9 @@ extract_xml <- function(ctx) {
     if (any(is_scalar)) {
       row <- list(
         codiceIstitutoDiCura = codice,
-        progressivoSDO       = prog,
-        tipoDiagnosi         = "principale",
-        numDiagnosi          = 0L
+        progressivoSDO = prog,
+        tipoDiagnosi = "principale",
+        numDiagnosi = 0L
       )
       nms <- xml2::xml_name(ch[is_scalar])
       nms <- vapply(nms, .normalize_diagnosi_cols, character(1))
@@ -364,9 +374,9 @@ extract_xml <- function(ctx) {
         num <- if (!is.na(val)) as.integer(val) else NA_integer_
         row <- list(
           codiceIstitutoDiCura = codice,
-          progressivoSDO       = prog,
-          tipoDiagnosi         = "secondaria",
-          numDiagnosi          = num
+          progressivoSDO = prog,
+          tipoDiagnosi = "secondaria",
+          numDiagnosi = num
         )
         nms <- xml2::xml_name(ch[is_scalar])
         nms <- vapply(nms, .normalize_diagnosi_cols, character(1))
@@ -385,10 +395,9 @@ extract_xml <- function(ctx) {
 #' @return list of named lists
 #' @noRd
 .parse_b_procedure <- function(ctx) {
-
   out <- list()
   codice <- ctx$codice
-  prog   <- ctx$prog
+  prog <- ctx$prog
 
   .normalize_proc_cols <- function(nm) {
     nm <- sub("^dataInterventoPrincipale", "dataIntervento", nm)
@@ -399,8 +408,16 @@ extract_xml <- function(ctx) {
     nm <- sub("^chirurgoInterventoSecondario", "chirurgoIntervento", nm)
     nm <- sub("^anestesistaInterventoPrincipale", "anestesistaIntervento", nm)
     nm <- sub("^anestesistaInterventoSecondario", "anestesistaIntervento", nm)
-    nm <- sub("^ckListSalaOperatoriaInterventoPrincipale", "ckListSalaOperatoriaIntervento", nm)
-    nm <- sub("^ckListSalaOperatoriaInterventoSecondario", "ckListSalaOperatoriaIntervento", nm)
+    nm <- sub(
+      "^ckListSalaOperatoriaInterventoPrincipale",
+      "ckListSalaOperatoriaIntervento",
+      nm
+    )
+    nm <- sub(
+      "^ckListSalaOperatoriaInterventoSecondario",
+      "ckListSalaOperatoriaIntervento",
+      nm
+    )
     nm <- sub("^interventoPrincipaleEsterno$", "interventoEsterno", nm)
     nm <- sub("^interventiSecondariEsterni$", "interventoEsterno", nm)
     nm <- sub("^interventoPrincipale", "intervento", nm)
@@ -410,21 +427,24 @@ extract_xml <- function(ctx) {
 
   ip <- ctx$info_children[ctx$info_names == "interventoPrincipale"]
   if (length(ip) == 1) {
-
     node <- ip[[1]]
     ch <- xml2::xml_children(node)
     is_scalar <- xml2::xml_length(ch) == 0
 
     row <- list(
       codiceIstitutoDiCura = codice,
-      progressivoSDO       = prog,
-      tipoIntervento       = "principale",
-      numIntervento        = 0L
+      progressivoSDO = prog,
+      tipoIntervento = "principale",
+      numIntervento = 0L
     )
 
     if (any(is_scalar)) {
       vals <- xml2::xml_text(ch[is_scalar])
-      nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
+      nms <- vapply(
+        xml2::xml_name(ch[is_scalar]),
+        .normalize_proc_cols,
+        character(1)
+      )
 
       multi_cols <- c("chirurgoIntervento", "anestesistaIntervento")
 
@@ -440,9 +460,17 @@ extract_xml <- function(ctx) {
             cli::cli_abort(
               c(
                 "Unexpected repeated scalar field in procedure",
-                "x" = sprintf("Field %s appears %d times in one procedure row", nm, length(vv))
+                "x" = sprintf(
+                  "Field %s appears %d times in one procedure row",
+                  nm,
+                  length(vv)
+                )
               ),
-              class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+              class = c(
+                "xpipe_batch_extraction",
+                "xpipe_batch_error",
+                "xpipe_error"
+              )
             )
           }
           row[[nm]] <- if (length(vv) == 0) NA_character_ else vv[[1]]
@@ -456,7 +484,6 @@ extract_xml <- function(ctx) {
   sec <- ctx$info_children[ctx$info_names == "interventiSecondari"]
   if (length(sec) > 0) {
     for (node in sec) {
-
       ch <- xml2::xml_children(node)
       is_scalar <- xml2::xml_length(ch) == 0
 
@@ -465,30 +492,42 @@ extract_xml <- function(ctx) {
 
       row <- list(
         codiceIstitutoDiCura = codice,
-        progressivoSDO       = prog,
-        tipoIntervento       = "secondario",
-        numIntervento        = num
+        progressivoSDO = prog,
+        tipoIntervento = "secondario",
+        numIntervento = num
       )
 
       if (any(is_scalar)) {
         vals <- xml2::xml_text(ch[is_scalar])
-        nms  <- vapply(xml2::xml_name(ch[is_scalar]), .normalize_proc_cols, character(1))
+        nms <- vapply(
+          xml2::xml_name(ch[is_scalar]),
+          .normalize_proc_cols,
+          character(1)
+        )
 
-        multi_cols <- c("chirurgoIntervento", "anestesistaIntervento")  # UDI resta scalare
+        multi_cols <- c("chirurgoIntervento", "anestesistaIntervento") # UDI resta scalare
 
         for (nm in unique(nms)) {
           vv <- vals[nms == nm]
 
           if (nm %in% multi_cols) {
-            row[[nm]] <- list(vv)  # list-column
+            row[[nm]] <- list(vv) # list-column
           } else {
             if (length(vv) > 1) {
               cli::cli_abort(
                 c(
                   "Unexpected repeated scalar field in procedure",
-                  "x" = sprintf("Field %s appears %d times in one procedure row", nm, length(vv))
+                  "x" = sprintf(
+                    "Field %s appears %d times in one procedure row",
+                    nm,
+                    length(vv)
+                  )
                 ),
-                class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
+                class = c(
+                  "xpipe_batch_extraction",
+                  "xpipe_batch_error",
+                  "xpipe_error"
+                )
               )
             }
             row[[nm]] <- if (length(vv) == 0) NA_character_ else vv[[1]]
@@ -509,10 +548,9 @@ extract_xml <- function(ctx) {
 #' @return list of named lists
 #' @noRd
 .parse_b_accessi_dh <- function(ctx) {
-
   out <- list()
   codice <- ctx$codice
-  prog   <- ctx$prog
+  prog <- ctx$prog
 
   dh <- ctx$info_children[ctx$info_names == "AccessiInDH"]
   if (length(dh) == 1) {
@@ -520,9 +558,9 @@ extract_xml <- function(ctx) {
     for (i in seq_along(dates)) {
       out[[length(out) + 1]] <- list(
         codiceIstitutoDiCura = codice,
-        progressivoSDO       = prog,
-        numAccesso           = i,
-        dataAccesso          = xml2::xml_text(dates[[i]])
+        progressivoSDO = prog,
+        numAccesso = i,
+        dataAccesso = xml2::xml_text(dates[[i]])
       )
     }
   }
@@ -536,13 +574,14 @@ extract_xml <- function(ctx) {
 #' @return list of named lists
 #' @noRd
 .parse_b_trasferimenti <- function(ctx) {
-
   out <- list()
   codice <- ctx$codice
-  prog   <- ctx$prog
+  prog <- ctx$prog
 
   trs <- ctx$info_children[ctx$info_names == "Trasferimenti"]
-  if (length(trs) == 0) return(out)
+  if (length(trs) == 0) {
+    return(out)
+  }
 
   for (node in trs) {
     num <- xml2::xml_attr(node, "numTrasferimento")
@@ -550,12 +589,14 @@ extract_xml <- function(ctx) {
 
     ch <- xml2::xml_children(node)
     is_scalar <- xml2::xml_length(ch) == 0
-    if (!any(is_scalar)) next
+    if (!any(is_scalar)) {
+      next
+    }
 
     row <- list(
       codiceIstitutoDiCura = codice,
-      progressivoSDO       = prog,
-      numTrasferimento     = num
+      progressivoSDO = prog,
+      numTrasferimento = num
     )
 
     row[xml2::xml_name(ch[is_scalar])] <-
@@ -575,50 +616,62 @@ extract_xml <- function(ctx) {
 #' @return list of data frames
 #' @export
 .parse_tracciato_b <- function(doc) {
-
   records <- xml2::xml_find_all(doc, ".//bInformazioniRicovero")
   n <- length(records)
 
-  rows_ricovero   <- vector("list", n)
-  rows_diagnosi   <- vector("list", n * 3)
-  rows_procedure  <- vector("list", n * 2)
+  rows_ricovero <- vector("list", n)
+  rows_diagnosi <- vector("list", n * 3)
+  rows_procedure <- vector("list", n * 2)
   rows_accessi_dh <- vector("list", n)
   rows_trasferimenti <- vector("list", n * 2)
 
   kr <- kd <- kp <- kdh <- kt <- 0
 
   for (rec in records) {
-    tryCatch({
-      ctx <- .get_record_context(rec)
+    tryCatch(
+      {
+        ctx <- .get_record_context(rec)
 
-      ricovero_row <- .parse_b_ricovero(ctx)
-      diagnosi_rows <- .parse_b_diagnosi(ctx)
-      procedure_rows <- .parse_b_procedure(ctx)
-      accessi_rows <- .parse_b_accessi_dh(ctx)
-      trasf_rows <- .parse_b_trasferimenti(ctx)
+        ricovero_row <- .parse_b_ricovero(ctx)
+        diagnosi_rows <- .parse_b_diagnosi(ctx)
+        procedure_rows <- .parse_b_procedure(ctx)
+        accessi_rows <- .parse_b_accessi_dh(ctx)
+        trasf_rows <- .parse_b_trasferimenti(ctx)
 
-      kr <- kr + 1
-      rows_ricovero[[kr]] <- ricovero_row
+        kr <- kr + 1
+        rows_ricovero[[kr]] <- ricovero_row
 
-      for (row in diagnosi_rows)  { kd  <- kd  + 1; rows_diagnosi[[kd]]   <- row }
-      for (row in procedure_rows) { kp  <- kp  + 1; rows_procedure[[kp]]  <- row }
-      for (row in accessi_rows)   { kdh <- kdh + 1; rows_accessi_dh[[kdh]] <- row }
-      for (row in trasf_rows)     { kt  <- kt  + 1; rows_trasferimenti[[kt]] <- row}
-
-    }, error = function(e) {
-      cli::cli_warn("Skipping malformed record: {conditionMessage(e)}")
-    })
+        for (row in diagnosi_rows) {
+          kd <- kd + 1
+          rows_diagnosi[[kd]] <- row
+        }
+        for (row in procedure_rows) {
+          kp <- kp + 1
+          rows_procedure[[kp]] <- row
+        }
+        for (row in accessi_rows) {
+          kdh <- kdh + 1
+          rows_accessi_dh[[kdh]] <- row
+        }
+        for (row in trasf_rows) {
+          kt <- kt + 1
+          rows_trasferimenti[[kt]] <- row
+        }
+      },
+      error = function(e) {
+        cli::cli_warn("Skipping malformed record: {conditionMessage(e)}")
+      }
+    )
   }
 
   list(
-    ricovero   = .bind_rows_fast(rows_ricovero[seq_len(kr)]),
-    diagnosi   = .bind_rows_fast(rows_diagnosi[seq_len(kd)]),
-    procedure  = .bind_rows_fast(rows_procedure[seq_len(kp)]),
+    ricovero = .bind_rows_fast(rows_ricovero[seq_len(kr)]),
+    diagnosi = .bind_rows_fast(rows_diagnosi[seq_len(kd)]),
+    procedure = .bind_rows_fast(rows_procedure[seq_len(kp)]),
     accessi_dh = .bind_rows_fast(rows_accessi_dh[seq_len(kdh)]),
     trasferimenti = .bind_rows_fast(rows_trasferimenti[seq_len(kt)])
   )
 }
-
 
 
 # EMUR --------------------------------------------------------------------
@@ -653,7 +706,7 @@ extract_xml <- function(ctx) {
   for (i in seq_len(n)) {
     rec <- records[[i]]
     rec_children <- xml2::xml_children(rec)
-    rec_names    <- xml2::xml_name(rec_children)
+    rec_names <- xml2::xml_name(rec_children)
 
     # Initialize row with Ente fields
     row <- ente_fields
@@ -667,7 +720,11 @@ extract_xml <- function(ctx) {
         is_scalar <- xml2::xml_length(ch_children) == 0
 
         if (any(is_scalar)) {
-          row[paste0(child_name, "_", xml2::xml_name(ch_children[is_scalar]))] <-
+          row[paste0(
+            child_name,
+            "_",
+            xml2::xml_name(ch_children[is_scalar])
+          )] <-
             as.list(xml2::xml_text(ch_children[is_scalar]))
         }
       }
@@ -705,9 +762,9 @@ extract_xml <- function(ctx) {
     }
   }
 
-  rows_ps        <- vector("list", n)
+  rows_ps <- vector("list", n)
   rows_procedure <- vector("list", n * 2)
-  rows_obi       <- vector("list", n)
+  rows_obi <- vector("list", n)
 
   k_ps <- 0
   k_proc <- 0
@@ -716,17 +773,23 @@ extract_xml <- function(ctx) {
   for (i in seq_len(n)) {
     rec <- records[[i]]
     rec_children <- xml2::xml_children(rec)
-    rec_names    <- xml2::xml_name(rec_children)
+    rec_names <- xml2::xml_name(rec_children)
 
     # 1. Extract keys from Struttura
     struttura_node <- rec_children[rec_names == "Struttura"]
-    if (length(struttura_node) == 0) next # Malformed record
+    if (length(struttura_node) == 0) {
+      next
+    } # Malformed record
 
     struttura_children <- xml2::xml_children(struttura_node[[1]])
-    struttura_names    <- xml2::xml_name(struttura_children)
+    struttura_names <- xml2::xml_name(struttura_children)
 
-    cod_struct <- xml2::xml_text(struttura_children[struttura_names == "CodStrutturaErog"][[1]])
-    progressivo <- xml2::xml_text(struttura_children[struttura_names == "Progressivo"][[1]])
+    cod_struct <- xml2::xml_text(struttura_children[
+      struttura_names == "CodStrutturaErog"
+    ][[1]])
+    progressivo <- xml2::xml_text(struttura_children[
+      struttura_names == "Progressivo"
+    ][[1]])
 
     # 2. Parse PS (1:1 fields)
     row_ps <- ente_fields
@@ -743,7 +806,8 @@ extract_xml <- function(ctx) {
         ch_children <- xml2::xml_children(child)
         if (length(ch_children) > 0) {
           ch_names <- xml2::xml_name(ch_children)
-          is_scalar <- xml2::xml_length(ch_children) == 0 & ch_names != "PrestazioneSecondaria"
+          is_scalar <- xml2::xml_length(ch_children) == 0 &
+            ch_names != "PrestazioneSecondaria"
 
           if (any(is_scalar)) {
             row_ps[paste0("DatiSanitari_", ch_names[is_scalar])] <-
@@ -759,7 +823,11 @@ extract_xml <- function(ctx) {
         is_scalar <- xml2::xml_length(ch_children) == 0
 
         if (any(is_scalar)) {
-          row_ps[paste0(child_name, "_", xml2::xml_name(ch_children[is_scalar]))] <-
+          row_ps[paste0(
+            child_name,
+            "_",
+            xml2::xml_name(ch_children[is_scalar])
+          )] <-
             as.list(xml2::xml_text(ch_children[is_scalar]))
         }
       }
@@ -772,7 +840,7 @@ extract_xml <- function(ctx) {
     dati_san_node <- rec_children[rec_names == "DatiSanitari"]
     if (length(dati_san_node) == 1) {
       ch_children <- xml2::xml_children(dati_san_node[[1]])
-      ch_names    <- xml2::xml_name(ch_children)
+      ch_names <- xml2::xml_name(ch_children)
 
       # 3a. PrestazionePrincipale
       p_principal <- ch_children[ch_names == "PrestazionePrincipale"]
@@ -780,10 +848,10 @@ extract_xml <- function(ctx) {
         k_proc <- k_proc + 1
         rows_procedure[[k_proc]] <- list(
           Struttura_CodStrutturaErog = cod_struct,
-          Struttura_Progressivo       = progressivo,
-          Prestazione                 = xml2::xml_text(p_principal[[1]]),
-          TipoPrestazione             = "principale",
-          numProcedura                = 0L
+          Struttura_Progressivo = progressivo,
+          Prestazione = xml2::xml_text(p_principal[[1]]),
+          TipoPrestazione = "principale",
+          numProcedura = 0L
         )
       }
 
@@ -794,10 +862,10 @@ extract_xml <- function(ctx) {
           k_proc <- k_proc + 1
           rows_procedure[[k_proc]] <- list(
             Struttura_CodStrutturaErog = cod_struct,
-            Struttura_Progressivo       = progressivo,
-            Prestazione                 = xml2::xml_text(p_secondary[[idx]]),
-            TipoPrestazione             = "secondaria",
-            numProcedura                = idx
+            Struttura_Progressivo = progressivo,
+            Prestazione = xml2::xml_text(p_secondary[[idx]]),
+            TipoPrestazione = "secondaria",
+            numProcedura = idx
           )
         }
       }
@@ -813,7 +881,7 @@ extract_xml <- function(ctx) {
         if (any(is_scalar)) {
           row_obi <- list(
             Struttura_CodStrutturaErog = cod_struct,
-            Struttura_Progressivo       = progressivo
+            Struttura_Progressivo = progressivo
           )
           row_obi[xml2::xml_name(ch_children[is_scalar])] <-
             as.list(xml2::xml_text(ch_children[is_scalar]))
@@ -826,8 +894,8 @@ extract_xml <- function(ctx) {
   }
 
   list(
-    ps        = .bind_rows_fast(rows_ps[seq_len(k_ps)]),
+    ps = .bind_rows_fast(rows_ps[seq_len(k_ps)]),
     procedure = .bind_rows_fast(rows_procedure[seq_len(k_proc)]),
-    obi       = .bind_rows_fast(rows_obi[seq_len(k_obi)])
+    obi = .bind_rows_fast(rows_obi[seq_len(k_obi)])
   )
 }

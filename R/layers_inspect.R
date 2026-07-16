@@ -35,9 +35,16 @@
 #' @keywords internal
 #' @noRd
 .format_datetime <- function(x) {
-  format(as.POSIXct(x, tryFormats = c(
-    "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"
-  )), "%Y-%m-%d %H:%M")
+  format(
+    as.POSIXct(
+      x,
+      tryFormats = c(
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%d %H:%M:%S"
+      )
+    ),
+    "%Y-%m-%d %H:%M"
+  )
 }
 
 
@@ -105,10 +112,8 @@
   current_latest <- current[1, ]
   harmonized_latest <- harmonized[1, ]
 
-  aligned <- (
-    harmonized_latest$built_at >= current_latest$built_at &&
-      identical(harmonized_latest$as_of, current_latest$as_of)
-  )
+  aligned <- (harmonized_latest$built_at >= current_latest$built_at &&
+    identical(harmonized_latest$as_of, current_latest$as_of))
 
   list(
     status = if (aligned) "ALIGNED" else "STALE",
@@ -198,8 +203,14 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
         tbl <- info$parquet_tables[[j]]
         p_lit <- DBI::dbQuoteLiteral(con, p)
 
-        ncols <- DBI::dbGetQuery(con, paste0("SELECT COUNT(*) AS n FROM parquet_schema(", p_lit, ")"))$n[[1]]
-        nrows <- DBI::dbGetQuery(con, paste0("SELECT COUNT(*) AS n FROM read_parquet(", p_lit, ")"))$n[[1]]
+        ncols <- DBI::dbGetQuery(
+          con,
+          paste0("SELECT COUNT(*) AS n FROM parquet_schema(", p_lit, ")")
+        )$n[[1]]
+        nrows <- DBI::dbGetQuery(
+          con,
+          paste0("SELECT COUNT(*) AS n FROM read_parquet(", p_lit, ")")
+        )$n[[1]]
 
         data.frame(
           table = tbl,
@@ -223,20 +234,34 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
     # Checks
     method_id <- meta$method$id %||% NA_character_
     method_cfg <- config$methods[[method_id]] %||% NULL
-    anchor <- if (!is.null(method_cfg)) method_cfg$anchor_table %||% NA_character_ else NA_character_
+    anchor <- if (!is.null(method_cfg)) {
+      method_cfg$anchor_table %||% NA_character_
+    } else {
+      NA_character_
+    }
 
     declared_tables <- meta$tables %||% character(0)
     materialized_tables <- info$parquet_tables
 
     info$checks$anchor_table <- anchor
-    info$checks$anchor_materialized <- isTRUE(nzchar(anchor) && anchor %in% materialized_tables)
+    info$checks$anchor_materialized <- isTRUE(
+      nzchar(anchor) && anchor %in% materialized_tables
+    )
 
     info$checks$zero_column_parquet <- if (nrow(info$parquet_stats) > 0) {
       info$parquet_stats$table[info$parquet_stats$ncols == 0]
-    } else character(0)
+    } else {
+      character(0)
+    }
 
-    info$checks$declared_not_materialized <- setdiff(declared_tables, materialized_tables)
-    info$checks$materialized_not_declared <- setdiff(materialized_tables, declared_tables)
+    info$checks$declared_not_materialized <- setdiff(
+      declared_tables,
+      materialized_tables
+    )
+    info$checks$materialized_not_declared <- setdiff(
+      materialized_tables,
+      declared_tables
+    )
 
     batches[[i]] <- info
   }
@@ -252,7 +277,6 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
 }
 
 
-
 #' Inspect the Bronze layer (DuckDB)
 #'
 #' Opens the stream DuckDB file in Bronze and reports:
@@ -266,8 +290,11 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
 #'
 #' @return An object of class xpipe_bronze_inspection.
 #' @export
-inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_only = TRUE) {
-
+inspect_bronze <- function(
+  stream_id = NULL,
+  config = get_xpipe_config(),
+  read_only = TRUE
+) {
   checkmate::assert_string(stream_id, null.ok = TRUE)
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_flag(read_only)
@@ -275,8 +302,10 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
   bronze_root <- config$local$paths$bronze
   if (!checkmate::test_string(bronze_root, min.chars = 1)) {
     cli::cli_abort(
-      c("Bronze path not configured",
-        "x" = "Expected config$local$paths$bronze to be set"),
+      c(
+        "Bronze path not configured",
+        "x" = "Expected config$local$paths$bronze to be set"
+      ),
       class = c("xpipe_bronze_state", "xpipe_error")
     )
   }
@@ -287,8 +316,10 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
 
     if (length(streams) == 0) {
       cli::cli_abort(
-        c("No Bronze databases found",
-          "x" = "No *.duckdb files found in {.file {bronze_root}}"),
+        c(
+          "No Bronze databases found",
+          "x" = "No *.duckdb files found in {.file {bronze_root}}"
+        ),
         class = c("xpipe_bronze_state", "xpipe_error")
       )
     }
@@ -324,14 +355,15 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
 
       stream_id <- streams[[k]]
     }
-
   }
 
   bronze_db <- fs::path(bronze_root, paste0(stream_id, ".duckdb"))
   if (!fs::file_exists(bronze_db)) {
     cli::cli_abort(
-      c("Bronze database not found",
-        "x" = "Expected {.file {bronze_db}} to exist"),
+      c(
+        "Bronze database not found",
+        "x" = "Expected {.file {bronze_db}} to exist"
+      ),
       class = c("xpipe_bronze_state", "xpipe_error")
     )
   }
@@ -351,15 +383,26 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
 
   # row counts (can be expensive if huge; acceptable for Bronze inspection)
   row_counts <- if (length(data_tables) > 0) {
-    do.call(rbind, lapply(data_tables, function(tbl) {
-      n <- DBI::dbGetQuery(
-        con,
-        paste0("SELECT COUNT(*) AS n FROM ", DBI::dbQuoteIdentifier(con, tbl))
-      )$n[[1]]
-      data.frame(table_name = tbl, n = as.numeric(n), stringsAsFactors = FALSE)
-    }))
+    do.call(
+      rbind,
+      lapply(data_tables, function(tbl) {
+        n <- DBI::dbGetQuery(
+          con,
+          paste0("SELECT COUNT(*) AS n FROM ", DBI::dbQuoteIdentifier(con, tbl))
+        )$n[[1]]
+        data.frame(
+          table_name = tbl,
+          n = as.numeric(n),
+          stringsAsFactors = FALSE
+        )
+      })
+    )
   } else {
-    data.frame(table_name = character(), n = numeric(), stringsAsFactors = FALSE)
+    data.frame(
+      table_name = character(),
+      n = numeric(),
+      stringsAsFactors = FALSE
+    )
   }
 
   # promotion history
@@ -387,12 +430,19 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
   # parse promoted table list from JSON
   promoted_tables_from_log <- character(0)
   if (nrow(promotion_log) > 0) {
-    promoted_tables_from_log <- unlist(lapply(promotion_log$tables, function(x) {
-      if (is.null(x) || is.na(x) || !nzchar(x)) return(character(0))
-      out <- tryCatch(jsonlite::fromJSON(x), error = function(e) NULL)
-      if (is.null(out)) return(character(0))
-      as.character(out)
-    }))
+    promoted_tables_from_log <- unlist(lapply(
+      promotion_log$tables,
+      function(x) {
+        if (is.null(x) || is.na(x) || !nzchar(x)) {
+          return(character(0))
+        }
+        out <- tryCatch(jsonlite::fromJSON(x), error = function(e) NULL)
+        if (is.null(out)) {
+          return(character(0))
+        }
+        as.character(out)
+      }
+    ))
     promoted_tables_from_log <- unique(promoted_tables_from_log)
   }
 
@@ -402,11 +452,21 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
   checks$log_rows <- nrow(promotion_log)
   checks$data_tables_count <- length(data_tables)
 
-  checks$log_tables_missing_physically <- setdiff(promoted_tables_from_log, data_tables)
-  checks$physical_tables_not_in_log <- setdiff(data_tables, promoted_tables_from_log)
+  checks$log_tables_missing_physically <- setdiff(
+    promoted_tables_from_log,
+    data_tables
+  )
+  checks$physical_tables_not_in_log <- setdiff(
+    data_tables,
+    promoted_tables_from_log
+  )
 
   # latest promotion summary
-  latest <- if (nrow(promotion_log) > 0) promotion_log[1, , drop = FALSE] else promotion_log
+  latest <- if (nrow(promotion_log) > 0) {
+    promotion_log[1, , drop = FALSE]
+  } else {
+    promotion_log
+  }
 
   structure(
     list(
@@ -423,7 +483,6 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
     class = "xpipe_bronze_inspection"
   )
 }
-
 
 
 #' Inspect Silver-current tables
@@ -443,13 +502,12 @@ inspect_bronze <- function(stream_id = NULL, config = get_xpipe_config(), read_o
 #' @return An object of class `xpipe_silver_current_inspection`.
 #' @export
 inspect_silver_current <- function(
-    stream_id = NULL,
-    method_id = NULL,
-    as_of = NULL,
-    config = get_xpipe_config(),
-    read_only = TRUE
+  stream_id = NULL,
+  method_id = NULL,
+  as_of = NULL,
+  config = get_xpipe_config(),
+  read_only = TRUE
 ) {
-
   checkmate::assert_string(stream_id, null.ok = TRUE)
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_flag(read_only)
@@ -542,8 +600,10 @@ inspect_silver_current <- function(
   anchor_tbl <- method_cfg$anchor_table %||% NA_character_
   keys <- method_cfg$identity_keys %||% character(0)
 
-  if (!checkmate::test_string(anchor_tbl, min.chars = 1) ||
-      !checkmate::test_character(keys, min.len = 1)) {
+  if (
+    !checkmate::test_string(anchor_tbl, min.chars = 1) ||
+      !checkmate::test_character(keys, min.len = 1)
+  ) {
     cli::cli_abort(
       c(
         "Invalid Silver configuration",
@@ -581,58 +641,66 @@ inspect_silver_current <- function(
   bronze_db <- fs::path(config$local$paths$bronze, paste0(stream_id, ".duckdb"))
 
   if (fs::file_exists(bronze_db)) {
-    try({
-      try(DBI::dbExecute(con, "DETACH bronze"), silent = TRUE)
+    try(
+      {
+        try(DBI::dbExecute(con, "DETACH bronze"), silent = TRUE)
 
-      DBI::dbExecute(
-        con,
-        paste0(
-          "ATTACH ",
-          DBI::dbQuoteLiteral(con, as.character(bronze_db)),
-          " AS bronze (READ_ONLY)"
+        DBI::dbExecute(
+          con,
+          paste0(
+            "ATTACH ",
+            DBI::dbQuoteLiteral(con, as.character(bronze_db)),
+            " AS bronze (READ_ONLY)"
+          )
         )
-      )
 
-      on.exit(try(DBI::dbExecute(con, "DETACH bronze"), silent = TRUE), add = TRUE)
+        on.exit(
+          try(DBI::dbExecute(con, "DETACH bronze"), silent = TRUE),
+          add = TRUE
+        )
 
-      anchor_full <- paste0(stream_id, "__", method_id, "__", anchor_tbl)
+        anchor_full <- paste0(stream_id, "__", method_id, "__", anchor_tbl)
 
-      bronze_tables <- DBI::dbGetQuery(
-        con,
-        "SELECT table_name
+        bronze_tables <- DBI::dbGetQuery(
+          con,
+          "SELECT table_name
        FROM duckdb_tables()
        WHERE database_name = 'bronze'
          AND schema_name = 'main'"
-      )$table_name
+        )$table_name
 
-      if (anchor_full %in% bronze_tables) {
-        where_sql <- if (is.null(as_of)) {
-          ""
-        } else {
-          paste0(
-            " WHERE __batch_created_at <= ",
-            DBI::dbQuoteLiteral(con, as_of)
-          )
-        }
+        if (anchor_full %in% bronze_tables) {
+          where_sql <- if (is.null(as_of)) {
+            ""
+          } else {
+            paste0(
+              " WHERE __batch_created_at <= ",
+              DBI::dbQuoteLiteral(con, as_of)
+            )
+          }
 
-        latest_bronze <- DBI::dbGetQuery(
-          con,
-          paste0(
-            "SELECT __batch_id AS batch_id
-           FROM bronze.main.", DBI::dbQuoteIdentifier(con, anchor_full),
-            where_sql, "
+          latest_bronze <- DBI::dbGetQuery(
+            con,
+            paste0(
+              "SELECT __batch_id AS batch_id
+           FROM bronze.main.",
+              DBI::dbQuoteIdentifier(con, anchor_full),
+              where_sql,
+              "
            ORDER BY __batch_created_at DESC, __batch_id DESC
            LIMIT 1"
+            )
           )
-        )
 
-        latest_bronze_batch <- if (nrow(latest_bronze) == 0) {
-          NA_character_
-        } else {
-          latest_bronze$batch_id[[1]]
+          latest_bronze_batch <- if (nrow(latest_bronze) == 0) {
+            NA_character_
+          } else {
+            latest_bronze$batch_id[[1]]
+          }
         }
-      }
-    }, silent = TRUE)
+      },
+      silent = TRUE
+    )
   }
 
   if (current_anchor %in% DBI::dbListTables(con)) {
@@ -640,7 +708,9 @@ inspect_silver_current <- function(
       con,
       paste0(
         "SELECT __batch_id AS batch_id
-       FROM ", DBI::dbQuoteIdentifier(con, current_anchor), "
+       FROM ",
+        DBI::dbQuoteIdentifier(con, current_anchor),
+        "
        ORDER BY __batch_created_at DESC, __batch_id DESC
        LIMIT 1"
       )
@@ -708,9 +778,15 @@ inspect_silver_current <- function(
     duplicate_keys <- DBI::dbGetQuery(
       con,
       paste0(
-        "SELECT ", keys_sql, ", COUNT(*) AS n
-         FROM ", DBI::dbQuoteIdentifier(con, current_anchor), "
-         GROUP BY ", keys_sql, "
+        "SELECT ",
+        keys_sql,
+        ", COUNT(*) AS n
+         FROM ",
+        DBI::dbQuoteIdentifier(con, current_anchor),
+        "
+         GROUP BY ",
+        keys_sql,
+        "
          HAVING COUNT(*) > 1
          LIMIT 50"
       )
@@ -723,7 +799,9 @@ inspect_silver_current <- function(
            __batch_id,
            __batch_created_at,
            COUNT(*) AS n
-         FROM ", DBI::dbQuoteIdentifier(con, current_anchor), "
+         FROM ",
+        DBI::dbQuoteIdentifier(con, current_anchor),
+        "
          GROUP BY __batch_id, __batch_created_at
          ORDER BY __batch_created_at DESC, __batch_id DESC"
       )
@@ -747,21 +825,31 @@ inspect_silver_current <- function(
 
       join_keys <- paste(
         paste0(
-          "s.", DBI::dbQuoteIdentifier(con, keys),
-          " = a.", DBI::dbQuoteIdentifier(con, keys)
+          "s.",
+          DBI::dbQuoteIdentifier(con, keys),
+          " = a.",
+          DBI::dbQuoteIdentifier(con, keys)
         ),
         collapse = " AND "
       )
 
       sql <- paste0(
         "SELECT
-           ", DBI::dbQuoteLiteral(con, tab), " AS table_name,
+           ",
+        DBI::dbQuoteLiteral(con, tab),
+        " AS table_name,
            TRUE AS checked,
            COUNT(*) AS orphan_rows,
            CAST(NULL AS VARCHAR) AS reason
-         FROM ", DBI::dbQuoteIdentifier(con, tab), " s
-         LEFT JOIN ", DBI::dbQuoteIdentifier(con, current_anchor), " a
-           ON ", join_keys, "
+         FROM ",
+        DBI::dbQuoteIdentifier(con, tab),
+        " s
+         LEFT JOIN ",
+        DBI::dbQuoteIdentifier(con, current_anchor),
+        " a
+           ON ",
+        join_keys,
+        "
           AND s.__batch_id = a.__batch_id
          WHERE a.__batch_id IS NULL"
       )
@@ -805,7 +893,6 @@ inspect_silver_current <- function(
 }
 
 
-
 ## S3 Print Methods ----------------------------------------------------------
 
 #' Print Method for xpipe_batch_layer
@@ -825,12 +912,16 @@ print.xpipe_batch_layer <- function(x, ...) {
 
   head_tail <- function(v, n = 12) {
     v <- as.character(v)
-    if (length(v) <= n) return(v)
+    if (length(v) <= n) {
+      return(v)
+    }
     c(v[seq_len(n)], paste0("... +", length(v) - n, " more"))
   }
 
   box_list <- function(v, header, border_col = "cyan") {
-    if (length(v) == 0) v <- "None"
+    if (length(v) == 0) {
+      v <- "None"
+    }
     cli::cat_boxx(
       head_tail(v),
       header = header,
@@ -854,19 +945,32 @@ print.xpipe_batch_layer <- function(x, ...) {
     }
 
     df2 <- df
-    if (nrow(df2) > max_rows) df2 <- df2[seq_len(max_rows), , drop = FALSE]
+    if (nrow(df2) > max_rows) {
+      df2 <- df2[seq_len(max_rows), , drop = FALSE]
+    }
 
     cols <- names(df2)
-    widths <- vapply(cols, function(cn) {
-      max(nchar(cn), max(nchar(as.character(df2[[cn]])), na.rm = TRUE))
-    }, numeric(1))
+    widths <- vapply(
+      cols,
+      function(cn) {
+        max(nchar(cn), max(nchar(as.character(df2[[cn]])), na.rm = TRUE))
+      },
+      numeric(1)
+    )
 
     header_row <- paste(pad(cols, widths), collapse = "  ")
-    sep_row <- paste(vapply(widths, function(w) strrep("-", w), character(1)), collapse = "  ")
+    sep_row <- paste(
+      vapply(widths, function(w) strrep("-", w), character(1)),
+      collapse = "  "
+    )
 
-    body <- vapply(seq_len(nrow(df2)), function(i) {
-      paste(pad(df2[i, cols, drop = FALSE], widths), collapse = "  ")
-    }, character(1))
+    body <- vapply(
+      seq_len(nrow(df2)),
+      function(i) {
+        paste(pad(df2[i, cols, drop = FALSE], widths), collapse = "  ")
+      },
+      character(1)
+    )
 
     lines <- c(header_row, sep_row, body)
     if (nrow(df) > max_rows) {
@@ -890,9 +994,15 @@ print.xpipe_batch_layer <- function(x, ...) {
   ids <- names(batches)
 
   status_of <- function(b) {
-    if (!is.null(b$status)) return(as.character(b$status))
-    if (!is.null(b$.status)) return(as.character(b$.status))
-    if (is.list(b) && !is.null(b$batch_id)) return("ok")
+    if (!is.null(b$status)) {
+      return(as.character(b$status))
+    }
+    if (!is.null(b$.status)) {
+      return(as.character(b$.status))
+    }
+    if (is.list(b) && !is.null(b$batch_id)) {
+      return("ok")
+    }
     "unknown"
   }
 
@@ -905,7 +1015,10 @@ print.xpipe_batch_layer <- function(x, ...) {
   )
   if (length(tab) > 0) {
     for (nm in names(tab)) {
-      summary_rows <- c(summary_rows, paste0(pad(paste0("Status ", nm), 18), ": ", tab[[nm]]))
+      summary_rows <- c(
+        summary_rows,
+        paste0(pad(paste0("Status ", nm), 18), ": ", tab[[nm]])
+      )
     }
   }
 
@@ -918,17 +1031,29 @@ print.xpipe_batch_layer <- function(x, ...) {
     border_col = "cyan"
   )
 
-  if (length(ids) == 0) return(invisible(x))
+  if (length(ids) == 0) {
+    return(invisible(x))
+  }
 
   cli::cli_h3("Latest batch details")
 
   # Determine latest batch by metadata execution.created_at when available
-  created <- vapply(batches, function(b) {
-    m <- b$meta %||% b
-    ts <- m$execution$created_at %||% NA_character_
-    if (!is.character(ts) || !nzchar(ts)) return(as.POSIXct(NA))
-    as.POSIXct(ts, tz = "UTC", tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S"))
-  }, as.POSIXct(NA))
+  created <- vapply(
+    batches,
+    function(b) {
+      m <- b$meta %||% b
+      ts <- m$execution$created_at %||% NA_character_
+      if (!is.character(ts) || !nzchar(ts)) {
+        return(as.POSIXct(NA))
+      }
+      as.POSIXct(
+        ts,
+        tz = "UTC",
+        tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S")
+      )
+    },
+    as.POSIXct(NA)
+  )
 
   latest_id <- if (all(is.na(created))) ids[[1]] else names(which.max(created))
   b <- batches[[latest_id]]
@@ -948,7 +1073,10 @@ print.xpipe_batch_layer <- function(x, ...) {
 
   # Extra info if new inspect is used
   if (!is.null(b$parquet_tables)) {
-    latest_rows <- c(latest_rows, paste0(pad("Parquet tables", 18), ": ", length(b$parquet_tables)))
+    latest_rows <- c(
+      latest_rows,
+      paste0(pad("Parquet tables", 18), ": ", length(b$parquet_tables))
+    )
   }
 
   cli::cat_boxx(
@@ -969,7 +1097,11 @@ print.xpipe_batch_layer <- function(x, ...) {
   } else {
     # fallback: show declared tables from metadata if available
     declared <- m$tables %||% character(0)
-    box_list(declared, header = "Declared tables (metadata)", border_col = "cyan")
+    box_list(
+      declared,
+      header = "Declared tables (metadata)",
+      border_col = "cyan"
+    )
   }
 
   # Checks (if available)
@@ -985,7 +1117,6 @@ print.xpipe_batch_layer <- function(x, ...) {
       paste0(pad("Anchor", 18), ": ", anchor),
       paste0(pad("Anchor ok", 18), ": ", fmt_bool(anchor_ok))
     )
-
 
     # build sanity check table
     sanity_df <- data.frame(
@@ -1003,36 +1134,58 @@ print.xpipe_batch_layer <- function(x, ...) {
       ),
       detail = c(
         anchor %||% "",
-        if (length(zero_cols) == 0) "none" else paste(zero_cols, collapse = ", "),
-        if (length(decl_not_mat) == 0) "none" else paste(decl_not_mat, collapse = ", "),
-        if (length(mat_not_decl) == 0) "none" else paste(mat_not_decl, collapse = ", ")
+        if (length(zero_cols) == 0) {
+          "none"
+        } else {
+          paste(zero_cols, collapse = ", ")
+        },
+        if (length(decl_not_mat) == 0) {
+          "none"
+        } else {
+          paste(decl_not_mat, collapse = ", ")
+        },
+        if (length(mat_not_decl) == 0) {
+          "none"
+        } else {
+          paste(mat_not_decl, collapse = ", ")
+        }
       ),
       stringsAsFactors = FALSE
     )
 
     # column widths
-    max_check  <- max(nchar(sanity_df$check),  nchar("check"))
+    max_check <- max(nchar(sanity_df$check), nchar("check"))
     max_result <- max(nchar(sanity_df$result), nchar("result"))
     max_detail <- max(nchar(sanity_df$detail), nchar("detail"))
 
     sanity_rows <- c(
       paste0(
-        pad("check",  max_check),  "  ",
-        pad("result", max_result), "  ",
+        pad("check", max_check),
+        "  ",
+        pad("result", max_result),
+        "  ",
         pad("detail", max_detail)
       ),
       paste0(
-        strrep("-", max_check),  "  ",
-        strrep("-", max_result), "  ",
+        strrep("-", max_check),
+        "  ",
+        strrep("-", max_result),
+        "  ",
         strrep("-", max_detail)
       ),
-      vapply(seq_len(nrow(sanity_df)), function(i) {
-        paste0(
-          pad(sanity_df$check[[i]],  max_check),  "  ",
-          pad(sanity_df$result[[i]], max_result), "  ",
-          pad(sanity_df$detail[[i]], max_detail)
-        )
-      }, character(1))
+      vapply(
+        seq_len(nrow(sanity_df)),
+        function(i) {
+          paste0(
+            pad(sanity_df$check[[i]], max_check),
+            "  ",
+            pad(sanity_df$result[[i]], max_result),
+            "  ",
+            pad(sanity_df$detail[[i]], max_detail)
+          )
+        },
+        character(1)
+      )
     )
 
     # overall color: red if any FAIL, yellow if any WARN, else green
@@ -1052,7 +1205,6 @@ print.xpipe_batch_layer <- function(x, ...) {
       float = "left",
       border_col = border_col
     )
-
   }
 
   cli::cli_h3("More info")
@@ -1062,16 +1214,20 @@ print.xpipe_batch_layer <- function(x, ...) {
   other_ids <- setdiff(names(batches), latest_id)
 
   other_ids <- other_ids[order(
-    vapply(other_ids, function(id) {
-      b <- batches[[id]]
-      m <- b$meta %||% b
-      ts <- m$execution$created_at %||% NA_character_
-      as.POSIXct(
-        ts,
-        tz = "UTC",
-        tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S")
-      )
-    }, as.POSIXct(NA)),
+    vapply(
+      other_ids,
+      function(id) {
+        b <- batches[[id]]
+        m <- b$meta %||% b
+        ts <- m$execution$created_at %||% NA_character_
+        as.POSIXct(
+          ts,
+          tz = "UTC",
+          tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S")
+        )
+      },
+      as.POSIXct(NA)
+    ),
     decreasing = TRUE
   )]
 
@@ -1085,7 +1241,6 @@ print.xpipe_batch_layer <- function(x, ...) {
       border_col = "cyan"
     )
   } else {
-
     rows <- lapply(other_ids, function(id) {
       b <- batches[[id]]
       m <- b$meta %||% b
@@ -1097,8 +1252,11 @@ print.xpipe_batch_layer <- function(x, ...) {
       # human-friendly datetime
       created_at <- tryCatch(
         format(
-          as.POSIXct(created_at, tz = "UTC",
-                     tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S")),
+          as.POSIXct(
+            created_at,
+            tz = "UTC",
+            tryFormats = c("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S")
+          ),
           "%Y-%m-%d %H:%M"
         ),
         error = function(e) created_at
@@ -1110,37 +1268,52 @@ print.xpipe_batch_layer <- function(x, ...) {
       chk <- b$checks %||% list()
       sanity <- "OK"
 
-      if (isFALSE(chk$anchor_materialized) ||
-          length(chk$zero_column_parquet %||% character(0)) > 0) {
+      if (
+        isFALSE(chk$anchor_materialized) ||
+          length(chk$zero_column_parquet %||% character(0)) > 0
+      ) {
         sanity <- "FAIL"
-      } else if (length(chk$declared_not_materialized %||% character(0)) > 0 ||
-                 length(chk$materialized_not_declared %||% character(0)) > 0) {
+      } else if (
+        length(chk$declared_not_materialized %||% character(0)) > 0 ||
+          length(chk$materialized_not_declared %||% character(0)) > 0
+      ) {
         sanity <- "WARN"
       }
 
       c(
         batch_id = id,
-        stream   = stream_id,
-        method   = method_id,
-        created  = created_at,
-        tables   = as.character(n_tables),
-        sanity   = sanity
+        stream = stream_id,
+        method = method_id,
+        created = created_at,
+        tables = as.character(n_tables),
+        sanity = sanity
       )
     })
 
     df <- as.data.frame(do.call(rbind, rows), stringsAsFactors = FALSE)
 
     # column widths
-    widths <- vapply(names(df), function(nm) {
-      max(nchar(nm), max(nchar(df[[nm]]), na.rm = TRUE))
-    }, numeric(1))
+    widths <- vapply(
+      names(df),
+      function(nm) {
+        max(nchar(nm), max(nchar(df[[nm]]), na.rm = TRUE))
+      },
+      numeric(1)
+    )
 
     table_rows <- c(
       paste(pad(names(df), widths), collapse = "  "),
-      paste(vapply(widths, function(w) strrep("-", w), character(1)), collapse = "  "),
-      vapply(seq_len(nrow(df)), function(i) {
-        paste(pad(df[i, ], widths), collapse = "  ")
-      }, character(1))
+      paste(
+        vapply(widths, function(w) strrep("-", w), character(1)),
+        collapse = "  "
+      ),
+      vapply(
+        seq_len(nrow(df)),
+        function(i) {
+          paste(pad(df[i, ], widths), collapse = "  ")
+        },
+        character(1)
+      )
     )
 
     border_col <- if ("FAIL" %in% df$sanity) {
@@ -1179,7 +1352,9 @@ print.xpipe_bronze_inspection <- function(x, ...) {
 
   head_tail <- function(v, n = 12) {
     v <- as.character(v)
-    if (length(v) <= n) return(v)
+    if (length(v) <= n) {
+      return(v)
+    }
     c(v[seq_len(n)], paste0("... +", length(v) - n, " more"))
   }
 
@@ -1190,7 +1365,11 @@ print.xpipe_bronze_inspection <- function(x, ...) {
     paste0(pad("Database", 18), ": ", x$bronze_db),
     paste0(pad("Tables", 18), ": ", length(x$tables)),
     paste0(pad("Data tables", 18), ": ", length(x$data_tables)),
-    paste0(pad("Has promotion log", 18), ": ", fmt_bool(x$checks$has_promotion_log)),
+    paste0(
+      pad("Has promotion log", 18),
+      ": ",
+      fmt_bool(x$checks$has_promotion_log)
+    ),
     paste0(pad("Log rows", 18), ": ", x$checks$log_rows)
   )
 
@@ -1220,31 +1399,61 @@ print.xpipe_bronze_inspection <- function(x, ...) {
     ),
     detail = c(
       if (isTRUE(x$checks$has_promotion_log)) "__promotion_log" else "missing",
-      if (length(missing_phys) == 0) "none" else paste(head_tail(missing_phys), collapse = ", "),
-      if (length(extra_phys) == 0) "none" else paste(head_tail(extra_phys), collapse = ", ")
+      if (length(missing_phys) == 0) {
+        "none"
+      } else {
+        paste(head_tail(missing_phys), collapse = ", ")
+      },
+      if (length(extra_phys) == 0) {
+        "none"
+      } else {
+        paste(head_tail(extra_phys), collapse = ", ")
+      }
     ),
     stringsAsFactors = FALSE
   )
 
-  max_check  <- max(nchar(sanity_df$check),  nchar("check"))
+  max_check <- max(nchar(sanity_df$check), nchar("check"))
   max_result <- max(nchar(sanity_df$result), nchar("result"))
   max_detail <- max(nchar(sanity_df$detail), nchar("detail"))
 
   sanity_rows <- c(
-    paste0(pad("check",  max_check),  "  ",
-           pad("result", max_result), "  ",
-           pad("detail", max_detail)),
-    paste0(strrep("-", max_check), "  ",
-           strrep("-", max_result), "  ",
-           strrep("-", max_detail)),
-    vapply(seq_len(nrow(sanity_df)), function(i) {
-      paste0(pad(sanity_df$check[[i]],  max_check),  "  ",
-             pad(sanity_df$result[[i]], max_result), "  ",
-             pad(sanity_df$detail[[i]], max_detail))
-    }, character(1))
+    paste0(
+      pad("check", max_check),
+      "  ",
+      pad("result", max_result),
+      "  ",
+      pad("detail", max_detail)
+    ),
+    paste0(
+      strrep("-", max_check),
+      "  ",
+      strrep("-", max_result),
+      "  ",
+      strrep("-", max_detail)
+    ),
+    vapply(
+      seq_len(nrow(sanity_df)),
+      function(i) {
+        paste0(
+          pad(sanity_df$check[[i]], max_check),
+          "  ",
+          pad(sanity_df$result[[i]], max_result),
+          "  ",
+          pad(sanity_df$detail[[i]], max_detail)
+        )
+      },
+      character(1)
+    )
   )
 
-  border_col <- if (any(sanity_df$result == "FAIL")) "red" else if (any(sanity_df$result == "WARN")) "yellow" else "green"
+  border_col <- if (any(sanity_df$result == "FAIL")) {
+    "red"
+  } else if (any(sanity_df$result == "WARN")) {
+    "yellow"
+  } else {
+    "green"
+  }
 
   cli::cat_boxx(
     sanity_rows,
@@ -1266,9 +1475,13 @@ print.xpipe_bronze_inspection <- function(x, ...) {
     rows <- c(
       paste0(pad("table", max_t), "  ", pad("rows", max_n)),
       paste0(strrep("-", max_t), "  ", strrep("-", max_n)),
-      vapply(seq_len(nrow(df)), function(i) {
-        paste0(pad(df$table_name[[i]], max_t), "  ", pad(df$n[[i]], max_n))
-      }, character(1))
+      vapply(
+        seq_len(nrow(df)),
+        function(i) {
+          paste0(pad(df$table_name[[i]], max_t), "  ", pad(df$n[[i]], max_n))
+        },
+        character(1)
+      )
     )
 
     cli::cli_h3("More info")
@@ -1288,19 +1501,35 @@ print.xpipe_bronze_inspection <- function(x, ...) {
     df$promoted_at <- as.character(df$promoted_at)
     df$batch_created_at <- as.character(df$batch_created_at)
 
-    df2 <- df[, c("batch_id", "method_id", "batch_created_at", "promoted_at"), drop = FALSE]
-    if (nrow(df2) > 20) df2 <- df2[seq_len(20), , drop = FALSE]
+    df2 <- df[,
+      c("batch_id", "method_id", "batch_created_at", "promoted_at"),
+      drop = FALSE
+    ]
+    if (nrow(df2) > 20) {
+      df2 <- df2[seq_len(20), , drop = FALSE]
+    }
 
-    widths <- vapply(names(df2), function(nm) {
-      max(nchar(nm), max(nchar(df2[[nm]]), na.rm = TRUE))
-    }, numeric(1))
+    widths <- vapply(
+      names(df2),
+      function(nm) {
+        max(nchar(nm), max(nchar(df2[[nm]]), na.rm = TRUE))
+      },
+      numeric(1)
+    )
 
     lines <- c(
       paste(pad(names(df2), widths), collapse = "  "),
-      paste(vapply(widths, function(w) strrep("-", w), character(1)), collapse = "  "),
-      vapply(seq_len(nrow(df2)), function(i) {
-        paste(pad(df2[i, ], widths), collapse = "  ")
-      }, character(1))
+      paste(
+        vapply(widths, function(w) strrep("-", w), character(1)),
+        collapse = "  "
+      ),
+      vapply(
+        seq_len(nrow(df2)),
+        function(i) {
+          paste(pad(df2[i, ], widths), collapse = "  ")
+        },
+        character(1)
+      )
     )
 
     cli::cat_boxx(
@@ -1315,7 +1544,6 @@ print.xpipe_bronze_inspection <- function(x, ...) {
 
   invisible(x)
 }
-
 
 
 #' Print Silver-current inspection
@@ -1345,7 +1573,11 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     paste0(pad("Anchor table", 18), ": ", x$anchor_table),
     paste0(pad("Anchor exists", 18), ": ", fmt_bool(x$anchor_exists)),
     paste0(pad("---", 18)),
-    paste0(pad("Snapshot as_of", 18), ": ", if (is.null(x$as_of)) "latest" else x$as_of),
+    paste0(
+      pad("Snapshot as_of", 18),
+      ": ",
+      if (is.null(x$as_of)) "latest" else x$as_of
+    ),
     paste0(pad("Eligible Bronze", 18), ": ", x$latest_bronze_batch %||% "NA"),
     paste0(pad("Silver batch", 18), ": ", x$latest_silver_batch %||% "NA"),
     paste0(pad("Silver status", 18), ": ", x$silver_status)
@@ -1357,10 +1589,13 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     border_style = "round",
     padding = c(top = 0, right = 2, bottom = 0, left = 2),
     float = "left",
-    border_col =
-      if (x$silver_status == "UP TO DATE") "cyan"
-    else if (x$silver_status == "STALE") "yellow"
-    else "red"
+    border_col = if (x$silver_status == "UP TO DATE") {
+      "cyan"
+    } else if (x$silver_status == "STALE") {
+      "yellow"
+    } else {
+      "red"
+    }
   )
 
   # Sanity checks
@@ -1375,14 +1610,17 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     )
   }
 
-
   cli::cat_boxx(
     uniqueness_rows,
     header = "Anchor uniqueness",
     border_style = "round",
     padding = c(top = 0, right = 2, bottom = 0, left = 2),
     float = "left",
-    border_col = if (nrow(x$duplicate_keys) == 0 && isTRUE(x$anchor_exists)) "green" else "red"
+    border_col = if (nrow(x$duplicate_keys) == 0 && isTRUE(x$anchor_exists)) {
+      "green"
+    } else {
+      "red"
+    }
   )
 
   if (nrow(x$orphan_checks) > 0) {
@@ -1393,30 +1631,46 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
 
     max_table <- max(nchar(orphan_df$table_name), nchar("table"))
     max_checked <- max(nchar(orphan_df$checked), nchar("checked"))
-    max_orphans <- max(nchar(as.character(orphan_df$orphan_rows)), nchar("orphans"))
+    max_orphans <- max(
+      nchar(as.character(orphan_df$orphan_rows)),
+      nchar("orphans")
+    )
     max_reason <- max(nchar(orphan_df$reason), nchar("reason"))
 
     orphan_rows <- c(
       paste0(
-        pad("table", max_table), "  ",
-        pad("checked", max_checked), "  ",
-        pad("orphans", max_orphans), "  ",
+        pad("table", max_table),
+        "  ",
+        pad("checked", max_checked),
+        "  ",
+        pad("orphans", max_orphans),
+        "  ",
         pad("reason", max_reason)
       ),
       paste0(
-        strrep("-", max_table), "  ",
-        strrep("-", max_checked), "  ",
-        strrep("-", max_orphans), "  ",
+        strrep("-", max_table),
+        "  ",
+        strrep("-", max_checked),
+        "  ",
+        strrep("-", max_orphans),
+        "  ",
         strrep("-", max_reason)
       ),
-      vapply(seq_len(nrow(orphan_df)), function(i) {
-        paste0(
-          pad(orphan_df$table_name[[i]], max_table), "  ",
-          pad(orphan_df$checked[[i]], max_checked), "  ",
-          pad(orphan_df$orphan_rows[[i]], max_orphans), "  ",
-          pad(orphan_df$reason[[i]], max_reason)
-        )
-      }, character(1))
+      vapply(
+        seq_len(nrow(orphan_df)),
+        function(i) {
+          paste0(
+            pad(orphan_df$table_name[[i]], max_table),
+            "  ",
+            pad(orphan_df$checked[[i]], max_checked),
+            "  ",
+            pad(orphan_df$orphan_rows[[i]], max_orphans),
+            "  ",
+            pad(orphan_df$reason[[i]], max_reason)
+          )
+        },
+        character(1)
+      )
     )
 
     orphan_bad <- any(orphan_df$orphan_rows > 0, na.rm = TRUE)
@@ -1444,13 +1698,17 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     table_rows <- c(
       paste0(pad("table", max_name), "  ", pad("rows", max_n)),
       paste0(strrep("-", max_name), "  ", strrep("-", max_n)),
-      vapply(seq_len(nrow(x$row_counts)), function(i) {
-        paste0(
-          pad(x$row_counts$table_name[[i]], max_name),
-          "  ",
-          pad(x$row_counts$n[[i]], max_n)
-        )
-      }, character(1))
+      vapply(
+        seq_len(nrow(x$row_counts)),
+        function(i) {
+          paste0(
+            pad(x$row_counts$table_name[[i]], max_name),
+            "  ",
+            pad(x$row_counts$n[[i]], max_n)
+          )
+        },
+        character(1)
+      )
     )
   } else {
     table_rows <- "No current__ tables found."
@@ -1470,27 +1728,40 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     bd <- x$batch_distribution
 
     max_batch <- max(nchar(bd$`__batch_id`), nchar("batch_id"))
-    max_created <- max(nchar(as.character(bd$`__batch_created_at`)), nchar("created_at"))
+    max_created <- max(
+      nchar(as.character(bd$`__batch_created_at`)),
+      nchar("created_at")
+    )
     max_n <- max(nchar(as.character(bd$n)), nchar("rows"))
 
     batch_rows <- c(
       paste0(
-        pad("batch_id", max_batch), "  ",
-        pad("created_at", max_created), "  ",
+        pad("batch_id", max_batch),
+        "  ",
+        pad("created_at", max_created),
+        "  ",
         pad("rows", max_n)
       ),
       paste0(
-        strrep("-", max_batch), "  ",
-        strrep("-", max_created), "  ",
+        strrep("-", max_batch),
+        "  ",
+        strrep("-", max_created),
+        "  ",
         strrep("-", max_n)
       ),
-      vapply(seq_len(nrow(bd)), function(i) {
-        paste0(
-          pad(bd$`__batch_id`[[i]], max_batch), "  ",
-          pad(as.character(bd$`__batch_created_at`[[i]]), max_created), "  ",
-          pad(bd$n[[i]], max_n)
-        )
-      }, character(1))
+      vapply(
+        seq_len(nrow(bd)),
+        function(i) {
+          paste0(
+            pad(bd$`__batch_id`[[i]], max_batch),
+            "  ",
+            pad(as.character(bd$`__batch_created_at`[[i]]), max_created),
+            "  ",
+            pad(bd$n[[i]], max_n)
+          )
+        },
+        character(1)
+      )
     )
   } else {
     batch_rows <- "No batch distribution available."

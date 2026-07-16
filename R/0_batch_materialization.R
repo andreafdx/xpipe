@@ -138,7 +138,6 @@ ingest_batch <- function(
 
 # Batch initialization scripts --------------------------------------------
 
-
 #' Prepare Batch Ingestion Context
 #'
 #' Constructs a validated batch ingestion context based on an input file
@@ -204,12 +203,12 @@ ingest_batch <- function(
   # Input files contract
   input_files <- method_config$input_files %||% NULL
 
-
   # Discover and resolve inputs
   resolved_inputs <- if (fs::is_dir(filepath)) {
-
     # method declares directory => input_files required
-    if (identical(method_config$input_type, "directory") && is.null(input_files)) {
+    if (
+      identical(method_config$input_type, "directory") && is.null(input_files)
+    ) {
       cli::cli_abort(
         c(
           "Invalid method configuration",
@@ -220,15 +219,10 @@ ingest_batch <- function(
     }
 
     .resolve_inputs(filepath, input_files)
-
   } else {
-
     # single-file input: do not replicate per component anymore
     list(data = filepath)
-
   }
-
-
 
   batch_id <- .normalize_or_generate_batch_id(stream_id, method, batch_id)
   batch_dir <- .build_batch_target_dir(config, batch_id)
@@ -410,8 +404,9 @@ ingest_batch <- function(
 #' @keywords internal
 #' @noRd
 .resolve_inputs <- function(dir_path, input_files) {
-
-  if (is.null(input_files)) return(NULL)
+  if (is.null(input_files)) {
+    return(NULL)
+  }
 
   resolved <- list()
 
@@ -609,7 +604,6 @@ ingest_batch <- function(
 # Phases B-D are sequential pipeline steps used exclusively by
 # `materialize_batch()`.
 
-
 #' Enforce method-declared column types on extracted Batch tables
 #'
 #' Applies hard type enforcement according to method_config$column_types.
@@ -621,14 +615,12 @@ ingest_batch <- function(
 #' @return Modified extracted_data
 #' @keywords internal
 .apply_batch_column_types <- function(extracted_data, method_config) {
-
   column_types <- method_config$column_types %||% NULL
   if (is.null(column_types)) {
     return(extracted_data)
   }
 
   for (table_name in names(column_types)) {
-
     if (!(table_name %in% names(extracted_data))) {
       cli::cli_warn(
         "Declared column_types for table {.val {table_name}}, but table was not extracted."
@@ -640,7 +632,6 @@ ingest_batch <- function(
     spec <- column_types[[table_name]]
 
     for (col in names(spec)) {
-
       target_type <- spec[[col]]
 
       if (!(col %in% names(df))) {
@@ -653,7 +644,6 @@ ingest_batch <- function(
       x <- df[[col]]
 
       if (target_type == "character") {
-
         # If already character, ok
         if (is.character(x)) {
           next
@@ -746,9 +736,8 @@ ingest_batch <- function(
 
   extracted_data <- .apply_batch_column_types(
     extracted_data = extracted_data,
-    method_config  = ctx$method_config
+    method_config = ctx$method_config
   )
-
 
   rlang::try_fetch(
     .persist_to_batch(ctx, extracted_data, config),
@@ -890,7 +879,6 @@ ingest_batch <- function(
     )
   }
 
-
   if (is.null(names(extracted)) || any(!nzchar(names(extracted)))) {
     cli::cli_abort(
       c(
@@ -938,7 +926,11 @@ ingest_batch <- function(
             "Invalid batch artifact",
             "x" = "Anchor table {.val {nm}} has zero columns and cannot be materialized"
           ),
-          class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
+          class = c(
+            "xpipe_batch_materialization",
+            "xpipe_batch_error",
+            "xpipe_error"
+          )
         )
       }
 
@@ -963,7 +955,11 @@ ingest_batch <- function(
         "Invalid batch artifact",
         "x" = "Anchor table {.val {anchor}} was not materialized"
       ),
-      class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
+      class = c(
+        "xpipe_batch_materialization",
+        "xpipe_batch_error",
+        "xpipe_error"
+      )
     )
   }
 

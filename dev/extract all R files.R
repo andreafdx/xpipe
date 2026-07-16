@@ -1,4 +1,3 @@
-
 # Directories to scan
 dirs <- c("R") #"tests"
 jdirs <- c("inst")

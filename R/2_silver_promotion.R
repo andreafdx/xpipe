@@ -20,7 +20,6 @@
 #            .silver_profile_sdo_harmonized_v1(), .silver_profile_emur_harmonized_v1()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-
 # Error Class Taxonomy ----------------------------------------------------
 #
 #   xpipe_error
@@ -51,12 +50,12 @@
 #' @return Invisibly TRUE.
 #' @export
 promote_to_silver <- function(
-    config = get_xpipe_config(),
-    stream = NULL,
-    phase = "all",
-    as_of = NULL,
-    dry_run = FALSE,
-    confirm = interactive()
+  config = get_xpipe_config(),
+  stream = NULL,
+  phase = "all",
+  as_of = NULL,
+  dry_run = FALSE,
+  confirm = interactive()
 ) {
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_string(stream, null.ok = TRUE)
@@ -85,7 +84,11 @@ promote_to_silver <- function(
     )
   }
 
-  targets <- .select_silver_promotion_targets(config = config, stream = stream, phase = phase)
+  targets <- .select_silver_promotion_targets(
+    config = config,
+    stream = stream,
+    phase = phase
+  )
 
   if (length(targets) == 0) {
     cli::cli_inform("No Silver streams enabled for phase {.val {phase}}.")
@@ -104,7 +107,11 @@ promote_to_silver <- function(
         phase,
         "current" = "current only",
         "harmonized" = "harmonized only",
-        "all" = if (h_on) "current + harmonized" else "current (harmonized disabled)",
+        "all" = if (h_on) {
+          "current + harmonized"
+        } else {
+          "current (harmonized disabled)"
+        },
         phase
       )
 
@@ -124,7 +131,6 @@ promote_to_silver <- function(
   .confirm_silver_promotion(confirm)
 
   for (sid in targets) {
-
     if (phase %in% c("current", "all")) {
       .promote_to_silver_current(
         stream_id = sid,
@@ -147,7 +153,6 @@ promote_to_silver <- function(
 
 # Harmonization profile registry -------------------------------------------
 
-
 #' SDO Silver-harmonized profile
 #'
 #' Code-driven harmonization profile for the SDO stream.
@@ -162,8 +167,12 @@ promote_to_silver <- function(
 #' @return Invisibly TRUE.
 #' @keywords internal
 #' @noRd
-.silver_profile_sdo_harmonized_v1 <- function(con, stream_id, method_id, config) {
-
+.silver_profile_sdo_harmonized_v1 <- function(
+  con,
+  stream_id,
+  method_id,
+  config
+) {
   # 1. Aggregate all diagnosis classifications in a single pass
   diag_aggregated_sql <- "
     SELECT
@@ -205,7 +214,6 @@ promote_to_silver <- function(
     GROUP BY codice_istituto_di_cura, progressivo_sdo
   "
 
-
   # 3. Clean pass to fetch patient demographics from anagrafica
   id_paziente_sql <- "
     SELECT
@@ -214,7 +222,6 @@ promote_to_silver <- function(
       identificativo_paziente
     FROM harmonized__anagrafica
   "
-
 
   # 4. DRG normalization expression
   drg_normalized_expr <- "
@@ -225,13 +232,14 @@ promote_to_silver <- function(
     END
   "
 
-
   # Rebuild the master ricovero table via streamlined left joins
 
   sql <- paste0(
     "CREATE OR REPLACE TABLE harmonized__ricovero AS
      SELECT
-       r.* REPLACE (", drg_normalized_expr, " AS drg),
+       r.* REPLACE (",
+    drg_normalized_expr,
+    " AS drg),
        d.diagnosi_principale,
        d.diagnosi_secondarie,
        d.tutte_le_diagnosi,
@@ -239,17 +247,22 @@ promote_to_silver <- function(
        p.tutte_le_procedure,
        a.identificativo_paziente
      FROM harmonized__ricovero r
-     LEFT JOIN (", diag_aggregated_sql, ") d
+     LEFT JOIN (",
+    diag_aggregated_sql,
+    ") d
        ON r.codice_istituto_di_cura = d.codice_istituto_di_cura
       AND r.progressivo_sdo = d.progressivo_sdo
-     LEFT JOIN (", proc_aggregated_sql, ") p
+     LEFT JOIN (",
+    proc_aggregated_sql,
+    ") p
        ON r.codice_istituto_di_cura = p.codice_istituto_di_cura
       AND r.progressivo_sdo = p.progressivo_sdo
-     LEFT JOIN (", id_paziente_sql, ") a
+     LEFT JOIN (",
+    id_paziente_sql,
+    ") a
        ON r.codice_istituto_di_cura = a.codice_istituto_di_cura
       AND r.progressivo_sdo = a.progressivo_sdo"
   )
-
 
   DBI::dbExecute(con, sql)
 
@@ -269,25 +282,44 @@ promote_to_silver <- function(
 #' @return Invisibly TRUE.
 #' @keywords internal
 #' @noRd
-.silver_profile_emur_harmonized_v1 <- function(con, stream_id, method_id, config) {
-
+.silver_profile_emur_harmonized_v1 <- function(
+  con,
+  stream_id,
+  method_id,
+  config
+) {
   # Helper to build timestamp SQL expression safely
   sql_timestamp <- function(date_col, time_col) {
     paste0(
-      "CASE WHEN ", date_col, " IS NULL OR trim(", date_col, ") = '' ",
-      "OR ", time_col, " IS NULL OR trim(", time_col, ") = '' THEN NULL ",
-      "ELSE TRY_CAST(", date_col, " || ' ' || ", time_col, " AS TIMESTAMP) END"
+      "CASE WHEN ",
+      date_col,
+      " IS NULL OR trim(",
+      date_col,
+      ") = '' ",
+      "OR ",
+      time_col,
+      " IS NULL OR trim(",
+      time_col,
+      ") = '' THEN NULL ",
+      "ELSE TRY_CAST(",
+      date_col,
+      " || ' ' || ",
+      time_col,
+      " AS TIMESTAMP) END"
     )
   }
 
   sql_select <- paste0(
     "ps.*, ",
-    sql_timestamp("ps.data_entrata", "ps.ora_entrata"), " AS t0, ",
-    sql_timestamp("ps.data_presa_in_carico", "ps.ora_presa_in_carico"), " AS t1, ",
+    sql_timestamp("ps.data_entrata", "ps.ora_entrata"),
+    " AS t0, ",
+    sql_timestamp("ps.data_presa_in_carico", "ps.ora_presa_in_carico"),
+    " AS t1, ",
     "NULL::TIMESTAMP AS t2, ",
-    sql_timestamp("ps.data_uscita", "ps.ora_uscita"), " AS t3"
+    sql_timestamp("ps.data_uscita", "ps.ora_uscita"),
+    " AS t3"
   )
-  sql_joins  <- ""
+  sql_joins <- ""
 
   # 1. Aggregate and join procedures if present
   if ("harmonized__procedure" %in% DBI::dbListTables(con)) {
@@ -300,10 +332,15 @@ promote_to_silver <- function(
       FROM harmonized__procedure
       GROUP BY codice_struttura_erogatore, progressivo
     "
-    sql_select <- paste0(sql_select, ", p.procedura_principale, p.tutte_le_procedure")
-    sql_joins  <- paste0(
+    sql_select <- paste0(
+      sql_select,
+      ", p.procedura_principale, p.tutte_le_procedure"
+    )
+    sql_joins <- paste0(
       sql_joins,
-      " LEFT JOIN (", proc_aggregated_sql, ") p
+      " LEFT JOIN (",
+      proc_aggregated_sql,
+      ") p
          ON ps.codice_struttura_erogatore = p.codice_struttura_erogatore
         AND ps.progressivo = p.progressivo"
     )
@@ -332,9 +369,11 @@ promote_to_silver <- function(
       ", a.asl_residenza",
       ", a.regione_residenza"
     )
-    sql_joins  <- paste0(
+    sql_joins <- paste0(
       sql_joins,
-      " LEFT JOIN (", id_paziente_sql, ") a
+      " LEFT JOIN (",
+      id_paziente_sql,
+      ") a
          ON ps.codice_struttura_erogatore = a.codice_struttura_erogatore
         AND ps.progressivo = a.progressivo"
     )
@@ -366,12 +405,16 @@ promote_to_silver <- function(
       ", o.data_uscita_obi",
       ", o.ora_uscita_obi",
       ", o.esito_obi, ",
-      sql_timestamp("o.data_ingresso_obi", "o.ora_ingresso_obi"), " AS t4, ",
-      sql_timestamp("o.data_uscita_obi", "o.ora_uscita_obi"), " AS t5"
+      sql_timestamp("o.data_ingresso_obi", "o.ora_ingresso_obi"),
+      " AS t4, ",
+      sql_timestamp("o.data_uscita_obi", "o.ora_uscita_obi"),
+      " AS t5"
     )
-    sql_joins  <- paste0(
+    sql_joins <- paste0(
       sql_joins,
-      " LEFT JOIN (", obi_sql, ") o
+      " LEFT JOIN (",
+      obi_sql,
+      ") o
          ON ps.codice_struttura_erogatore = o.codice_struttura_erogatore
         AND ps.progressivo = o.progressivo"
     )
@@ -384,7 +427,9 @@ promote_to_silver <- function(
 
   sql <- paste0(
     "CREATE OR REPLACE TABLE harmonized__ps AS ",
-    "SELECT ", sql_select, " ",
+    "SELECT ",
+    sql_select,
+    " ",
     "FROM harmonized__ps ps",
     sql_joins
   )
@@ -408,7 +453,9 @@ promote_to_silver <- function(
 #' @keywords internal
 #' @noRd
 .normalize_silver_as_of <- function(as_of = NULL) {
-  if (is.null(as_of)) return(NULL)
+  if (is.null(as_of)) {
+    return(NULL)
+  }
 
   if (inherits(as_of, "POSIXt")) {
     return(format(as_of, "%Y-%m-%d %H:%M:%S"))
@@ -460,7 +507,9 @@ promote_to_silver <- function(
 #' @noRd
 .assert_current_as_of_compatible <- function(con, stream_id, method_id, as_of) {
   # If no snapshot requested, any current state is acceptable.
-  if (is.null(as_of)) return(invisible(TRUE))
+  if (is.null(as_of)) {
+    return(invisible(TRUE))
+  }
 
   tabs <- DBI::dbGetQuery(con, "SHOW TABLES")$name
   if (!("__silver_log" %in% tabs)) {
@@ -500,7 +549,9 @@ promote_to_silver <- function(
   }
 
   current_as_of <- cur$as_of[[1]]
-  if (is.na(current_as_of)) current_as_of <- NULL
+  if (is.na(current_as_of)) {
+    current_as_of <- NULL
+  }
 
   if (!identical(current_as_of, as_of)) {
     cli::cli_abort(
@@ -555,8 +606,13 @@ promote_to_silver <- function(
 #'
 #' @keywords internal
 #' @noRd
-.is_silver_up_to_date <- function(con, stream_id, method_id, anchor_tbl, as_of = NULL) {
-
+.is_silver_up_to_date <- function(
+  con,
+  stream_id,
+  method_id,
+  anchor_tbl,
+  as_of = NULL
+) {
   anchor_full <- paste0(stream_id, "__", method_id, "__", anchor_tbl)
 
   bronze_anchor <- paste0(
@@ -577,8 +633,10 @@ promote_to_silver <- function(
     con,
     paste0(
       "SELECT __batch_id AS batch_id
-       FROM ", bronze_anchor,
-      where_sql, "
+       FROM ",
+      bronze_anchor,
+      where_sql,
+      "
        ORDER BY __batch_created_at DESC, __batch_id DESC
        LIMIT 1"
     )
@@ -597,7 +655,9 @@ promote_to_silver <- function(
       con,
       paste0(
         "SELECT __batch_id AS batch_id
-         FROM ", DBI::dbQuoteIdentifier(con, current_anchor), "
+         FROM ",
+        DBI::dbQuoteIdentifier(con, current_anchor),
+        "
          ORDER BY __batch_created_at DESC, __batch_id DESC
          LIMIT 1"
       )
@@ -632,18 +692,28 @@ promote_to_silver <- function(
 #' @return Invisibly TRUE.
 #' @keywords internal
 #' @noRd
-.promote_single_harmonized_table <- function(con, source_table, target_table, column_map) {
-
+.promote_single_harmonized_table <- function(
+  con,
+  source_table,
+  target_table,
+  column_map
+) {
   if (length(column_map) > 0) {
     actual_cols <- DBI::dbListFields(con, source_table)
-    keep_mask <- vapply(column_map, function(old_name) old_name %in% actual_cols, logical(1))
+    keep_mask <- vapply(
+      column_map,
+      function(old_name) old_name %in% actual_cols,
+      logical(1)
+    )
     column_map <- column_map[keep_mask]
   }
 
   if (length(column_map) == 0) {
     sql <- paste0(
-      "CREATE OR REPLACE TABLE ", DBI::dbQuoteIdentifier(con, target_table),
-      " AS SELECT * FROM ", DBI::dbQuoteIdentifier(con, source_table)
+      "CREATE OR REPLACE TABLE ",
+      DBI::dbQuoteIdentifier(con, target_table),
+      " AS SELECT * FROM ",
+      DBI::dbQuoteIdentifier(con, source_table)
     )
     DBI::dbExecute(con, sql)
     return(invisible(TRUE))
@@ -666,10 +736,13 @@ promote_to_silver <- function(
   )
 
   sql <- paste0(
-    "CREATE OR REPLACE TABLE ", DBI::dbQuoteIdentifier(con, target_table),
+    "CREATE OR REPLACE TABLE ",
+    DBI::dbQuoteIdentifier(con, target_table),
     " AS SELECT ",
     paste(rename_sql, collapse = ", "),
-    ", * EXCLUDE (", exclude_sql, ") FROM ",
+    ", * EXCLUDE (",
+    exclude_sql,
+    ") FROM ",
     DBI::dbQuoteIdentifier(con, source_table)
   )
 
@@ -701,7 +774,11 @@ promote_to_silver <- function(
     target_table <- paste0("harmonized__", tbl_name)
 
     if (!source_table %in% DBI::dbListTables(con)) {
-      .log_debug(paste0("Source table ", source_table, " not found in Silver database. Skipping harmonization for this table."))
+      .log_debug(paste0(
+        "Source table ",
+        source_table,
+        " not found in Silver database. Skipping harmonization for this table."
+      ))
       next
     }
 
@@ -711,7 +788,6 @@ promote_to_silver <- function(
       target_table = target_table,
       column_map = colmap
     )
-
   }
 
   invisible(TRUE)
@@ -762,13 +838,13 @@ promote_to_silver <- function(
 #' @keywords internal
 #' @noRd
 .write_silver_log <- function(
-    con,
-    phase,
-    stream_id,
-    method_id,
-    as_of,
-    source_tables,
-    output_tables
+  con,
+  phase,
+  stream_id,
+  method_id,
+  as_of,
+  source_tables,
+  output_tables
 ) {
   .ensure_silver_log(con)
 
@@ -793,7 +869,6 @@ promote_to_silver <- function(
 
 ## Pipeline ----------------------------------------------------------------
 
-
 #' Promote Bronze data to Silver-current (DuckDB)
 #'
 #' Builds Silver-current tables for a given stream and method by selecting the
@@ -810,7 +885,6 @@ promote_to_silver <- function(
 #' @return Invisibly TRUE on success.
 #' @keywords internal
 .promote_to_silver_current <- function(stream_id, config, as_of = NULL) {
-
   # 1. Preconditions
 
   checkmate::assert_string(stream_id)
@@ -823,8 +897,10 @@ promote_to_silver <- function(
   bronze_root <- config$local$paths$bronze
   silver_root <- config$local$paths$silver
 
-  if (!checkmate::test_string(bronze_root, min.chars = 1) ||
-      !checkmate::test_string(silver_root, min.chars = 1)) {
+  if (
+    !checkmate::test_string(bronze_root, min.chars = 1) ||
+      !checkmate::test_string(silver_root, min.chars = 1)
+  ) {
     cli::cli_abort(
       c(
         "Silver promotion failed",
@@ -848,8 +924,10 @@ promote_to_silver <- function(
   anchor_tbl <- method_cfg$anchor_table %||% NA_character_
   keys <- method_cfg$identity_keys %||% character(0)
 
-  if (!checkmate::test_string(anchor_tbl, min.chars = 1) ||
-      !checkmate::test_character(keys, min.len = 1)) {
+  if (
+    !checkmate::test_string(anchor_tbl, min.chars = 1) ||
+      !checkmate::test_character(keys, min.len = 1)
+  ) {
     cli::cli_abort(
       c(
         "Invalid Silver configuration",
@@ -882,11 +960,13 @@ promote_to_silver <- function(
     read_only = FALSE
   )
 
-  on.exit({
-    try(DBI::dbExecute(con_s, "DETACH bronze"), silent = TRUE)
-    DBI::dbDisconnect(con_s, shutdown = TRUE)
-  }, add = TRUE)
-
+  on.exit(
+    {
+      try(DBI::dbExecute(con_s, "DETACH bronze"), silent = TRUE)
+      DBI::dbDisconnect(con_s, shutdown = TRUE)
+    },
+    add = TRUE
+  )
 
   DBI::dbExecute(
     con_s,
@@ -934,8 +1014,15 @@ promote_to_silver <- function(
 
   # 4. Up-to-date check
 
-  if (.is_silver_up_to_date(con_s, stream_id, method_id, anchor_tbl, as_of = as_of)) {
-
+  if (
+    .is_silver_up_to_date(
+      con_s,
+      stream_id,
+      method_id,
+      anchor_tbl,
+      as_of = as_of
+    )
+  ) {
     if (!interactive()) {
       if (is.null(as_of)) {
         cli::cli_inform(
@@ -953,12 +1040,16 @@ promote_to_silver <- function(
       if (is.null(as_of)) {
         paste0(
           "Silver-current is already up to date for stream ",
-          stream_id, ". Rebuild anyway? [y/N]: "
+          stream_id,
+          ". Rebuild anyway? [y/N]: "
         )
       } else {
         paste0(
           "Silver-current is already up to date for stream ",
-          stream_id, " as of ", as_of, ". Rebuild anyway? [y/N]: "
+          stream_id,
+          " as of ",
+          as_of,
+          ". Rebuild anyway? [y/N]: "
         )
       }
     )
@@ -994,17 +1085,24 @@ promote_to_silver <- function(
         con_s,
         paste0(
           "CREATE OR REPLACE TABLE ",
-          DBI::dbQuoteIdentifier(con_s, current_anchor), " AS
+          DBI::dbQuoteIdentifier(con_s, current_anchor),
+          " AS
            SELECT * EXCLUDE (rn)
            FROM (
              SELECT
                a.*,
                ROW_NUMBER() OVER (
-                 PARTITION BY ", keys_sql, "
+                 PARTITION BY ",
+          keys_sql,
+          "
                  ORDER BY __batch_created_at DESC, __batch_id DESC
                ) AS rn
-             FROM ", bronze_anchor, " a
-             ", anchor_where_sql, "
+             FROM ",
+          bronze_anchor,
+          " a
+             ",
+          anchor_where_sql,
+          "
            ) t
            WHERE rn = 1"
         )
@@ -1012,7 +1110,9 @@ promote_to_silver <- function(
 
       for (bt in method_tables) {
         short <- sub(prefix, "", bt, fixed = TRUE)
-        if (identical(short, anchor_tbl)) next
+        if (identical(short, anchor_tbl)) {
+          next
+        }
 
         bronze_sec <- paste0(
           "bronze.main.",
@@ -1023,8 +1123,10 @@ promote_to_silver <- function(
 
         join_keys <- paste(
           paste0(
-            "s.", DBI::dbQuoteIdentifier(con_s, keys),
-            " = a.", DBI::dbQuoteIdentifier(con_s, keys)
+            "s.",
+            DBI::dbQuoteIdentifier(con_s, keys),
+            " = a.",
+            DBI::dbQuoteIdentifier(con_s, keys)
           ),
           collapse = " AND "
         )
@@ -1033,11 +1135,18 @@ promote_to_silver <- function(
           con_s,
           paste0(
             "CREATE OR REPLACE TABLE ",
-            DBI::dbQuoteIdentifier(con_s, current_sec), " AS
+            DBI::dbQuoteIdentifier(con_s, current_sec),
+            " AS
              SELECT s.*
-             FROM ", bronze_sec, " s
-             INNER JOIN ", DBI::dbQuoteIdentifier(con_s, current_anchor), " a
-               ON ", join_keys, "
+             FROM ",
+            bronze_sec,
+            " s
+             INNER JOIN ",
+            DBI::dbQuoteIdentifier(con_s, current_anchor),
+            " a
+               ON ",
+            join_keys,
+            "
               AND s.__batch_id = a.__batch_id"
           )
         )
@@ -1068,7 +1177,6 @@ promote_to_silver <- function(
         )
       }
 
-
       invisible(TRUE)
     },
     error = function(e) {
@@ -1084,7 +1192,6 @@ promote_to_silver <- function(
     }
   )
 }
-
 
 
 #' Promote Silver-current data to Silver-harmonized
@@ -1138,7 +1245,11 @@ promote_to_silver <- function(
     )
   }
 
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = as.character(silver_db), read_only = FALSE)
+  con <- DBI::dbConnect(
+    duckdb::duckdb(),
+    dbdir = as.character(silver_db),
+    read_only = FALSE
+  )
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
   .assert_current_as_of_compatible(con, stream_id, s$canonical_method, as_of)
@@ -1206,9 +1317,9 @@ promote_to_silver <- function(
 #' @keywords internal
 #' @noRd
 .select_silver_promotion_targets <- function(
-    config,
-    stream = NULL,
-    phase = "all"
+  config,
+  stream = NULL,
+  phase = "all"
 ) {
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_string(stream, null.ok = TRUE)
@@ -1233,7 +1344,8 @@ promote_to_silver <- function(
   # 'enabled' is the subset of silver_streams that meet the phase requirements.
   is_enabled <- function(stream_id) {
     s <- config$silver[[stream_id]]
-    isTRUE(s$current$enabled) && (!is_harmonized_needed || isTRUE(s$harmonized$enabled))
+    isTRUE(s$current$enabled) &&
+      (!is_harmonized_needed || isTRUE(s$harmonized$enabled))
   }
 
   enabled <- silver_streams[vapply(silver_streams, is_enabled, logical(1))]
@@ -1316,7 +1428,6 @@ promote_to_silver <- function(
 
   choice <- choices[[k]]
 
-
   if (identical(choice, "Abort")) {
     cli::cli_abort(
       "Silver promotion aborted by user.",
@@ -1339,7 +1450,9 @@ promote_to_silver <- function(
 .confirm_silver_promotion <- function(confirm = interactive()) {
   checkmate::assert_flag(confirm)
 
-  if (!isTRUE(confirm)) return(invisible(TRUE))
+  if (!isTRUE(confirm)) {
+    return(invisible(TRUE))
+  }
 
   answer <- readline("Proceed with Silver promotion? [Y/N]: ")
   if (!nzchar(answer) || tolower(substr(answer, 1, 1)) != "y") {

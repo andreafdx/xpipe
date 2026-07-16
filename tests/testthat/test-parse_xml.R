@@ -17,11 +17,18 @@ test_that(".parse_emur_a extracts correct columns and data", {
   # Check key columns
   expected_cols <- c(
     "Ente_CodRegione",
-    "Struttura_Anno", "Struttura_CodStrutturaErog", "Struttura_Progressivo",
-    "Assistito_CognomeAssistito", "Assistito_NomeAssistito", "Assistito_CodFiscaleAssistito"
+    "Struttura_Anno",
+    "Struttura_CodStrutturaErog",
+    "Struttura_Progressivo",
+    "Assistito_CognomeAssistito",
+    "Assistito_NomeAssistito",
+    "Assistito_CodFiscaleAssistito"
   )
   for (col in expected_cols) {
-    expect_true(col %in% names(res), label = sprintf("Column %s missing from ANA data", col))
+    expect_true(
+      col %in% names(res),
+      label = sprintf("Column %s missing from ANA data", col)
+    )
   }
 })
 

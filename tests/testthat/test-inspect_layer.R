@@ -16,10 +16,10 @@ test_that("inspect_batch_layer correctly identifies complete and incomplete batc
     fs::dir_create("mock_batch_layer/batch_healthy")
     jsonlite::write_json(
       list(
-        batch_id  = "batch_healthy",
-        stream    = list(id = "sdo", schema_domain = "sdo"),
-        method    = list(id = "xml_campania_2026", type = "xml_sdo_trac_b"),
-        input     = list(path = "test.xml"),
+        batch_id = "batch_healthy",
+        stream = list(id = "sdo", schema_domain = "sdo"),
+        method = list(id = "xml_campania_2026", type = "xml_sdo_trac_b"),
+        input = list(path = "test.xml"),
         execution = list(created_at = "2026-04-30T10:00:00Z", tool = "xpipe")
       ),
       "mock_batch_layer/batch_healthy/_batch_metadata.json",

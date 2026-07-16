@@ -9,7 +9,11 @@ print_silver_current_inventory <- function(stream_id = "sdo") {
   cat("Silver DB path:", silver_db, "\n")
   stopifnot(fs::file_exists(silver_db))
 
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = as.character(silver_db), read_only = TRUE)
+  con <- DBI::dbConnect(
+    duckdb::duckdb(),
+    dbdir = as.character(silver_db),
+    read_only = TRUE
+  )
   on.exit(DBI::dbDisconnect(con, shutdown = FALSE), add = TRUE)
 
   # DuckDB-native listing (avoids dbListTables/sqlite_master path)
@@ -28,14 +32,18 @@ print_silver_current_inventory <- function(stream_id = "sdo") {
 
   for (tbl in current_tables) {
     cat("\n#", tbl, "\n")
-    d <- DBI::dbGetQuery(con, paste0("DESCRIBE ", DBI::dbQuoteIdentifier(con, tbl)))
+    d <- DBI::dbGetQuery(
+      con,
+      paste0("DESCRIBE ", DBI::dbQuoteIdentifier(con, tbl))
+    )
     print(d[, c("column_name", "column_type")], row.names = FALSE)
   }
-
-
 }
 
-print_silver_harmonized_json_snippet <- function(stream_id = "sdo", include_tables = NULL) {
+print_silver_harmonized_json_snippet <- function(
+  stream_id = "sdo",
+  include_tables = NULL
+) {
   library(DBI)
   library(duckdb)
   library(fs)
@@ -47,7 +55,11 @@ print_silver_harmonized_json_snippet <- function(stream_id = "sdo", include_tabl
   cat("Silver DB path:", silver_db, "\n")
   stopifnot(fs::file_exists(silver_db))
 
-  con <- DBI::dbConnect(duckdb::duckdb(), dbdir = as.character(silver_db), read_only = TRUE)
+  con <- DBI::dbConnect(
+    duckdb::duckdb(),
+    dbdir = as.character(silver_db),
+    read_only = TRUE
+  )
   on.exit(DBI::dbDisconnect(con, shutdown = FALSE), add = TRUE)
 
   tables <- DBI::dbGetQuery(con, "SHOW TABLES")$name
@@ -66,7 +78,10 @@ print_silver_harmonized_json_snippet <- function(stream_id = "sdo", include_tabl
 
   # helper: mapping for a single table
   build_table_mapping <- function(tbl) {
-    d <- DBI::dbGetQuery(con, paste0("DESCRIBE ", DBI::dbQuoteIdentifier(con, tbl)))
+    d <- DBI::dbGetQuery(
+      con,
+      paste0("DESCRIBE ", DBI::dbQuoteIdentifier(con, tbl))
+    )
     cols <- as.character(d$column_name)
 
     # split lineage vs business

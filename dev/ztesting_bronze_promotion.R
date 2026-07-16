@@ -51,7 +51,7 @@ cli::cli_alert_success(
 cli::cli_h2("Step 2: Bronze Promotion Dry Run")
 
 promote_to_bronze(
-  config  = .cfg,
+  config = .cfg,
   dry_run = FALSE,
   confirm = FALSE
 )
@@ -65,9 +65,9 @@ cli::cli_alert_success(
 cli::cli_h2("Step 3: Execute Bronze Promotion")
 
 promote_to_bronze(
-  config  = .cfg,
+  config = .cfg,
   dry_run = FALSE,
-  confirm = FALSE  # disable prompt for test execution
+  confirm = FALSE # disable prompt for test execution
 )
 
 cli::cli_alert_success(

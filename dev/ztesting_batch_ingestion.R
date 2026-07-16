@@ -46,7 +46,10 @@ if (!dir.exists(sdo_folder_full)) {
 
 # Create A, B, C, D dummy files
 for (suffix in c("A", "B", "C", "D")) {
-  cat("dummy xml", file = fs::path(sdo_folder_full, paste0("fls_", suffix, ".xml")))
+  cat(
+    "dummy xml",
+    file = fs::path(sdo_folder_full, paste0("fls_", suffix, ".xml"))
+  )
 }
 
 # --- EXECUTION ---
@@ -58,10 +61,10 @@ cli::cli_h2("Step 1: Ingestion")
 
 batch_id <- ingest_batch(
   filename = sdo_folder_name,
-  stream   = "sdo",
-  method   = "xml_campania_2026",
-  config   = .cfg,
-  dry_run  = FALSE
+  stream = "sdo",
+  method = "xml_campania_2026",
+  config = .cfg,
+  dry_run = FALSE
 )
 
 # Step 2: Verification

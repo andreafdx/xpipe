@@ -47,11 +47,17 @@ test_that(".run_extraction wraps a failing single-file instrument as xpipe_batch
   expect_error(
     rlang::try_fetch(
       .run_extraction(ctx, failing_instrument),
-      error = function(e) cli::cli_abort(
-        "Data extraction failed",
-        parent = e,
-        class = c("xpipe_batch_extraction", "xpipe_batch_error", "xpipe_error")
-      )
+      error = function(e) {
+        cli::cli_abort(
+          "Data extraction failed",
+          parent = e,
+          class = c(
+            "xpipe_batch_extraction",
+            "xpipe_batch_error",
+            "xpipe_error"
+          )
+        )
+      }
     ),
     class = "xpipe_batch_extraction"
   )
@@ -88,7 +94,9 @@ test_that(".run_extraction coerces a bare data.frame return to a named list", {
 })
 
 test_that(".run_extraction aborts if an extracted element is not a data.frame", {
-  bad_instrument <- function(ctx) list(good_table = data.frame(x = 1), bad_table = "not a df")
+  bad_instrument <- function(ctx) {
+    list(good_table = data.frame(x = 1), bad_table = "not a df")
+  }
 
   ctx <- list(
     components = NULL,
@@ -122,11 +130,11 @@ test_that(".run_extraction aborts if extracted list is not fully named", {
 test_that(".persist_to_batch wraps filesystem errors as xpipe_batch_materialization", {
   # Point batch_dir at a path that cannot be created (a file used as a dir)
   tmp_file <- tempfile()
-  writeLines("block", tmp_file)  # exists as a file, not a directory
+  writeLines("block", tmp_file) # exists as a file, not a directory
 
   ctx <- list(
     batch_id = "test_batch",
-    batch_dir = fs::path(tmp_file, "subdir"),  # impossible path
+    batch_dir = fs::path(tmp_file, "subdir"), # impossible path
     filename = "test.mdb",
     stream_id = "sdo",
     method_id = "sdo_quani_mdb",
@@ -148,15 +156,17 @@ test_that(".persist_to_batch wraps filesystem errors as xpipe_batch_materializat
   expect_error(
     rlang::try_fetch(
       .persist_to_batch(ctx, good_data, mock_config),
-      error = function(e) cli::cli_abort(
-        "Failed to persist batch data",
-        parent = e,
-        class = c(
-          "xpipe_batch_materialization",
-          "xpipe_batch_error",
-          "xpipe_error"
+      error = function(e) {
+        cli::cli_abort(
+          "Failed to persist batch data",
+          parent = e,
+          class = c(
+            "xpipe_batch_materialization",
+            "xpipe_batch_error",
+            "xpipe_error"
+          )
         )
-      )
+      }
     ),
     class = "xpipe_batch_materialization"
   )

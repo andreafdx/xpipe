@@ -20,7 +20,6 @@
 #   └── xpipe_batch_error
 #       └── xpipe_privacy          # Privacy rule shape mismatch or invalid rule
 
-
 # Private API ------------------------------------------------------------------
 
 #' Apply Privacy Rules to an Extracted Data Frame
@@ -54,7 +53,9 @@ apply_privacy_rules <- function(df, table_name, method_config, pepper) {
   checkmate::assert_list(method_config)
   checkmate::assert_string(pepper, min.chars = 1)
 
-  if (nrow(df) == 0) return(df)
+  if (nrow(df) == 0) {
+    return(df)
+  }
 
   if (is.null(method_config$privacy)) {
     return(df)
@@ -95,16 +96,18 @@ apply_privacy_rules <- function(df, table_name, method_config, pepper) {
 
   # 1) SKIP
   skip_spec <- privacy$skip %||% list()
-  skip_tbl  <- skip_spec[[table_name]] %||% NULL
+  skip_tbl <- skip_spec[[table_name]] %||% NULL
   if (!is.null(skip_tbl) && length(skip_tbl) > 0) {
     cols <- intersect(names(skip_tbl), names(df))
-    for (col in cols) .assert_shape(df[[col]], skip_tbl[[col]], table_name, col, "skip")
+    for (col in cols) {
+      .assert_shape(df[[col]], skip_tbl[[col]], table_name, col, "skip")
+    }
     if (length(cols) > 0) df[cols] <- NULL
   }
 
   # 2) HASH
   hash_spec <- privacy$hash %||% list()
-  hash_tbl  <- hash_spec[[table_name]] %||% NULL
+  hash_tbl <- hash_spec[[table_name]] %||% NULL
   if (!is.null(hash_tbl) && length(hash_tbl) > 0) {
     cols <- intersect(names(hash_tbl), names(df))
     for (col in cols) {
@@ -115,8 +118,12 @@ apply_privacy_rules <- function(df, table_name, method_config, pepper) {
         df[[col]] <- hash_phi(as.character(x), pepper)
       } else {
         df[[col]] <- lapply(x, function(v) {
-          if (is.null(v)) return(NULL)
-          if (length(v) == 0) return(character(0))
+          if (is.null(v)) {
+            return(NULL)
+          }
+          if (length(v) == 0) {
+            return(character(0))
+          }
           hash_phi(as.character(v), pepper)
         })
       }
@@ -125,7 +132,6 @@ apply_privacy_rules <- function(df, table_name, method_config, pepper) {
 
   df
 }
-
 
 
 #' HMAC-SHA256 Hash for PHI
@@ -153,7 +159,9 @@ hash_phi <- function(text, pepper) {
   pepper_raw <- charToRaw(pepper)
 
   purrr::map_chr(text, function(x) {
-    if (is.na(x) || x == "") return(NA_character_)
+    if (is.na(x) || x == "") {
+      return(NA_character_)
+    }
     x_clean <- toupper(trimws(as.character(x)))
     as.character(openssl::sha256(charToRaw(x_clean), key = pepper_raw))
   })
@@ -176,6 +184,11 @@ hash_phi <- function(text, pepper) {
   checkmate::assert_string(pepper)
 
   existing <- intersect(cols, names(df))
-  if (length(existing) == 0) return(df)
-  dplyr::mutate(df, dplyr::across(dplyr::all_of(existing), ~ hash_phi(.x, pepper)))
+  if (length(existing) == 0) {
+    return(df)
+  }
+  dplyr::mutate(
+    df,
+    dplyr::across(dplyr::all_of(existing), ~ hash_phi(.x, pepper))
+  )
 }

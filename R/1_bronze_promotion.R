@@ -85,10 +85,10 @@
 #'
 #' @export
 promote_to_bronze <- function(
-    config = get_xpipe_config(),
-    stream = NULL,
-    dry_run = FALSE,
-    confirm = interactive()
+  config = get_xpipe_config(),
+  stream = NULL,
+  dry_run = FALSE,
+  confirm = interactive()
 ) {
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_string(stream, null.ok = TRUE)
@@ -99,7 +99,9 @@ promote_to_bronze <- function(
   checkmate::assert_string(batch_root)
 
   batch_dirs <- fs::dir_ls(batch_root, type = "directory", recurse = FALSE)
-  if (length(batch_dirs) == 0) return(invisible(TRUE))
+  if (length(batch_dirs) == 0) {
+    return(invisible(TRUE))
+  }
 
   # filtra batch validi (con metadata) e, se richiesto, per stream
   candidates <- character(0)
@@ -107,18 +109,28 @@ promote_to_bronze <- function(
 
   for (bd in batch_dirs) {
     meta_path <- fs::path(bd, "_batch_metadata.json")
-    if (!fs::file_exists(meta_path)) next
+    if (!fs::file_exists(meta_path)) {
+      next
+    }
 
-    meta <- rlang::try_fetch(jsonlite::fromJSON(meta_path, simplifyVector = FALSE),
-                             error = function(e) NULL)
-    if (is.null(meta)) next
-    if (!is.null(stream) && !identical(meta$stream$id, stream)) next
+    meta <- rlang::try_fetch(
+      jsonlite::fromJSON(meta_path, simplifyVector = FALSE),
+      error = function(e) NULL
+    )
+    if (is.null(meta)) {
+      next
+    }
+    if (!is.null(stream) && !identical(meta$stream$id, stream)) {
+      next
+    }
 
     candidates <- c(candidates, bd)
     metas[[bd]] <- meta
   }
 
-  if (length(candidates) == 0) return(invisible(TRUE))
+  if (length(candidates) == 0) {
+    return(invisible(TRUE))
+  }
 
   if (isTRUE(dry_run)) {
     for (bd in candidates) {
@@ -136,7 +148,9 @@ promote_to_bronze <- function(
     tryCatch(
       .promote_batch_to_bronze(batch_dir = bd, config = config),
       xpipe_bronze_append_only = function(e) {
-        cli::cli_inform("Skipping already promoted batch {.val {meta$batch_id}}")
+        cli::cli_inform(
+          "Skipping already promoted batch {.val {meta$batch_id}}"
+        )
         invisible(NULL)
       }
     )
@@ -152,7 +166,9 @@ promote_to_bronze <- function(
 #' @keywords internal
 .db_scalar <- function(con, sql, params = NULL) {
   out <- DBI::dbGetQuery(con, sql, params = params)
-  if (nrow(out) == 0 || ncol(out) == 0) return(NA)
+  if (nrow(out) == 0 || ncol(out) == 0) {
+    return(NA)
+  }
   out[[1]][[1]]
 }
 
@@ -160,8 +176,9 @@ promote_to_bronze <- function(
 #' @keywords internal
 .parquet_has_columns <- function(con, parquet_path) {
   pq_lit <- DBI::dbQuoteLiteral(con, as.character(parquet_path))
-  n_cols <- .db_scalar(con,
-                       paste0("SELECT COUNT(*) FROM parquet_schema(", pq_lit, ")")
+  n_cols <- .db_scalar(
+    con,
+    paste0("SELECT COUNT(*) FROM parquet_schema(", pq_lit, ")")
   )
   isTRUE(!is.na(n_cols) && n_cols > 0)
 }
@@ -180,7 +197,11 @@ promote_to_bronze <- function(
 #'
 #' @return Invisibly TRUE.
 #' @keywords internal
-.reconcile_bronze_columns_from_parquet <- function(con, table_name, parquet_path) {
+.reconcile_bronze_columns_from_parquet <- function(
+  con,
+  table_name,
+  parquet_path
+) {
   checkmate::assert_class(con, "DBIConnection")
   checkmate::assert_string(table_name)
   checkmate::assert_string(parquet_path)
@@ -202,7 +223,9 @@ promote_to_bronze <- function(
   }
 
   for (col in new_cols) {
-    dtype <- incoming_schema$column_type[incoming_schema$column_name == col][[1]]
+    dtype <- incoming_schema$column_type[incoming_schema$column_name == col][[
+      1
+    ]]
 
     cli::cli_warn(
       "Schema evolution: adding column {.val {col}} ({dtype}) to {.val {table_name}}"
@@ -225,8 +248,6 @@ promote_to_bronze <- function(
 }
 
 ## Pipeline ---------------------------------------------------------------
-
-
 
 #' Open a DuckDB connection for the Bronze layer
 #'
@@ -311,8 +332,6 @@ promote_to_bronze <- function(
 }
 
 
-
-
 #' Promote one Batch table into Bronze (DuckDB)
 #'
 #' Appends a single Parquet table from a materialized Batch directory into the
@@ -338,37 +357,47 @@ promote_to_bronze <- function(
   meta_path <- fs::path(batch_dir, meta_file)
   if (!fs::file_exists(meta_path)) {
     cli::cli_abort(
-      c("Batch metadata not found",
-        "x" = "Missing file: {.val {meta_file}} in {.file {batch_dir}}"),
+      c(
+        "Batch metadata not found",
+        "x" = "Missing file: {.val {meta_file}} in {.file {batch_dir}}"
+      ),
       class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
     )
   }
 
   meta <- rlang::try_fetch(
     jsonlite::fromJSON(meta_path, simplifyVector = FALSE),
-    error = function(e) cli::cli_abort(
-      c("Invalid batch metadata JSON",
-        "x" = "Failed to parse {.val {meta_file}} in {.file {batch_dir}}"),
-      parent = e,
-      class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
-    )
+    error = function(e) {
+      cli::cli_abort(
+        c(
+          "Invalid batch metadata JSON",
+          "x" = "Failed to parse {.val {meta_file}} in {.file {batch_dir}}"
+        ),
+        parent = e,
+        class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
+      )
+    }
   )
 
-  batch_id         <- meta$batch_id %||% NA_character_
-  stream_id        <- meta$stream$id %||% NA_character_
-  method_id        <- meta$method$id %||% NA_character_
+  batch_id <- meta$batch_id %||% NA_character_
+  stream_id <- meta$stream$id %||% NA_character_
+  method_id <- meta$method$id %||% NA_character_
   batch_created_at <- meta$execution$created_at %||% NA_character_
-  tool             <- meta$execution$tool %||% NA_character_
-  tool_version     <- meta$execution$tool_version %||% NA_character_
+  tool <- meta$execution$tool %||% NA_character_
+  tool_version <- meta$execution$tool_version %||% NA_character_
 
-  if (!checkmate::test_string(batch_id, min.chars = 1) ||
+  if (
+    !checkmate::test_string(batch_id, min.chars = 1) ||
       !checkmate::test_string(stream_id, min.chars = 1) ||
       !checkmate::test_string(method_id, min.chars = 1) ||
-      !checkmate::test_string(batch_created_at, min.chars = 1)) {
+      !checkmate::test_string(batch_created_at, min.chars = 1)
+  ) {
     cli::cli_abort(
-      c("Batch metadata missing required fields",
+      c(
+        "Batch metadata missing required fields",
         "x" = "Required: batch_id, stream.id, method.id, execution.created_at",
-        "i" = "Batch metadata file in {.file {meta_path}}"),
+        "i" = "Batch metadata file in {.file {meta_path}}"
+      ),
       class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
     )
   }
@@ -376,17 +405,25 @@ promote_to_bronze <- function(
   parquet_path <- fs::path(batch_dir, paste0(source_table, ".parquet"))
   if (!fs::file_exists(parquet_path)) {
     cli::cli_abort(
-      c("Batch table parquet not found",
-        "x" = "Missing file: {.val {source_table}}.parquet in {.path {batch_dir}}"),
-      class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
+      c(
+        "Batch table parquet not found",
+        "x" = "Missing file: {.val {source_table}}.parquet in {.path {batch_dir}}"
+      ),
+      class = c(
+        "xpipe_batch_materialization",
+        "xpipe_batch_error",
+        "xpipe_error"
+      )
     )
   }
 
   bronze_root <- config$local$paths$bronze
   if (!checkmate::test_string(bronze_root, min.chars = 1)) {
     cli::cli_abort(
-      c("Bronze path not configured",
-        "x" = "Expected config$local$paths$bronze to be set"),
+      c(
+        "Bronze path not configured",
+        "x" = "Expected config$local$paths$bronze to be set"
+      ),
       class = c("xpipe_bronze_state", "xpipe_bronze_error", "xpipe_error")
     )
   }
@@ -410,20 +447,29 @@ promote_to_bronze <- function(
         con,
         "SELECT COUNT(*) AS n FROM __promotion_log WHERE batch_id = ?",
         params = list(batch_id)
-      )$n[[1]] > 0
+      )$n[[1]] >
+        0
 
       if (isTRUE(exists_in_log)) {
         cli::cli_abort(
-          c("Append-only violation",
-            "x" = "Batch {.val {batch_id}} is already recorded in __promotion_log"),
-          class = c("xpipe_bronze_append_only", "xpipe_bronze_error", "xpipe_error")
+          c(
+            "Append-only violation",
+            "x" = "Batch {.val {batch_id}} is already recorded in __promotion_log"
+          ),
+          class = c(
+            "xpipe_bronze_append_only",
+            "xpipe_bronze_error",
+            "xpipe_error"
+          )
         )
       }
 
       DBI::dbExecute(
         con,
         paste0(
-          "CREATE TABLE IF NOT EXISTS ", tbl_ident, " AS
+          "CREATE TABLE IF NOT EXISTS ",
+          tbl_ident,
+          " AS
            SELECT
              t.*,
              CAST(NULL AS TEXT)      AS __batch_id,
@@ -431,7 +477,9 @@ promote_to_bronze <- function(
              CAST(NULL AS TEXT)      AS __method_id,
              CAST(NULL AS TIMESTAMP) AS __batch_created_at,
              CAST(NULL AS TIMESTAMP) AS __bronze_promoted_at
-           FROM read_parquet(", pq_lit, ") t
+           FROM read_parquet(",
+          pq_lit,
+          ") t
            WHERE 1=0"
         )
       )
@@ -439,7 +487,9 @@ promote_to_bronze <- function(
       DBI::dbExecute(
         con,
         paste0(
-          "INSERT INTO ", tbl_ident, " BY NAME
+          "INSERT INTO ",
+          tbl_ident,
+          " BY NAME
            SELECT
              t.*,
              ? AS __batch_id,
@@ -447,9 +497,17 @@ promote_to_bronze <- function(
              ? AS __method_id,
              CAST(? AS TIMESTAMP) AS __batch_created_at,
              CAST(? AS TIMESTAMP) AS __bronze_promoted_at
-           FROM read_parquet(", pq_lit, ") t"
+           FROM read_parquet(",
+          pq_lit,
+          ") t"
         ),
-        params = list(batch_id, stream_id, method_id, batch_created_at, promoted_at)
+        params = list(
+          batch_id,
+          stream_id,
+          method_id,
+          batch_created_at,
+          promoted_at
+        )
       )
 
       DBI::dbExecute(
@@ -459,11 +517,15 @@ promote_to_bronze <- function(
           anchor_source, tables, tool, tool_version)
          VALUES (?, ?, ?, CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP), ?, ?, ?, ?)",
         params = list(
-          batch_id, stream_id, method_id,
-          promoted_at, batch_created_at,
+          batch_id,
+          stream_id,
+          method_id,
+          promoted_at,
+          batch_created_at,
           NA_character_,
           jsonlite::toJSON(bronze_table, auto_unbox = TRUE),
-          tool, tool_version
+          tool,
+          tool_version
         )
       )
 
@@ -472,10 +534,14 @@ promote_to_bronze <- function(
     },
     error = function(e) {
       DBI::dbRollback(con)
-      if (inherits(e, "xpipe_bronze_append_only")) stop(e)
+      if (inherits(e, "xpipe_bronze_append_only")) {
+        stop(e)
+      }
       cli::cli_abort(
-        c("Bronze promotion failed and was rolled back",
-          "x" = "No partial data should remain for batch {.val {batch_id}}"),
+        c(
+          "Bronze promotion failed and was rolled back",
+          "x" = "No partial data should remain for batch {.val {batch_id}}"
+        ),
         parent = e,
         class = c("xpipe_bronze_error", "xpipe_error")
       )
@@ -506,41 +572,50 @@ promote_to_bronze <- function(
   meta_path <- fs::path(batch_dir, meta_file)
   if (!fs::file_exists(meta_path)) {
     cli::cli_abort(
-      c("Batch metadata not found",
-        "x" = "Missing file: {.val {meta_file}} in {.file {batch_dir}}"),
+      c(
+        "Batch metadata not found",
+        "x" = "Missing file: {.val {meta_file}} in {.file {batch_dir}}"
+      ),
       class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
     )
   }
 
   meta <- rlang::try_fetch(
     jsonlite::fromJSON(meta_path, simplifyVector = FALSE),
-    error = function(e) cli::cli_abort(
-      c("Invalid batch metadata JSON",
-        "x" = "Failed to parse {.val {meta_file}} in {.file {batch_dir}}"),
-      parent = e,
-      class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
-    )
+    error = function(e) {
+      cli::cli_abort(
+        c(
+          "Invalid batch metadata JSON",
+          "x" = "Failed to parse {.val {meta_file}} in {.file {batch_dir}}"
+        ),
+        parent = e,
+        class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
+      )
+    }
   )
 
-  batch_id         <- meta$batch_id %||% NA_character_
-  stream_id        <- meta$stream$id %||% NA_character_
-  method_id        <- meta$method$id %||% NA_character_
+  batch_id <- meta$batch_id %||% NA_character_
+  stream_id <- meta$stream$id %||% NA_character_
+  method_id <- meta$method$id %||% NA_character_
   batch_created_at <- meta$execution$created_at %||% NA_character_
-  tool             <- meta$execution$tool %||% NA_character_
-  tool_version     <- meta$execution$tool_version %||% NA_character_
+  tool <- meta$execution$tool %||% NA_character_
+  tool_version <- meta$execution$tool_version %||% NA_character_
 
-  if (!checkmate::test_string(batch_id, min.chars = 1) ||
+  if (
+    !checkmate::test_string(batch_id, min.chars = 1) ||
       !checkmate::test_string(stream_id, min.chars = 1) ||
       !checkmate::test_string(method_id, min.chars = 1) ||
-      !checkmate::test_string(batch_created_at, min.chars = 1)) {
+      !checkmate::test_string(batch_created_at, min.chars = 1)
+  ) {
     cli::cli_abort(
-      c("Batch metadata missing required fields",
+      c(
+        "Batch metadata missing required fields",
         "x" = "Required: batch_id, stream.id, method.id, execution.created_at",
-        "i" = "Batch metadata file in {.file {meta_path}}"),
+        "i" = "Batch metadata file in {.file {meta_path}}"
+      ),
       class = c("xpipe_batch_metadata", "xpipe_batch_error", "xpipe_error")
     )
   }
-
 
   method_cfg <- config$methods[[method_id]]
 
@@ -566,13 +641,18 @@ promote_to_bronze <- function(
     )
   }
 
-
   parquet_files <- fs::dir_ls(batch_dir, glob = "*.parquet")
   if (length(parquet_files) == 0) {
     cli::cli_abort(
-      c("No Parquet tables found in batch",
-        "x" = "Expected one or more *.parquet files in {.file {batch_dir}}"),
-      class = c("xpipe_batch_materialization", "xpipe_batch_error", "xpipe_error")
+      c(
+        "No Parquet tables found in batch",
+        "x" = "Expected one or more *.parquet files in {.file {batch_dir}}"
+      ),
+      class = c(
+        "xpipe_batch_materialization",
+        "xpipe_batch_error",
+        "xpipe_error"
+      )
     )
   }
 
@@ -588,12 +668,13 @@ promote_to_bronze <- function(
     )
   }
 
-
   bronze_root <- config$local$paths$bronze
   if (!checkmate::test_string(bronze_root, min.chars = 1)) {
     cli::cli_abort(
-      c("Bronze path not configured",
-        "x" = "Expected config$local$paths$bronze to be set"),
+      c(
+        "Bronze path not configured",
+        "x" = "Expected config$local$paths$bronze to be set"
+      ),
       class = c("xpipe_bronze_state", "xpipe_bronze_error", "xpipe_error")
     )
   }
@@ -614,13 +695,20 @@ promote_to_bronze <- function(
         con,
         "SELECT COUNT(*) AS n FROM __promotion_log WHERE batch_id = ?",
         params = list(batch_id)
-      ) > 0
+      ) >
+        0
 
       if (isTRUE(exists_in_log)) {
         cli::cli_abort(
-          c("Append-only violation",
-            "x" = "Batch {.val {batch_id}} is already recorded in __promotion_log"),
-          class = c("xpipe_bronze_append_only", "xpipe_bronze_error", "xpipe_error")
+          c(
+            "Append-only violation",
+            "x" = "Batch {.val {batch_id}} is already recorded in __promotion_log"
+          ),
+          class = c(
+            "xpipe_bronze_append_only",
+            "xpipe_bronze_error",
+            "xpipe_error"
+          )
         )
       }
 
@@ -628,12 +716,16 @@ promote_to_bronze <- function(
         parquet_path <- fs::path(batch_dir, paste0(tbl, ".parquet"))
 
         if (!fs::file_exists(parquet_path)) {
-          cli::cli_warn("Skipping missing parquet for table {.val {tbl}} in batch {.val {batch_id}}")
+          cli::cli_warn(
+            "Skipping missing parquet for table {.val {tbl}} in batch {.val {batch_id}}"
+          )
           next
         }
 
         if (!.parquet_has_columns(con, parquet_path)) {
-          cli::cli_warn("Skipping {.file {basename(parquet_path)}}: Parquet has zero columns.")
+          cli::cli_warn(
+            "Skipping {.file {basename(parquet_path)}}: Parquet has zero columns."
+          )
           next
         }
 
@@ -645,7 +737,9 @@ promote_to_bronze <- function(
         DBI::dbExecute(
           con,
           paste0(
-            "CREATE TABLE IF NOT EXISTS ", tbl_ident, " AS
+            "CREATE TABLE IF NOT EXISTS ",
+            tbl_ident,
+            " AS
            SELECT
              t.*,
              CAST(NULL AS TEXT)      AS __batch_id,
@@ -653,7 +747,9 @@ promote_to_bronze <- function(
              CAST(NULL AS TEXT)      AS __method_id,
              CAST(NULL AS TIMESTAMP) AS __batch_created_at,
              CAST(NULL AS TIMESTAMP) AS __bronze_promoted_at
-           FROM read_parquet(", pq_lit, ") t
+           FROM read_parquet(",
+            pq_lit,
+            ") t
            WHERE 1=0"
           )
         )
@@ -667,7 +763,9 @@ promote_to_bronze <- function(
         DBI::dbExecute(
           con,
           paste0(
-            "INSERT INTO ", tbl_ident, " BY NAME
+            "INSERT INTO ",
+            tbl_ident,
+            " BY NAME
            SELECT
              t.*,
              ? AS __batch_id,
@@ -675,9 +773,17 @@ promote_to_bronze <- function(
              ? AS __method_id,
              CAST(? AS TIMESTAMP) AS __batch_created_at,
              CAST(? AS TIMESTAMP) AS __bronze_promoted_at
-           FROM read_parquet(", pq_lit, ") t"
+           FROM read_parquet(",
+            pq_lit,
+            ") t"
           ),
-          params = list(batch_id, stream_id, method_id, batch_created_at, promoted_at)
+          params = list(
+            batch_id,
+            stream_id,
+            method_id,
+            batch_created_at,
+            promoted_at
+          )
         )
 
         promoted_tables <- c(promoted_tables, bronze_table)
@@ -690,11 +796,15 @@ promote_to_bronze <- function(
         anchor_source, tables, tool, tool_version)
        VALUES (?, ?, ?, CAST(? AS TIMESTAMP), CAST(? AS TIMESTAMP), ?, ?, ?, ?)",
         params = list(
-          batch_id, stream_id, method_id,
-          promoted_at, batch_created_at,
+          batch_id,
+          stream_id,
+          method_id,
+          promoted_at,
+          batch_created_at,
           NA_character_,
           jsonlite::toJSON(promoted_tables, auto_unbox = TRUE),
-          tool, tool_version
+          tool,
+          tool_version
         )
       )
 
@@ -703,10 +813,14 @@ promote_to_bronze <- function(
     },
     error = function(e) {
       try(DBI::dbExecute(con, "ROLLBACK"), silent = TRUE)
-      if (inherits(e, "xpipe_bronze_append_only")) stop(e)
+      if (inherits(e, "xpipe_bronze_append_only")) {
+        stop(e)
+      }
       cli::cli_abort(
-        c("Bronze batch promotion failed",
-          "x" = "Promotion did not complete; no partial state should remain."),
+        c(
+          "Bronze batch promotion failed",
+          "x" = "Promotion did not complete; no partial state should remain."
+        ),
         parent = e,
         class = c("xpipe_bronze_error", "xpipe_error")
       )
@@ -715,16 +829,7 @@ promote_to_bronze <- function(
 }
 
 
-
-
-
-
-
-
-
 ## CLI --------------------------------------------------------------------
-
-
 
 #' Confirm Bronze promotion
 #'
@@ -732,7 +837,6 @@ promote_to_bronze <- function(
 #' @keywords internal
 #' @noRd
 .confirm_bronze_promotion <- function(confirm) {
-
   if (!isTRUE(confirm)) {
     return(invisible(TRUE))
   }

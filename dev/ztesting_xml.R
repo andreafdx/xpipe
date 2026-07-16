@@ -25,7 +25,6 @@ system.time({
 
 # speed tests -------
 
-
 library(xml2)
 
 xml_file <- xmlb_path
@@ -46,9 +45,9 @@ t_extract <- system.time({
 })
 
 list(
-  xml_parse   = t_parse,
-  xml_find    = t_find,
-  extraction  = t_extract
+  xml_parse = t_parse,
+  xml_find = t_find,
+  extraction = t_extract
 )
 
 
@@ -57,4 +56,3 @@ res <- parse_tracciato_b(doc)
 Rprof(NULL)
 
 summaryRprof("xml_profile.out")
-

@@ -8,9 +8,9 @@ test_that(".assert_batch_materializable catches collisions and missing inputs", 
 
   withr::with_tempdir({
     ctx <- list(
-      batch_id  = "test_batch_1",
+      batch_id = "test_batch_1",
       batch_dir = fs::path_abs("data/batch/test_batch_1"),
-      filepath  = fs::path_abs("inbox/test_file.csv")
+      filepath = fs::path_abs("inbox/test_file.csv")
     )
 
     # Test A: target directory already exists (collision)

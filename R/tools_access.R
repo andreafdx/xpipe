@@ -34,7 +34,11 @@
     drivers <- odbc::odbcListDrivers()
     has_mdb <- any(grepl("MDBTools", drivers$name, ignore.case = TRUE))
     if (has_mdb) {
-      driver_name <- drivers$name[grep("MDBTools", drivers$name, ignore.case = TRUE)][1]
+      driver_name <- drivers$name[grep(
+        "MDBTools",
+        drivers$name,
+        ignore.case = TRUE
+      )][1]
     } else {
       driver_name <- "/usr/lib/x86_64-linux-gnu/odbc/libmdbodbc.so"
     }
@@ -46,8 +50,12 @@
     DBI::dbConnect(
       odbc::odbc(),
       .connection_string = paste0(
-        "Driver={", driver_name, "};",
-        "DBQ=", .mdb_path_abs, ";"
+        "Driver={",
+        driver_name,
+        "};",
+        "DBQ=",
+        .mdb_path_abs,
+        ";"
       )
     )
   } else {
@@ -98,7 +106,9 @@ extract_access_db <- function(ctx) {
     con <- .connect_access_db(path)
     on.exit(DBI::dbDisconnect(con))
 
-    cli::cli_alert_info("Reading {length(target_tables)} tables via ODBC (Windows)...")
+    cli::cli_alert_info(
+      "Reading {length(target_tables)} tables via ODBC (Windows)..."
+    )
     dfs <- list()
     for (t in target_tables) {
       if (t %in% DBI::dbListTables(con)) {
@@ -108,27 +118,38 @@ extract_access_db <- function(ctx) {
       }
     }
     return(dfs)
-
   } else {
-    cli::cli_alert_info("Reading {length(target_tables)} tables via mdb-export (Linux)...")
+    cli::cli_alert_info(
+      "Reading {length(target_tables)} tables via mdb-export (Linux)..."
+    )
 
-    available_tables <- system2("mdb-tables", args = c("-1", shQuote(path)), stdout = TRUE)
+    available_tables <- system2(
+      "mdb-tables",
+      args = c("-1", shQuote(path)),
+      stdout = TRUE
+    )
 
     dfs <- list()
     for (t in target_tables) {
       if (t %in% available_tables) {
         cli::cli_inform("Exporting: {.val {t}}")
 
-        csv_data <- utils::read.csv(pipe(paste("mdb-export", shQuote(path), shQuote(t))), stringsAsFactors = FALSE)
+        csv_data <- utils::read.csv(
+          pipe(paste("mdb-export", shQuote(path), shQuote(t))),
+          stringsAsFactors = FALSE
+        )
         dfs[[t]] <- tibble::as_tibble(csv_data)
 
         date_cols <- grep("^d_", names(dfs[[t]]), value = TRUE)
         if (length(date_cols) > 0) {
           cli::cli_inform("Casting {length(date_cols)} date columns...")
-          dfs[[t]] <- dplyr::mutate(dfs[[t]], dplyr::across(
-            dplyr::all_of(date_cols),
-            ~ as.Date(., format = "%m/%d/%y %H:%M:%S")
-          ))
+          dfs[[t]] <- dplyr::mutate(
+            dfs[[t]],
+            dplyr::across(
+              dplyr::all_of(date_cols),
+              ~ as.Date(., format = "%m/%d/%y %H:%M:%S")
+            )
+          )
         }
 
         cli::cli_alert_success("Extracted {.val {t}} : {nrow(dfs[[t]])} rows")
