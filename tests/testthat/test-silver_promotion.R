@@ -91,6 +91,14 @@ test_that("EMUR silver promotion and harmonization works end-to-end", {
     expect_true("t5" %in% colnames(df))
     expect_s3_class(df$t0, "POSIXt")
 
+    # Test unified inspect_silver
+    insp <- inspect_silver(stream_id = "emur", config = test_config)
+    expect_s3_class(insp, "xpipe_silver_inspection")
+    expect_equal(insp$silver_status, "UP TO DATE")
+    expect_equal(insp$alignment$status, "ALIGNED")
+    expect_true(nrow(insp$row_counts) > 0)
+    expect_true(nrow(insp$harmonized_tables) > 0)
+
     # Restore base config
     assign("config", base_cfg, envir = xpipe:::.xpipe_env)
   })

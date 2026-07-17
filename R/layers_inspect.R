@@ -6,7 +6,7 @@
 # Approach: Scans the local filesystem for Batch layer directories,
 # parses metadata, and provides a structured representation for console display.
 #
-# Public API:  inspect_batch_layer(), inspect_bronze(), inspect_silver_current()
+# Public API:  inspect_batch_layer(), inspect_bronze(), inspect_silver()
 # Internals:   .format_datetime(), .inspect_silver_alignment()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -499,9 +499,9 @@ inspect_bronze <- function(
 #'   compares Silver-current against the latest Bronze anchor batch with
 #'   `__batch_created_at <= as_of`. This is ingestion time, not domain/event time.
 #'
-#' @return An object of class `xpipe_silver_current_inspection`.
+#' @return An object of class `xpipe_silver_inspection`.
 #' @export
-inspect_silver_current <- function(
+inspect_silver <- function(
   stream_id = NULL,
   method_id = NULL,
   as_of = NULL,
@@ -561,16 +561,6 @@ inspect_silver_current <- function(
     )
   }
 
-  if (!isTRUE(silver_cfg$current$enabled)) {
-    cli::cli_abort(
-      c(
-        "Silver-current disabled",
-        "x" = "Silver-current is disabled for stream {.val {stream_id}}"
-      ),
-      class = c("xpipe_silver_state", "xpipe_error")
-    )
-  }
-
   canonical_method <- silver_cfg$canonical_method
   method_id <- method_id %||% canonical_method
   checkmate::assert_string(method_id)
@@ -579,10 +569,10 @@ inspect_silver_current <- function(
   if (!checkmate::test_string(silver_root, min.chars = 1)) {
     cli::cli_abort(
       c(
-        "Silver path not configured",
-        "x" = "Expected config$local$paths$silver to be set"
+        "Invalid Silver path",
+        "x" = "Silver path is not configured correctly in local config"
       ),
-      class = c("xpipe_silver_state", "xpipe_error")
+      class = c("xpipe_silver_config", "xpipe_error")
     )
   }
 
@@ -631,8 +621,7 @@ inspect_silver_current <- function(
   )
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
 
-  # Silver vs Bronze currency check
-
+  # Check Bronze for currency
   latest_bronze_batch <- NA_character_
   latest_silver_batch <- NA_character_
 
@@ -641,10 +630,9 @@ inspect_silver_current <- function(
   bronze_db <- fs::path(config$local$paths$bronze, paste0(stream_id, ".duckdb"))
 
   if (fs::file_exists(bronze_db)) {
-    try(
+    tryCatch(
       {
         try(DBI::dbExecute(con, "DETACH bronze"), silent = TRUE)
-
         DBI::dbExecute(
           con,
           paste0(
@@ -653,44 +641,46 @@ inspect_silver_current <- function(
             " AS bronze (READ_ONLY)"
           )
         )
-
-        on.exit(
-          try(DBI::dbExecute(con, "DETACH bronze"), silent = TRUE),
-          add = TRUE
-        )
+        on.exit(try(DBI::dbExecute(con, "DETACH bronze"), silent = TRUE), add = TRUE)
 
         anchor_full <- paste0(stream_id, "__", method_id, "__", anchor_tbl)
 
         bronze_tables <- DBI::dbGetQuery(
           con,
           "SELECT table_name
-       FROM duckdb_tables()
-       WHERE database_name = 'bronze'
-         AND schema_name = 'main'"
+           FROM duckdb_tables()
+           WHERE database_name = 'bronze'
+             AND schema_name = 'main'"
         )$table_name
 
         if (anchor_full %in% bronze_tables) {
-          where_sql <- if (is.null(as_of)) {
-            ""
+          latest_bronze <- if (is.null(as_of)) {
+            DBI::dbGetQuery(
+              con,
+              paste0(
+                "SELECT __batch_id AS batch_id
+                 FROM bronze.main.",
+                DBI::dbQuoteIdentifier(con, anchor_full),
+                "
+                 ORDER BY __batch_created_at DESC, __batch_id DESC
+                 LIMIT 1"
+              )
+            )
           } else {
-            paste0(
-              " WHERE __batch_created_at <= ",
-              DBI::dbQuoteLiteral(con, as_of)
+            DBI::dbGetQuery(
+              con,
+              paste0(
+                "SELECT __batch_id AS batch_id
+                 FROM bronze.main.",
+                DBI::dbQuoteIdentifier(con, anchor_full),
+                "
+                 WHERE __batch_created_at <= ?
+                 ORDER BY __batch_created_at DESC, __batch_id DESC
+                 LIMIT 1"
+              ),
+              params = list(as_of)
             )
           }
-
-          latest_bronze <- DBI::dbGetQuery(
-            con,
-            paste0(
-              "SELECT __batch_id AS batch_id
-           FROM bronze.main.",
-              DBI::dbQuoteIdentifier(con, anchor_full),
-              where_sql,
-              "
-           ORDER BY __batch_created_at DESC, __batch_id DESC
-           LIMIT 1"
-            )
-          )
 
           latest_bronze_batch <- if (nrow(latest_bronze) == 0) {
             NA_character_
@@ -699,7 +689,9 @@ inspect_silver_current <- function(
           }
         }
       },
-      silent = TRUE
+      error = function(e) {
+        # ignore attachment errors, fallback to NA
+      }
     )
   }
 
@@ -710,11 +702,11 @@ inspect_silver_current <- function(
       con,
       paste0(
         "SELECT __batch_id AS batch_id
-       FROM ",
+         FROM ",
         DBI::dbQuoteIdentifier(con, current_anchor),
         "
-       ORDER BY __batch_created_at DESC, __batch_id DESC
-       LIMIT 1"
+         ORDER BY __batch_created_at DESC, __batch_id DESC
+         LIMIT 1"
       )
     )
 
@@ -755,6 +747,68 @@ inspect_silver_current <- function(
     do.call(rbind, row_counts)
   } else {
     data.frame(table_name = character(), n = integer())
+  }
+
+  harmonized_tables <- DBI::dbGetQuery(
+    con,
+    "SELECT table_name FROM duckdb_tables() WHERE schema_name = 'harmonized'"
+  )$table_name
+
+  row_counts_harmonized <- lapply(harmonized_tables, function(tab) {
+    tab_id <- DBI::Id(schema = "harmonized", table = tab)
+    sql <- paste0(
+      "SELECT ",
+      DBI::dbQuoteLiteral(con, tab),
+      " AS table_name, COUNT(*) AS n FROM ",
+      DBI::dbQuoteIdentifier(con, tab_id)
+    )
+    DBI::dbGetQuery(con, sql)
+  })
+
+  row_counts_harmonized <- if (length(row_counts_harmonized) > 0) {
+    do.call(rbind, row_counts_harmonized)
+  } else {
+    data.frame(table_name = character(), n = integer())
+  }
+
+  has_silver_log <- "__silver_log" %in% DBI::dbGetQuery(con, "SHOW TABLES")$name
+  alignment <- if (has_silver_log) {
+    log_data <- DBI::dbGetQuery(
+      con,
+      "
+      SELECT phase, as_of, built_at
+      FROM __silver_log
+      WHERE stream_id = ?
+      ORDER BY built_at DESC
+      ",
+      params = list(stream_id)
+    )
+
+    current_recs <- log_data[log_data$phase == "current", , drop = FALSE]
+    harmonized_recs <- log_data[log_data$phase == "harmonized", , drop = FALSE]
+
+    if (nrow(current_recs) == 0 || nrow(harmonized_recs) == 0) {
+      list(
+        status = "UNKNOWN",
+        current = if (nrow(current_recs)) current_recs[1, ] else NULL,
+        harmonized = if (nrow(harmonized_recs)) harmonized_recs[1, ] else NULL
+      )
+    } else {
+      current_latest <- current_recs[1, ]
+      harmonized_latest <- harmonized_recs[1, ]
+      aligned <- (harmonized_latest$built_at >= current_latest$built_at &&
+        identical(harmonized_latest$as_of, current_latest$as_of))
+      list(
+        status = if (aligned) "ALIGNED" else "STALE",
+        current = current_latest,
+        harmonized = harmonized_latest
+      )
+    }
+  } else {
+    list(
+      status = "UNKNOWN",
+      reason = "__silver_log not found"
+    )
   }
 
   anchor_exists <- anchor_tbl %in% current_tables
@@ -886,20 +940,21 @@ inspect_silver_current <- function(
       method_id = method_id,
       canonical_method = canonical_method,
       silver_db = silver_db,
-      tables = DBI::dbListTables(con),
+      as_of = as_of,
+      latest_bronze_batch = latest_bronze_batch,
+      latest_silver_batch = latest_silver_batch,
+      silver_status = silver_status,
       current_tables = current_tables,
       anchor_table = current_anchor,
       anchor_exists = anchor_exists,
       row_counts = row_counts,
+      harmonized_tables = row_counts_harmonized,
+      alignment = alignment,
       duplicate_keys = duplicate_keys,
       orphan_checks = orphan_checks,
-      batch_distribution = batch_distribution,
-      latest_bronze_batch = latest_bronze_batch,
-      latest_silver_batch = latest_silver_batch,
-      silver_status = silver_status,
-      as_of = as_of
+      batch_distribution = batch_distribution
     ),
-    class = "xpipe_silver_current_inspection"
+    class = "xpipe_silver_inspection"
   )
 }
 
@@ -1557,31 +1612,40 @@ print.xpipe_bronze_inspection <- function(x, ...) {
 }
 
 
-#' Print Silver-current inspection
+#' Print Silver layer inspection
 #'
-#' @param x An object returned by `inspect_silver_current()`.
+#' @param x An object returned by `inspect_silver()`.
 #' @param ... Ignored.
 #'
 #' @return Invisibly returns `x`.
 #' @export
-print.xpipe_silver_current_inspection <- function(x, ...) {
+print.xpipe_silver_inspection <- function(x, ...) {
   pad <- function(x, width) {
     x <- as.character(x)
     paste0(x, strrep(" ", pmax(0, width - nchar(x))))
+  }
+
+  fmt_id <- function(id) {
+    if (inherits(id, "Id")) {
+      parts <- id@name
+      paste(parts, collapse = ".")
+    } else {
+      as.character(id)
+    }
   }
 
   fmt_bool <- function(x) {
     if (isTRUE(x)) "YES" else "NO"
   }
 
-  cli::cli_h2("Silver-current stream / method inspection")
+  cli::cli_h2("Silver layer stream / method inspection")
 
   summary_rows <- c(
     paste0(pad("Stream", 18), ": ", x$stream_id),
     paste0(pad("Method", 18), ": ", x$method_id),
     paste0(pad("Method (canonical)", 18), ": ", x$canonical_method),
     paste0(pad("Database", 18), ": ", x$silver_db),
-    paste0(pad("Anchor table", 18), ": ", x$anchor_table),
+    paste0(pad("Anchor table", 18), ": ", fmt_id(x$anchor_table)),
     paste0(pad("Anchor exists", 18), ": ", fmt_bool(x$anchor_exists)),
     paste0(pad("---", 18)),
     paste0(
@@ -1591,8 +1655,12 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     ),
     paste0(pad("Eligible Bronze", 18), ": ", x$latest_bronze_batch %||% "NA"),
     paste0(pad("Silver batch", 18), ": ", x$latest_silver_batch %||% "NA"),
-    paste0(pad("Silver status", 18), ": ", x$silver_status)
+    paste0(pad("Silver status", 18), ": ", x$silver_status),
+    paste0(pad("Alignment status", 18), ": ", x$alignment$status)
   )
+
+  status_ok <- (x$silver_status == "UP TO DATE") && (x$alignment$status %in% c("ALIGNED", "UNKNOWN"))
+  status_warn <- (x$silver_status == "STALE") || (x$alignment$status == "STALE")
 
   cli::cat_boxx(
     summary_rows,
@@ -1600,9 +1668,9 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
     border_style = "round",
     padding = c(top = 0, right = 2, bottom = 0, left = 2),
     float = "left",
-    border_col = if (x$silver_status == "UP TO DATE") {
+    border_col = if (status_ok) {
       "cyan"
-    } else if (x$silver_status == "STALE") {
+    } else if (status_warn) {
       "yellow"
     } else {
       "red"
@@ -1727,11 +1795,44 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
 
   cli::cat_boxx(
     table_rows,
-    header = "Current tables",
+    header = "Current schema",
     border_style = "round",
     padding = c(top = 0, right = 2, bottom = 0, left = 2),
     float = "left",
     border_col = "cyan"
+  )
+
+  # Harmonized tables row counts
+  if (nrow(x$harmonized_tables) > 0) {
+    max_name <- max(nchar(x$harmonized_tables$table_name), nchar("table"))
+    max_n <- max(nchar(as.character(x$harmonized_tables$n)), nchar("rows"))
+
+    harmonized_rows <- c(
+      paste0(pad("table", max_name), "  ", pad("rows", max_n)),
+      paste0(strrep("-", max_name), "  ", strrep("-", max_n)),
+      vapply(
+        seq_len(nrow(x$harmonized_tables)),
+        function(i) {
+          paste0(
+            pad(x$harmonized_tables$table_name[[i]], max_name),
+            "  ",
+            pad(x$harmonized_tables$n[[i]], max_n)
+          )
+        },
+        character(1)
+      )
+    )
+  } else {
+    harmonized_rows <- "No harmonized tables found."
+  }
+
+  cli::cat_boxx(
+    harmonized_rows,
+    header = "Harmonized schema",
+    border_style = "round",
+    padding = c(top = 0, right = 2, bottom = 0, left = 2),
+    float = "left",
+    border_col = "magenta"
   )
 
   # Batch distribution in anchor table
