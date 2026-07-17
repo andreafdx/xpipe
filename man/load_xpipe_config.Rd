@@ -7,7 +7,7 @@
 load_xpipe_config(path = NULL, project_root = NULL)
 }
 \arguments{
-\item{path}{Path to local.json.}
+\item{path}{Path to xne.json configuration file.}
 
 \item{project_root}{Project root.}
 }

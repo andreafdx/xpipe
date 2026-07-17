@@ -33,3 +33,48 @@ test_that("Package environment stores and retrieves config", {
     class = "xpipe_config_missing"
   )
 })
+
+test_that(".load_local_config loads xne.json from project_root when present", {
+  withr::with_tempdir({
+    dir.create("shared")
+    dir.create("inbox")
+    dir.create("batch")
+    dir.create("bronze")
+    dir.create("silver")
+    dir.create("logs")
+
+    cfg_data <- list(
+      paths = list(
+        shared = "shared",
+        inbox = "inbox",
+        batch = "batch",
+        bronze = "bronze",
+        silver = "silver"
+      ),
+      logging = list(
+        level = "info",
+        path = "logs/xpipe.log"
+      )
+    )
+    jsonlite::write_json(cfg_data, "xne.json", auto_unbox = TRUE)
+
+    loaded <- .load_local_config(project_root = ".")
+    expect_true(fs::file_exists(loaded$paths$shared))
+  })
+})
+
+test_that(".load_local_config falls back to inst/xne.local.json when xne.json is absent", {
+  withr::with_tempdir({
+    dir.create("data/shared", recursive = TRUE)
+    dir.create("inbox", recursive = TRUE)
+    dir.create("data/inbox", recursive = TRUE)
+    dir.create("data/batch", recursive = TRUE)
+    dir.create("data/bronze", recursive = TRUE)
+    dir.create("data/silver", recursive = TRUE)
+    dir.create("logs", recursive = TRUE)
+
+    # No xne.json in tempdir
+    loaded <- .load_local_config(project_root = ".")
+    expect_type(loaded$paths, "list")
+  })
+})

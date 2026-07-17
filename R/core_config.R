@@ -65,7 +65,7 @@
 #' - streams contract (domain semantics)
 #' - methods contract (ingestion mechanics)
 #'
-#' @param path Path to local.json.
+#' @param path Path to xne.json configuration file.
 #' @param project_root Project root.
 #' @return xpipe_config object.
 #' @export
@@ -237,19 +237,26 @@ get_xpipe_config <- function() {
 #'
 #' This is NOT a data layer and does not encode domain or semantic rules.
 #'
-#' @param path Path to local.json.
+#' @param path Path to xne.json.
 #' @param project_root Root for resolving relative paths.
 #' @return Normalized local configuration.
 #' @noRd
 .load_local_config <- function(path = NULL, project_root = NULL) {
   if (is.null(path)) {
-    path <- .find_asset("_xne", "local.json")
+    root <- project_root %||% fs::path_abs(".")
+    primary_path <- fs::path(root, "xne.json")
+
+    path <- if (fs::file_exists(primary_path)) {
+      primary_path
+    } else {
+      .find_asset("xne.local.json")
+    }
   }
 
   .validate_json_schema(
     json_path = path,
-    schema_name = "local.schema.json",
-    error_title = "Invalid local.json",
+    schema_name = "xne.schema.json",
+    error_title = paste0("Invalid ", fs::path_file(path)),
     error_class = "xpipe_local_error"
   )
 
