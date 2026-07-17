@@ -53,7 +53,7 @@ xpipe_error                            # root — catch-all for the package
 │   └── xpipe_config_schema_domain     # method references a stream with a different schema_domain
 │
 ├── xpipe_local_error
-│   └── xpipe_local_paths              # required path in local.json is missing or does not exist on disk
+│   └── xpipe_local_paths              # required path in xne.json is missing or does not exist on disk
 │
 ├── xpipe_streams_error
 │   ├── xpipe_streams_metadata         # _meta block missing, wrong type, or version absent

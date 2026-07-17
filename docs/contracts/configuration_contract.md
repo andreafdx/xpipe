@@ -26,12 +26,12 @@ The control plane is defined by shared and local JSON contracts.
 
 | File | Location | Role |
 |---|---|---|
-| `local.json` | `inst/_xne/local.json` | Local infrastructure: paths and logging |
+| `xne.json` | `xne.json` (fallback `inst/xne.local.json`) | Local infrastructure: paths, meta, and logging |
 | `streams.json` | `data/shared/streams.json` | Domain semantics: what the data represents |
 | `methods.json` | `data/shared/methods.json` | Ingestion mechanics: how source data is read and normalized into Batch |
 | `silver.json` | `data/shared/silver.json` | Silver layer configuration: canonical method selection and harmonization profiles per stream |
 
-`local.json` is machine-specific and is not shared.
+`xne.json` is machine-specific and is not shared across repositories.
 
 `streams.json`, `methods.json`, and `silver.json` are shared control-plane
 contracts. They travel with the data and define the operational behavior
@@ -39,40 +39,54 @@ of the pipeline.
 
 ---
 
-## `local.json` — Local Infrastructure
+## `xne.json` — Local Infrastructure
 
 ### Purpose
 
-Defines physical filesystem paths for each pipeline layer and optional
-logging configuration. This file is local to the machine running the
+Defines physical filesystem paths for each pipeline layer, configuration metadata,
+and optional logging configuration. This file is local to the machine running the
 pipeline and is not shared.
 
 ### Required Fields
 
 ```json
 {
+  "meta": {
+    "config_version": "1.0",
+    "project": "xne",
+    "description": "Path configuration for xne medallion analytic framework",
+    "created_at": "2026-07-17",
+    "last_updated_at": "2026-07-17"
+  },
   "paths": {
     "shared": "data/shared",
-    "batch":  "data/batch",
-    "bronze": "data/bronze"
+    "inbox": "inbox",
+    "batch": "data/batch",
+    "bronze": "data/bronze",
+    "silver": "data/silver"
   }
 }
 ```
 
 | Field | Required | Meaning |
 |---|---|---|
-| `paths.shared` | Yes | Path to the shared brain directory (streams.json, methods.json) |
-| `paths.batch` | Yes | Root of the Batch layer |
-| `paths.bronze` | Yes | Root of the Bronze layer |
-| `paths.inbox` | No | Inbox directory for raw source files |
-| `paths.raw` | No | Optional raw archive path |
+| `meta.config_version` | Yes | Semantic version of the configuration structure (e.g. `"1.0"`) |
+| `meta.project` | Yes | Project identifier (e.g. `"xne"`) |
+| `meta.description` | Yes | Description of the configuration purpose |
+| `meta.created_at` | Yes | ISO date of creation |
+| `meta.last_updated_at` | Yes | ISO date of last update |
+| `paths.shared` | Yes | Path to the shared contract directory (streams.json, methods.json, silver.json) |
+| `paths.inbox` | Yes | Inbox directory for raw input source files |
+| `paths.batch` | Yes | Root directory of the Batch layer |
+| `paths.bronze` | Yes | Root directory of the Bronze layer |
+| `paths.silver` | Yes | Root directory of the Silver layer |
 | `logging.level` | No | Log verbosity: `trace`, `debug`, `info`, `warn`, `error`, `fatal` |
 | `logging.path` | No | Log file path |
 
 ### Change Policy
 
-`local.json` changes are local and never affect pipeline semantics.
-Paths may be updated freely without versioning or coordination.
+`xne.json` changes are local to the deployment environment and never affect shared pipeline semantics.
+Paths and metadata dates may be updated freely without versioning or external coordination.
 
 ---
 
