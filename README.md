@@ -13,7 +13,7 @@ harmonization).
 Install and update via GitHub:
 
 ``` r
-remotes::install_git("git@github.com:andreafdx/xpipe.git", ref = "v1.0.0")
+remotes::install_git("git@github.com:andreafdx/xpipe.git", ref = "v1.1.0")
 # remove ref for latest commit
 ```
 
