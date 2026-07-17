@@ -902,8 +902,8 @@ promote_to_silver <- function(
 
   method_id <- .resolve_silver_canonical_method(stream_id, config)
 
-  bronze_root <- config$local$paths$bronze
-  silver_root <- config$local$paths$silver
+  bronze_root <- config$xne$paths$bronze
+  silver_root <- config$xne$paths$silver
 
   if (
     !checkmate::test_string(bronze_root, min.chars = 1) ||
@@ -1241,7 +1241,7 @@ promote_to_silver <- function(
     )
   }
 
-  silver_db <- fs::path(config$local$paths$silver, paste0(stream_id, ".duckdb"))
+  silver_db <- fs::path(config$xne$paths$silver, paste0(stream_id, ".duckdb"))
 
   if (!fs::file_exists(silver_db)) {
     cli::cli_abort(

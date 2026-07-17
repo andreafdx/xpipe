@@ -5,7 +5,7 @@
 
 test_that("inspect_batch_layer correctly identifies complete and incomplete batches", {
   mock_config <- structure(
-    list(local = list(paths = list(batch = "mock_batch_layer"))),
+    list(xne = list(paths = list(batch = "mock_batch_layer"))),
     class = "xpipe_config"
   )
 
@@ -41,7 +41,7 @@ test_that("inspect_batch_layer correctly identifies complete and incomplete batc
 
 test_that("print.xpipe_batch_layer does not crash when all batches are incomplete", {
   mock_config <- structure(
-    list(local = list(paths = list(batch = "mock_batch_layer"))),
+    list(xne = list(paths = list(batch = "mock_batch_layer"))),
     class = "xpipe_config"
   )
 
@@ -63,7 +63,7 @@ test_that("print.xpipe_batch_layer does not crash when all batches are incomplet
 
 test_that("inspect_batch_layer aborts if batch layer path does not exist", {
   mock_config <- structure(
-    list(local = list(paths = list(batch = "path_that_does_not_exist"))),
+    list(xne = list(paths = list(batch = "path_that_does_not_exist"))),
     class = "xpipe_config"
   )
 

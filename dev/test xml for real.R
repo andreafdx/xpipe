@@ -9,7 +9,7 @@ source("dev/zload all.R")
 # This folder must exist inside your configured inbox path.
 target_folder <- "xml"
 
-inbox_path <- fs::path(.cfg$local$paths$inbox, target_folder)
+inbox_path <- fs::path(.cfg$xne$paths$inbox, target_folder)
 if (!fs::dir_exists(inbox_path)) {
   cli::cli_abort(
     "Please create folder {.file {inbox_path}} and add your *_A.xml and *_B.xml files inside."

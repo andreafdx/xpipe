@@ -78,7 +78,7 @@ cli::cli_alert_success(
 
 cli::cli_h2("Step 4: Verification")
 
-bronze_root <- .cfg$local$paths$bronze
+bronze_root <- .cfg$xne$paths$bronze
 
 # Check that Bronze layer exists
 if (!fs::dir_exists(bronze_root)) {

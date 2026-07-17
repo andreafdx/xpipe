@@ -79,30 +79,30 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
     "initialize runtime context",
     .load_runtime_context()
   )
-  config$local <- .config_step(
-    "load local configuration",
-    .load_local_config(path, project_root)
+  config$xne <- .config_step(
+    "load XNE configuration",
+    .load_xne_config(path, project_root)
   )
   config$batch <- .config_step(
     "load Batch layer",
-    .load_batch_layer(config$local, config$runtime)
+    .load_batch_layer(config$xne, config$runtime)
   )
 
   streams_contract <- .config_step(
     "load Streams contract",
-    .load_streams_contract(config$local)
+    .load_streams_contract(config$xne)
   )
   config$streams_meta <- streams_contract$meta
   config$streams <- streams_contract$streams
 
   config$methods <- .config_step(
     "load Methods contract",
-    .load_methods_contract(config$local)
+    .load_methods_contract(config$xne)
   )
 
   silver_contract <- .config_step(
     "load Silver contract",
-    .load_silver_contract(config$local)
+    .load_silver_contract(config$xne)
   )
 
   config$silver_meta <- silver_contract$meta
@@ -228,20 +228,20 @@ get_xpipe_config <- function() {
   runtime
 }
 
-#' Load Local Configuration
+#' Load XNE Configuration
 #'
 #' Loads and normalizes environment-specific infrastructure configuration.
 #'
-#' The local configuration defines filesystem paths, logging locations,
+#' The XNE configuration defines filesystem paths, logging locations,
 #' and other deployment-specific settings required to run the system.
 #'
 #' This is NOT a data layer and does not encode domain or semantic rules.
 #'
 #' @param path Path to xne.json.
 #' @param project_root Root for resolving relative paths.
-#' @return Normalized local configuration.
+#' @return Normalized XNE configuration.
 #' @noRd
-.load_local_config <- function(path = NULL, project_root = NULL) {
+.load_xne_config <- function(path = NULL, project_root = NULL) {
   if (is.null(path)) {
     root <- project_root %||% fs::path_abs(".")
     primary_path <- fs::path(root, "xne.json")
@@ -260,13 +260,13 @@ get_xpipe_config <- function() {
     error_class = "xpipe_local_error"
   )
 
-  local_cfg <- .read_json_safe(
+  xne_cfg <- .read_json_safe(
     path,
-    error_title = "Invalid local configuration",
+    error_title = "Invalid XNE configuration",
     error_class = "xpipe_local_error"
   )
 
-  .normalize_paths(local_cfg, project_root)
+  .normalize_paths(xne_cfg, project_root)
 }
 
 #' Load Batch Layer Metadata
@@ -279,8 +279,8 @@ get_xpipe_config <- function() {
 #' @param runtime_config Runtime context.
 #' @return Parsed and validated Batch layer metadata.
 #' @noRd
-.load_batch_layer <- function(local_config, runtime_config) {
-  layer_json <- .validate_batch_layer(local_config)
+.load_batch_layer <- function(xne_config, runtime_config) {
+  layer_json <- .validate_batch_layer(xne_config)
 
   layer_options <- .read_json_safe(
     path = layer_json,
@@ -300,13 +300,13 @@ get_xpipe_config <- function() {
 #' The Streams contract is GOVERNANCE METADATA, not configuration and not
 #' a medallion data layer.
 #'
-#' @param local_config Local configuration.
+#' @param xne_config XNE configuration.
 #' @return A list with two elements:
 #'   - meta: streams contract metadata
 #'   - streams: named list of stream definitions
 #' @noRd
-.load_streams_contract <- function(local_config) {
-  path <- fs::path(local_config$paths$shared, "streams.json")
+.load_streams_contract <- function(xne_config) {
+  path <- fs::path(xne_config$paths$shared, "streams.json")
 
   .validate_json_schema(
     json_path = path,
@@ -408,11 +408,11 @@ get_xpipe_config <- function() {
 #' The Methods contract is a CONTROL-PLANE artifact and must not
 #' be confused with medallion data layers.
 #'
-#' @param local_config Local configuration.
+#' @param xne_config XNE configuration.
 #' @return Validated methods configuration.
 #' @noRd
-.load_methods_contract <- function(local_config) {
-  path <- fs::path(local_config$paths$shared, "methods.json")
+.load_methods_contract <- function(xne_config) {
+  path <- fs::path(xne_config$paths$shared, "methods.json")
 
   .validate_json_schema(
     json_path = path,
@@ -433,11 +433,11 @@ get_xpipe_config <- function() {
 #' Loads and validates the Silver contract, which defines the canonical
 #' method used to build Silver-current per stream.
 #'
-#' @param local_config Local configuration.
+#' @param xne_config XNE configuration.
 #' @return Parsed silver contract.
 #' @noRd
-.load_silver_contract <- function(local_config) {
-  path <- fs::path(local_config$paths$shared, "silver.json")
+.load_silver_contract <- function(xne_config) {
+  path <- fs::path(xne_config$paths$shared, "silver.json")
 
   .validate_json_schema(
     json_path = path,
@@ -660,28 +660,28 @@ get_xpipe_config <- function() {
 
 #' Normalize Configuration Paths
 #'
-#' Resolves and validates all filesystem paths defined in local.json.
+#' Resolves and validates all filesystem paths defined in xne.json.
 #'
 #' Ensures that paths are absolute, normalized, and exist on disk.
 #' This function operates purely at the infrastructure level.
 #'
-#' @param local_config Raw local configuration.
+#' @param xne_config Raw XNE configuration.
 #' @param project_root Base path.
-#' @return Normalized local configuration.
+#' @return Normalized XNE configuration.
 #' @noRd
-.normalize_paths <- function(local_config, project_root = NULL) {
+.normalize_paths <- function(xne_config, project_root = NULL) {
   if (is.null(project_root)) {
     project_root <- fs::path_abs(".")
   }
 
-  if (is.null(local_config$paths)) {
+  if (is.null(xne_config$paths)) {
     cli::cli_abort(
       c("Invalid configuration", "x" = "Missing {.field paths}"),
       class = c("xpipe_local_paths", "xpipe_local_error", "xpipe_error")
     )
   }
 
-  local_config$paths <- lapply(local_config$paths, function(p) {
+  xne_config$paths <- lapply(xne_config$paths, function(p) {
     p <- fs::path_expand(p)
     p <- if (fs::is_absolute_path(p)) {
       fs::path_norm(p)
@@ -702,12 +702,12 @@ get_xpipe_config <- function() {
     p
   })
 
-  if (!is.null(local_config$logging$path)) {
-    p <- fs::path_norm(fs::path(project_root, local_config$logging$path))
-    local_config$logging$path <- p
+  if (!is.null(xne_config$logging$path)) {
+    p <- fs::path_norm(fs::path(project_root, xne_config$logging$path))
+    xne_config$logging$path <- p
   }
 
-  local_config
+  xne_config
 }
 
 
@@ -720,11 +720,11 @@ get_xpipe_config <- function() {
 #' represents layer STATE (integrity and provenance), not configuration
 #' or domain semantics.
 #'
-#' @param local_config Local configuration.
+#' @param xne_config XNE configuration.
 #' @return Path to layer.json.
 #' @noRd
-.validate_batch_layer <- function(local_config) {
-  batch_path <- local_config$paths$batch
+.validate_batch_layer <- function(xne_config) {
+  batch_path <- xne_config$paths$batch
 
   if (!checkmate::test_string(batch_path, min.chars = 1)) {
     cli::cli_abort(
@@ -832,7 +832,7 @@ get_xpipe_config <- function() {
     cfg <- tryCatch(get_xpipe_config(), error = function(e) NULL)
 
     # Check if the JSON level is explicitly set to "debug"
-    is_verbose <- !is.null(cfg) && identical(cfg$local$logging$level, "debug")
+    is_verbose <- !is.null(cfg) && identical(cfg$xne$logging$level, "debug")
   }
 
   # 3. Print only if debug is enabled
@@ -871,12 +871,26 @@ get_xpipe_config <- function() {
     "{pad_nbsp('Security', 10)}: HMAC-SHA256 (Masked Pepper: {.envvar {substr(x$runtime$pepper, 1, 4)}}...)"
   ))
 
-  # 2. LOCAL INFRASTRUCTURE
-  cli::cli_h2("Local Infrastructure")
-  if (!is.null(x$local$paths)) {
+  # 2. XNE CONTEXT
+  cli::cli_h2("XNE context")
+
+  if (!is.null(x$xne$meta)) {
+    meta_bullets <- character()
+    if (!is.null(x$xne$meta$project)) {
+      meta_bullets <- c(meta_bullets, paste0("{pad_nbsp('Project', 10)}: {.field ", x$xne$meta$project, "}"))
+    }
+    if (!is.null(x$xne$meta$last_updated_at)) {
+      meta_bullets <- c(meta_bullets, paste0("{pad_nbsp('Last updated', 10)}: {.field ", x$xne$meta$last_updated_at, "}"))
+    }
+    if (length(meta_bullets) > 0) {
+      cli::cli_bullets(meta_bullets)
+    }
+  }
+
+  if (!is.null(x$xne$paths)) {
     cli::cli_bullets(
       purrr::imap_chr(
-        x$local$paths,
+        x$xne$paths,
         ~ paste0("{pad_nbsp('", .y, "', 10)}: {.file ", .x, "}")
       )
     )
@@ -986,7 +1000,7 @@ get_xpipe_config <- function() {
 #'
 #' @param x xpipe_config object.
 #' @param ... Ignored.
-#' @noRd
+#' @export
 print.xpipe_config <- function(x, ...) {
   .render_config(x, ...)
 }

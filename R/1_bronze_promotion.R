@@ -95,7 +95,7 @@ promote_to_bronze <- function(
   checkmate::assert_flag(dry_run)
   checkmate::assert_flag(confirm)
 
-  batch_root <- config$local$paths$batch
+  batch_root <- config$xne$paths$batch
   checkmate::assert_string(batch_root)
 
   batch_dirs <- fs::dir_ls(batch_root, type = "directory", recurse = FALSE)
@@ -417,12 +417,12 @@ promote_to_bronze <- function(
     )
   }
 
-  bronze_root <- config$local$paths$bronze
+  bronze_root <- config$xne$paths$bronze
   if (!checkmate::test_string(bronze_root, min.chars = 1)) {
     cli::cli_abort(
       c(
         "Bronze path not configured",
-        "x" = "Expected config$local$paths$bronze to be set"
+        "x" = "Expected config$xne$paths$bronze to be set"
       ),
       class = c("xpipe_bronze_state", "xpipe_bronze_error", "xpipe_error")
     )
@@ -668,12 +668,12 @@ promote_to_bronze <- function(
     )
   }
 
-  bronze_root <- config$local$paths$bronze
+  bronze_root <- config$xne$paths$bronze
   if (!checkmate::test_string(bronze_root, min.chars = 1)) {
     cli::cli_abort(
       c(
         "Bronze path not configured",
-        "x" = "Expected config$local$paths$bronze to be set"
+        "x" = "Expected config$xne$paths$bronze to be set"
       ),
       class = c("xpipe_bronze_state", "xpipe_bronze_error", "xpipe_error")
     )

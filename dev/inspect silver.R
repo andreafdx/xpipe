@@ -3,7 +3,7 @@
 source("dev/zload all.R")
 cfg <- load_xpipe_config()
 
-silver_db <- fs::path(cfg$local$paths$silver, "sdo.duckdb")
+silver_db <- fs::path(cfg$xne$paths$silver, "sdo.duckdb")
 
 con <- DBI::dbConnect(
   duckdb::duckdb(),

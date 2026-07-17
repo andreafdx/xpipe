@@ -34,7 +34,7 @@ test_that("Package environment stores and retrieves config", {
   )
 })
 
-test_that(".load_local_config loads xne.json from project_root when present", {
+test_that(".load_xne_config loads xne.json from project_root when present", {
   withr::with_tempdir({
     dir.create("shared")
     dir.create("inbox")
@@ -44,6 +44,13 @@ test_that(".load_local_config loads xne.json from project_root when present", {
     dir.create("logs")
 
     cfg_data <- list(
+      meta = list(
+        config_version = "1.0",
+        project = "xne",
+        description = "Path configuration for xne medallion analytic framework",
+        created_at = "2026-07-17",
+        last_updated_at = "2026-07-17"
+      ),
       paths = list(
         shared = "shared",
         inbox = "inbox",
@@ -58,12 +65,13 @@ test_that(".load_local_config loads xne.json from project_root when present", {
     )
     jsonlite::write_json(cfg_data, "xne.json", auto_unbox = TRUE)
 
-    loaded <- .load_local_config(project_root = ".")
+    loaded <- .load_xne_config(project_root = ".")
     expect_true(fs::file_exists(loaded$paths$shared))
+    expect_equal(loaded$meta$project, "xne")
   })
 })
 
-test_that(".load_local_config falls back to inst/xne.local.json when xne.json is absent", {
+test_that(".load_xne_config falls back to inst/xne.local.json when xne.json is absent", {
   withr::with_tempdir({
     dir.create("data/shared", recursive = TRUE)
     dir.create("inbox", recursive = TRUE)
@@ -74,7 +82,8 @@ test_that(".load_local_config falls back to inst/xne.local.json when xne.json is
     dir.create("logs", recursive = TRUE)
 
     # No xne.json in tempdir
-    loaded <- .load_local_config(project_root = ".")
+    loaded <- .load_xne_config(project_root = ".")
     expect_type(loaded$paths, "list")
+    expect_equal(loaded$meta$project, "xne")
   })
 })

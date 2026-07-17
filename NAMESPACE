@@ -2,6 +2,7 @@
 
 S3method(print,xpipe_batch_layer)
 S3method(print,xpipe_bronze_inspection)
+S3method(print,xpipe_config)
 S3method(print,xpipe_silver_inspection)
 export(.parse_tracciato_b)
 export(extract_access_db)

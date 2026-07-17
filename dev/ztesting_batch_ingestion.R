@@ -37,7 +37,7 @@ extract_xml <- function(ctx, path) {
 
 # --- Setup Mock SDO Folder ---
 sdo_folder_name <- "sdo_2025_xml"
-inbox_path <- .cfg$local$paths$inbox
+inbox_path <- .cfg$xne$paths$inbox
 sdo_folder_full <- fs::path(inbox_path, sdo_folder_name)
 
 if (!dir.exists(sdo_folder_full)) {
@@ -70,7 +70,7 @@ batch_id <- ingest_batch(
 # Step 2: Verification
 cli::cli_h2("Step 3: Verification")
 
-batch_dir <- fs::path(.cfg$local$paths$batch, batch_id)
+batch_dir <- fs::path(.cfg$xne$paths$batch, batch_id)
 
 if (!fs::dir_exists(batch_dir)) {
   cli::cli_abort(

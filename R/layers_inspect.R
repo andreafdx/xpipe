@@ -62,7 +62,7 @@
   checkmate::assert_string(stream_id)
   checkmate::assert_class(config, "xpipe_config")
 
-  silver_db <- fs::path(config$local$paths$silver, paste0(stream_id, ".duckdb"))
+  silver_db <- fs::path(config$xne$paths$silver, paste0(stream_id, ".duckdb"))
   if (!fs::file_exists(silver_db)) {
     cli::cli_abort(
       c(
@@ -137,7 +137,7 @@ inspect_batch_layer <- function(config = get_xpipe_config()) {
     )
   }
 
-  batch_root <- config$local$paths$batch
+  batch_root <- config$xne$paths$batch
   if (!fs::dir_exists(batch_root)) {
     cli::cli_abort(
       "Batch layer directory does not exist: {.file {batch_root}}",
@@ -299,12 +299,12 @@ inspect_bronze <- function(
   checkmate::assert_class(config, "xpipe_config")
   checkmate::assert_flag(read_only)
 
-  bronze_root <- config$local$paths$bronze
+  bronze_root <- config$xne$paths$bronze
   if (!checkmate::test_string(bronze_root, min.chars = 1)) {
     cli::cli_abort(
       c(
         "Bronze path not configured",
-        "x" = "Expected config$local$paths$bronze to be set"
+        "x" = "Expected config$xne$paths$bronze to be set"
       ),
       class = c("xpipe_bronze_state", "xpipe_error")
     )
@@ -565,7 +565,7 @@ inspect_silver <- function(
   method_id <- method_id %||% canonical_method
   checkmate::assert_string(method_id)
 
-  silver_root <- config$local$paths$silver
+  silver_root <- config$xne$paths$silver
   if (!checkmate::test_string(silver_root, min.chars = 1)) {
     cli::cli_abort(
       c(
@@ -627,7 +627,7 @@ inspect_silver <- function(
 
   current_anchor <- DBI::Id(schema = "current", table = anchor_tbl)
 
-  bronze_db <- fs::path(config$local$paths$bronze, paste0(stream_id, ".duckdb"))
+  bronze_db <- fs::path(config$xne$paths$bronze, paste0(stream_id, ".duckdb"))
 
   if (fs::file_exists(bronze_db)) {
     tryCatch(

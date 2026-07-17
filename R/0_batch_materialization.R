@@ -264,7 +264,7 @@ ingest_batch <- function(
   }
 
   required_paths <- c("inbox", "batch")
-  missing_paths <- setdiff(required_paths, names(config$local$paths))
+  missing_paths <- setdiff(required_paths, names(config$xne$paths))
 
   if (length(missing_paths) > 0) {
     cli::cli_abort(
@@ -351,13 +351,13 @@ ingest_batch <- function(
 .resolve_inbox_path <- function(config, path) {
   checkmate::assert_string(path)
 
-  full_path <- fs::path(config$local$paths$inbox, path)
+  full_path <- fs::path(config$xne$paths$inbox, path)
   if (!fs::file_exists(full_path)) {
     cli::cli_abort(
       c(
         "Input path not found",
         "x" = "Path {.file {path}} was not found in inbox",
-        "i" = "Inbox: {.file {config$local$paths$inbox}}"
+        "i" = "Inbox: {.file {config$xne$paths$inbox}}"
       ),
       class = c("xpipe_batch_path", "xpipe_batch_error", "xpipe_error")
     )
@@ -494,7 +494,7 @@ ingest_batch <- function(
 #' @noRd
 .build_batch_target_dir <- function(config, batch_id) {
   checkmate::assert_string(batch_id)
-  fs::path_norm(fs::path(config$local$paths$batch, batch_id))
+  fs::path_norm(fs::path(config$xne$paths$batch, batch_id))
 }
 
 

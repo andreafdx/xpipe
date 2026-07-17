@@ -29,10 +29,10 @@ test_that("EMUR silver promotion and harmonization works end-to-end", {
 
     # Construct a test config
     test_config <- load_xpipe_config(project_root = proj_root)
-    test_config$local$paths$inbox <- "inbox"
-    test_config$local$paths$batch <- "batch"
-    test_config$local$paths$bronze <- "bronze"
-    test_config$local$paths$silver <- "silver"
+    test_config$xne$paths$inbox <- "inbox"
+    test_config$xne$paths$batch <- "batch"
+    test_config$xne$paths$bronze <- "bronze"
+    test_config$xne$paths$silver <- "silver"
 
     # Create all directories
     fs::dir_create("batch")

@@ -5,7 +5,7 @@ print_silver_current_inventory <- function(stream_id = "sdo") {
   library(jsonlite)
 
   cfg <- load_xpipe_config()
-  silver_db <- fs::path(cfg$local$paths$silver, paste0(stream_id, ".duckdb"))
+  silver_db <- fs::path(cfg$xne$paths$silver, paste0(stream_id, ".duckdb"))
   cat("Silver DB path:", silver_db, "\n")
   stopifnot(fs::file_exists(silver_db))
 
@@ -51,7 +51,7 @@ print_silver_harmonized_json_snippet <- function(
   library(janitor)
 
   cfg <- load_xpipe_config()
-  silver_db <- fs::path(cfg$local$paths$silver, paste0(stream_id, ".duckdb"))
+  silver_db <- fs::path(cfg$xne$paths$silver, paste0(stream_id, ".duckdb"))
   cat("Silver DB path:", silver_db, "\n")
   stopifnot(fs::file_exists(silver_db))
 
