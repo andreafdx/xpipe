@@ -68,16 +68,15 @@ test_that("EMUR silver promotion and harmonization works end-to-end", {
     con <- DBI::dbConnect(duckdb::duckdb(), dbdir = silver_db, read_only = TRUE)
     on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
 
-    tables <- DBI::dbListTables(con)
-    expect_true("harmonized__ps" %in% tables)
-    expect_true("harmonized__procedure" %in% tables)
-    expect_true("harmonized__obi" %in% tables)
-    expect_true("harmonized__anagrafica" %in% tables)
+    expect_true(DBI::dbExistsTable(con, DBI::Id(schema = "harmonized", table = "ps")))
+    expect_true(DBI::dbExistsTable(con, DBI::Id(schema = "harmonized", table = "procedure")))
+    expect_true(DBI::dbExistsTable(con, DBI::Id(schema = "harmonized", table = "obi")))
+    expect_true(DBI::dbExistsTable(con, DBI::Id(schema = "harmonized", table = "anagrafica")))
 
-    # Check that OBI, procedures, and anagrafica are joined into harmonized__ps
+    # Check that OBI, procedures, and anagrafica are joined into harmonized.ps
     df <- DBI::dbGetQuery(
       con,
-      "SELECT * FROM harmonized__ps LIMIT 5"
+      "SELECT * FROM harmonized.ps LIMIT 5"
     )
     expect_s3_class(df, "data.frame")
     expect_true("procedura_principale" %in% colnames(df))

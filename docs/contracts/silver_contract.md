@@ -208,17 +208,17 @@ The physical layout is one DuckDB database per stream:
 data/silver/<stream_id>.duckdb
 ```
 
-Inside the stream database, Silver-current tables use the naming pattern:
+Inside the stream database, Silver-current tables are stored in a dedicated `current` schema:
 ```text
-current__<source_table_name>
+current.<source_table_name>
 ```
 Example:
 
 ```text
 data/silver/sdo.duckdb
-  current__ricovero
-  current__diagnosi
-  current__procedure
+  current.ricovero
+  current.diagnosi
+  current.procedure
 ```
 
 Silver-current is rebuilt as a table family using `CREATE OR REPLACE TABLE`.
@@ -235,7 +235,7 @@ currentness.
 Silver-harmonized represents the analytical form of a stream.
 
 It is derived exclusively from Silver-current and lives in the same stream
-DuckDB database as the `current__*` table family.
+DuckDB database alongside the `current` schema.
 
 Silver-harmonized does not redefine currentness, does not read Bronze
 directly, and does not choose among ingestion methods. All versioning,
@@ -258,7 +258,7 @@ Silver-harmonized **may**:
 - normalize column names
 - apply deterministic type normalization
 - add small, explicitly implemented derived columns
-- perform controlled joins among `current__*` tables
+- perform controlled joins among `current` schema tables
 - reshape data where this improves common analytical use
 
 Silver-harmonized **must not**:
@@ -281,24 +281,24 @@ The physical layout is:
 
 ```text
 data/silver/<stream_id>.duckdb
-  current__<source_table_name>
-  harmonized__<table_name>
+  current.<source_table_name>
+  harmonized.<table_name>
 ```
 
 Example:
 
 ```text
 data/silver/sdo.duckdb
-  current__ricovero
-  current__diagnosi
-  current__procedure
-  harmonized__ricovero
+  current.ricovero
+  current.diagnosi
+  current.procedure
+  harmonized.ricovero
 ```
 
 Harmonized tables use the naming pattern:
 
 ```text
-harmonized__<table_name>
+harmonized.<table_name>
 ```
 
 Harmonized tables are rebuilt using `CREATE OR REPLACE TABLE`.
@@ -310,7 +310,7 @@ previous builds.
 
 ## Dependency on Silver-current
 
-Silver-harmonized is built **only** from `current__*` tables.
+Silver-harmonized is built **only** from `current` schema tables.
 
 It must not read Bronze tables and must not inspect the Bronze promotion
 log.
@@ -318,7 +318,7 @@ log.
 If Silver-current was built with an ingestion snapshot (`as_of`),
 Silver-harmonized must be built from that same Silver-current state.
 
-Silver-harmonized must never be more current than the `current__*` tables
+Silver-harmonized must never be more current than the `current` schema tables
 from which it is derived.
 
 ---
@@ -340,11 +340,11 @@ phase = "all"
 It rebuilds Silver-current first and then Silver-harmonized, when
 harmonization is enabled for the stream.
 
-`phase = "current"` rebuilds only the `current__*` table family.  
-This may make existing `harmonized__*` tables stale.
+`phase = "current"` rebuilds only the `current` schema tables.  
+This may make existing `harmonized` schema tables stale.
 
-`phase = "harmonized"` rebuilds only the `harmonized__*` table family from
-the existing `current__*` tables.
+`phase = "harmonized"` rebuilds only the `harmonized` schema tables from
+the existing `current` schema tables.
 
 It must not read Bronze directly.
 
@@ -418,7 +418,7 @@ harmonization profiles.
 
 Transformations may include:
 
-- joining `current__*` tables
+- joining `current` schema tables
 - moving selected values from secondary tables into a main analytical
   table
 - creating list-columns
@@ -453,7 +453,7 @@ Example:
 The profile owns stream-specific transformation logic.
 
 For SDO, the initial profile is expected to produce an enriched analytical
-`harmonized__ricovero` table.
+`harmonized.ricovero` table.
 
 The registered profile functions are maintained inside the package's internal
 registry, e.g., `.silver_profile_sdo_harmonized_v1` and `.silver_profile_emur_harmonized_v1`.
@@ -465,11 +465,11 @@ registry, e.g., `.silver_profile_sdo_harmonized_v1` and `.silver_profile_emur_ha
 For the SDO stream, the primary harmonized analytical table is:
 
 ```text
-harmonized__ricovero
+harmonized.ricovero
 ```
 
-It is derived from `current__ricovero` and enriched from other
-`current__*` tables.
+It is derived from `current.ricovero` and enriched from other
+`current` schema tables.
 
 The SDO harmonized profile supports at least:
 
@@ -514,10 +514,10 @@ list-columns when this best preserves the analytical meaning.
 For the EMUR stream, the primary harmonized analytical table is:
 
 ```text
-harmonized__ps
+harmonized.ps
 ```
 
-It is derived from `current__ps` and enriched from other `current__*` tables.
+It is derived from `current.ps` and enriched from other `current` schema tables.
 
 The EMUR harmonized profile (`emur_harmonized_v1`) supports:
 
@@ -575,8 +575,8 @@ CREATE TABLE IF NOT EXISTS __silver_log (
 `__silver_log` records build metadata for Silver-current and
 Silver-harmonized.
 
-It is used to inspect whether `current__*` and `harmonized__*` table
-families are aligned.
+It is used to inspect whether `current` and `harmonized` schema tables
+are aligned.
 
 It is not a source of domain truth.
 
@@ -588,7 +588,7 @@ Silver-harmonized is **aligned** when it has been built from the current
 Silver-current state for the same stream, canonical method, and ingestion
 snapshot.
 
-If `current__*` tables are rebuilt and `harmonized__*` tables are not
+If `current` schema tables are rebuilt and `harmonized` schema tables are not
 rebuilt afterwards, harmonized tables may be **stale**.
 
 Inspection should be able to report whether Silver-current and
@@ -622,7 +622,7 @@ A valid Silver-harmonized table family guarantees:
 - it uses the canonical method selected for the stream
 - it applies deterministic, code-driven transformations
 - it applies declarative normalization from `silver.json`
-- it persists results as `harmonized__*` tables in the stream Silver
+- it persists results in the `harmonized` schema in the stream Silver
   DuckDB database
 - it does not silently redefine entity identity or currentness
 

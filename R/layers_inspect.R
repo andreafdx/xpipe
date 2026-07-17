@@ -636,7 +636,7 @@ inspect_silver_current <- function(
   latest_bronze_batch <- NA_character_
   latest_silver_batch <- NA_character_
 
-  current_anchor <- paste0("current__", anchor_tbl)
+  current_anchor <- DBI::Id(schema = "current", table = anchor_tbl)
 
   bronze_db <- fs::path(config$local$paths$bronze, paste0(stream_id, ".duckdb"))
 
@@ -703,7 +703,9 @@ inspect_silver_current <- function(
     )
   }
 
-  if (current_anchor %in% DBI::dbListTables(con)) {
+  current_anchor_exists <- NROW(DBI::dbGetQuery(con, "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'current' AND table_name = ?", params = list(anchor_tbl))) > 0
+
+  if (current_anchor_exists) {
     latest_silver <- DBI::dbGetQuery(
       con,
       paste0(
@@ -733,15 +735,18 @@ inspect_silver_current <- function(
     "STALE"
   }
 
-  tables <- DBI::dbListTables(con)
-  current_tables <- tables[startsWith(tables, "current__")]
+  current_tables <- DBI::dbGetQuery(
+    con,
+    "SELECT table_name FROM duckdb_tables() WHERE schema_name = 'current'"
+  )$table_name
 
   row_counts <- lapply(current_tables, function(tab) {
+    tab_id <- DBI::Id(schema = "current", table = tab)
     sql <- paste0(
       "SELECT ",
       DBI::dbQuoteLiteral(con, tab),
       " AS table_name, COUNT(*) AS n FROM ",
-      DBI::dbQuoteIdentifier(con, tab)
+      DBI::dbQuoteIdentifier(con, tab_id)
     )
     DBI::dbGetQuery(con, sql)
   })
@@ -752,15 +757,17 @@ inspect_silver_current <- function(
     data.frame(table_name = character(), n = integer())
   }
 
-  current_anchor <- paste0("current__", anchor_tbl)
-  anchor_exists <- current_anchor %in% current_tables
+  anchor_exists <- anchor_tbl %in% current_tables
 
   duplicate_keys <- data.frame()
   batch_distribution <- data.frame()
   orphan_checks <- list()
 
   if (isTRUE(anchor_exists)) {
-    anchor_fields <- DBI::dbListFields(con, current_anchor)
+    anchor_fields <- names(DBI::dbGetQuery(
+      con,
+      paste0("SELECT * FROM ", DBI::dbQuoteIdentifier(con, current_anchor), " LIMIT 0")
+    ))
     missing_anchor_keys <- setdiff(keys, anchor_fields)
 
     if (length(missing_anchor_keys) > 0) {
@@ -807,10 +814,14 @@ inspect_silver_current <- function(
       )
     )
 
-    secondary_tables <- setdiff(current_tables, current_anchor)
+    secondary_tables <- setdiff(current_tables, anchor_tbl)
 
     for (tab in secondary_tables) {
-      sec_fields <- DBI::dbListFields(con, tab)
+      tab_id <- DBI::Id(schema = "current", table = tab)
+      sec_fields <- names(DBI::dbGetQuery(
+        con,
+        paste0("SELECT * FROM ", DBI::dbQuoteIdentifier(con, tab_id), " LIMIT 0")
+      ))
       needed <- c(keys, "__batch_id")
 
       if (!all(needed %in% sec_fields)) {
@@ -842,7 +853,7 @@ inspect_silver_current <- function(
            COUNT(*) AS orphan_rows,
            CAST(NULL AS VARCHAR) AS reason
          FROM ",
-        DBI::dbQuoteIdentifier(con, tab),
+        DBI::dbQuoteIdentifier(con, tab_id),
         " s
          LEFT JOIN ",
         DBI::dbQuoteIdentifier(con, current_anchor),
@@ -875,7 +886,7 @@ inspect_silver_current <- function(
       method_id = method_id,
       canonical_method = canonical_method,
       silver_db = silver_db,
-      tables = tables,
+      tables = DBI::dbListTables(con),
       current_tables = current_tables,
       anchor_table = current_anchor,
       anchor_exists = anchor_exists,
@@ -1711,7 +1722,7 @@ print.xpipe_silver_current_inspection <- function(x, ...) {
       )
     )
   } else {
-    table_rows <- "No current__ tables found."
+    table_rows <- "No current tables found."
   }
 
   cli::cat_boxx(

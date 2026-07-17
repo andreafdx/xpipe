@@ -186,7 +186,7 @@ promote_to_silver <- function(
       -- Collect all diagnoses into a comprehensive list column
       LIST(diagnosi_dimissione ORDER BY num_diagnosi) AS tutte_le_diagnosi
 
-    FROM harmonized__diagnosi
+    FROM harmonized.diagnosi
     GROUP BY codice_istituto_di_cura, progressivo_sdo
   "
 
@@ -210,7 +210,7 @@ promote_to_silver <- function(
       -- all procedures: may be empty
       LIST(intervento ORDER BY num_intervento) AS tutte_le_procedure
 
-    FROM harmonized__procedure
+    FROM harmonized.procedure
     GROUP BY codice_istituto_di_cura, progressivo_sdo
   "
 
@@ -220,7 +220,7 @@ promote_to_silver <- function(
       codice_istituto_di_cura,
       progressivo_sdo,
       identificativo_paziente
-    FROM harmonized__anagrafica
+    FROM harmonized.anagrafica
   "
 
   # 4. DRG normalization expression
@@ -235,7 +235,7 @@ promote_to_silver <- function(
   # Rebuild the master ricovero table via streamlined left joins
 
   sql <- paste0(
-    "CREATE OR REPLACE TABLE harmonized__ricovero AS
+    "CREATE OR REPLACE TABLE harmonized.ricovero AS
      SELECT
        r.* REPLACE (",
     drg_normalized_expr,
@@ -246,7 +246,7 @@ promote_to_silver <- function(
        p.procedura_principale,
        p.tutte_le_procedure,
        a.identificativo_paziente
-     FROM harmonized__ricovero r
+     FROM harmonized.ricovero r
      LEFT JOIN (",
     diag_aggregated_sql,
     ") d
@@ -322,14 +322,14 @@ promote_to_silver <- function(
   sql_joins <- ""
 
   # 1. Aggregate and join procedures if present
-  if ("harmonized__procedure" %in% DBI::dbListTables(con)) {
+  if (NROW(DBI::dbGetQuery(con, "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'harmonized' AND table_name = 'procedure'")) > 0) {
     proc_aggregated_sql <- "
       SELECT
         codice_struttura_erogatore,
         progressivo,
         (LIST(prestazione ORDER BY num_procedura) FILTER (WHERE tipo_prestazione = 'principale'))[1] AS procedura_principale,
         LIST(prestazione ORDER BY num_procedura) AS tutte_le_procedure
-      FROM harmonized__procedure
+      FROM harmonized.procedure
       GROUP BY codice_struttura_erogatore, progressivo
     "
     sql_select <- paste0(
@@ -347,7 +347,7 @@ promote_to_silver <- function(
   }
 
   # 2. Join patient demographics from anagrafica if present
-  if ("harmonized__anagrafica" %in% DBI::dbListTables(con)) {
+  if (NROW(DBI::dbGetQuery(con, "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'harmonized' AND table_name = 'anagrafica'")) > 0) {
     id_paziente_sql <- "
       SELECT
         codice_struttura_erogatore,
@@ -358,7 +358,7 @@ promote_to_silver <- function(
         luogo_residenza,
         asl_residenza,
         regione_residenza
-      FROM harmonized__anagrafica
+      FROM harmonized.anagrafica
     "
     sql_select <- paste0(
       sql_select,
@@ -380,7 +380,7 @@ promote_to_silver <- function(
   }
 
   # 3. Join OBI details if present
-  if ("harmonized__obi" %in% DBI::dbListTables(con)) {
+  if (NROW(DBI::dbGetQuery(con, "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'harmonized' AND table_name = 'obi'")) > 0) {
     obi_sql <- "
       SELECT
         codice_struttura_erogatore,
@@ -393,7 +393,7 @@ promote_to_silver <- function(
         data_uscita_obi,
         ora_uscita_obi,
         esito_obi
-      FROM harmonized__obi
+      FROM harmonized.obi
     "
     sql_select <- paste0(
       sql_select,
@@ -426,11 +426,11 @@ promote_to_silver <- function(
   }
 
   sql <- paste0(
-    "CREATE OR REPLACE TABLE harmonized__ps AS ",
+    "CREATE OR REPLACE TABLE harmonized.ps AS ",
     "SELECT ",
     sql_select,
     " ",
-    "FROM harmonized__ps ps",
+    "FROM harmonized.ps ps",
     sql_joins
   )
 
@@ -648,15 +648,13 @@ promote_to_silver <- function(
     latest_bronze$batch_id[[1]]
   }
 
-  current_anchor <- paste0("current__", anchor_tbl)
-
-  silver_latest <- if (current_anchor %in% DBI::dbListTables(con)) {
+  silver_latest <- if (NROW(DBI::dbGetQuery(con, "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'current' AND table_name = ?", params = list(anchor_tbl))) > 0) {
     out <- DBI::dbGetQuery(
       con,
       paste0(
         "SELECT __batch_id AS batch_id
          FROM ",
-        DBI::dbQuoteIdentifier(con, current_anchor),
+        DBI::dbQuoteIdentifier(con, DBI::Id(schema = "current", table = anchor_tbl)),
         "
          ORDER BY __batch_created_at DESC, __batch_id DESC
          LIMIT 1"
@@ -698,8 +696,12 @@ promote_to_silver <- function(
   target_table,
   column_map
 ) {
+  actual_cols <- names(DBI::dbGetQuery(
+    con,
+    paste0("SELECT * FROM ", DBI::dbQuoteIdentifier(con, source_table), " LIMIT 0")
+  ))
+
   if (length(column_map) > 0) {
-    actual_cols <- DBI::dbListFields(con, source_table)
     keep_mask <- vapply(
       column_map,
       function(old_name) old_name %in% actual_cols,
@@ -770,13 +772,19 @@ promote_to_silver <- function(
     src <- tables[[tbl_name]]$source
     colmap <- unlist(tables[[tbl_name]]$columns) %||% character(0)
 
-    source_table <- paste0("current__", src)
-    target_table <- paste0("harmonized__", tbl_name)
+    source_table <- DBI::Id(schema = "current", table = src)
+    target_table <- DBI::Id(schema = "harmonized", table = tbl_name)
 
-    if (!source_table %in% DBI::dbListTables(con)) {
+    src_exists <- NROW(DBI::dbGetQuery(
+      con,
+      "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'current' AND table_name = ?",
+      params = list(src)
+    )) > 0
+
+    if (!src_exists) {
       .log_debug(paste0(
-        "Source table ",
-        source_table,
+        "Source table current.",
+        src,
         " not found in Silver database. Skipping harmonization for this table."
       ))
       next
@@ -959,6 +967,7 @@ promote_to_silver <- function(
     dbdir = as.character(silver_db),
     read_only = FALSE
   )
+  DBI::dbExecute(con_s, "CREATE SCHEMA IF NOT EXISTS current;")
 
   on.exit(
     {
@@ -1002,7 +1011,7 @@ promote_to_silver <- function(
     )
   }
 
-  current_anchor <- paste0("current__", anchor_tbl)
+  current_anchor <- DBI::Id(schema = "current", table = anchor_tbl)
 
   key_cols <- DBI::dbQuoteIdentifier(con_s, keys)
   keys_sql <- paste(key_cols, collapse = ", ")
@@ -1119,7 +1128,7 @@ promote_to_silver <- function(
           DBI::dbQuoteIdentifier(con_s, bt)
         )
 
-        current_sec <- paste0("current__", short)
+        current_sec <- DBI::Id(schema = "current", table = short)
 
         join_keys <- paste(
           paste0(
@@ -1162,7 +1171,7 @@ promote_to_silver <- function(
         method_id = method_id,
         as_of = as_of,
         source_tables = paste0("bronze__", method_tables),
-        output_tables = paste0("current__", short_names)
+        output_tables = paste0("current.", short_names)
       )
 
       DBI::dbCommit(con_s)
@@ -1251,6 +1260,7 @@ promote_to_silver <- function(
     read_only = FALSE
   )
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  DBI::dbExecute(con, "CREATE SCHEMA IF NOT EXISTS harmonized;")
 
   .assert_current_as_of_compatible(con, stream_id, s$canonical_method, as_of)
 
@@ -1277,8 +1287,8 @@ promote_to_silver <- function(
         stream_id = stream_id,
         method_id = s$canonical_method,
         as_of = as_of,
-        source_tables = paste0("current__", names(s$harmonized$tables)),
-        output_tables = paste0("harmonized__", names(s$harmonized$tables))
+        source_tables = paste0("current.", names(s$harmonized$tables)),
+        output_tables = paste0("harmonized.", names(s$harmonized$tables))
       )
 
       DBI::dbCommit(con)

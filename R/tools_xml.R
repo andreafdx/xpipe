@@ -50,12 +50,12 @@
 .xml_profile_emur_tracciato_ab <- function(doc, path, ctx) {
   root_name <- xml2::xml_name(xml2::xml_root(doc))
 
-  if (root_name == "EMUR_ANA") {
+  if (root_name %in% c("EMUR_ANA", "EMUR_ANA_SETT")) {
     .log_debug("Detected EMUR Tracciato A (Anagrafica) schema.")
     return(list(anagrafica = .parse_emur_a(doc)))
   }
 
-  if (root_name == "EMUR_SAN") {
+  if (root_name %in% c("EMUR_SAN", "EMUR_SAN_SETT")) {
     .log_debug("Detected EMUR Tracciato B (Sanitario) schema.")
     return(.parse_emur_b(doc))
   }
