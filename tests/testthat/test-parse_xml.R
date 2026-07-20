@@ -71,3 +71,30 @@ test_that(".parse_emur_b extracts correct tables and fields", {
   expect_true("Struttura_Progressivo" %in% names(res$obi))
   expect_true("ProblemaPrincipaleOBI" %in% names(res$obi))
 })
+
+test_that(".xml_profile_emur_tracciato_ab rejects SETT root nodes and accepts standard root nodes", {
+  doc_std <- xml2::read_xml("<EMUR_ANA><ANA><Assistito><CodFiscale>123</CodFiscale></Assistito></ANA></EMUR_ANA>")
+  res_std <- .xml_profile_emur_tracciato_ab(doc_std, "test.xml", NULL)
+  expect_named(res_std, "anagrafica")
+  expect_equal(nrow(res_std$anagrafica), 1)
+
+  doc_sett <- xml2::read_xml("<EMUR_ANA_SETT><ANA><Assistito><CodFiscale>123</CodFiscale></Assistito></ANA></EMUR_ANA_SETT>")
+  expect_error(
+    .xml_profile_emur_tracciato_ab(doc_sett, "test.xml", NULL),
+    class = "xpipe_batch_extraction"
+  )
+})
+
+test_that(".xml_profile_emur_tracciato_ab_sett accepts SETT root nodes and rejects standard root nodes", {
+  doc_sett <- xml2::read_xml("<EMUR_ANA_SETT><ANA><Assistito><CodFiscale>123</CodFiscale></Assistito></ANA></EMUR_ANA_SETT>")
+  res_sett <- .xml_profile_emur_tracciato_ab_sett(doc_sett, "test.xml", NULL)
+  expect_named(res_sett, "anagrafica")
+  expect_equal(nrow(res_sett$anagrafica), 1)
+
+  doc_std <- xml2::read_xml("<EMUR_ANA><ANA><Assistito><CodFiscale>123</CodFiscale></Assistito></ANA></EMUR_ANA>")
+  expect_error(
+    .xml_profile_emur_tracciato_ab_sett(doc_std, "test.xml", NULL),
+    class = "xpipe_batch_extraction"
+  )
+})
+
