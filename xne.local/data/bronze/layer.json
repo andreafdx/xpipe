@@ -1,0 +1,17 @@
+{
+  "layer": "bronze",
+  "role": "append_only_historical_ledger",
+  "storage": {
+    "format": "duckdb",
+    "layout": "one_database_per_stream",
+    "path_pattern": "data/bronze/{stream_id}.duckdb",
+    "table_pattern": "{stream_id}__{method_id}__{source_table_name}"
+  },
+  "authoritative_state": {
+    "location": "inside_duckdb",
+    "table": "__promotion_log",
+    "semantics": "success_only_promotion_ledger"
+  },
+  "created_at": "2026-05-14",
+  "description": "DuckDB-native Bronze layer. Stores append-only historical records promoted atomically from immutable Batch artifacts."
+}

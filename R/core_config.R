@@ -47,8 +47,11 @@
 #   │   ├── xpipe_json_not_found       # file does not exist
 #   │   ├── xpipe_json_schema          # file fails schema validation
 #   │   └── xpipe_json_invalid         # file is not valid JSON
-#   └── xpipe_asset_error
-#       └── xpipe_asset_not_found      # internal inst/ asset not locatable
+#   ├── xpipe_asset_error
+#   │   └── xpipe_asset_not_found      # internal inst/ asset not locatable
+#   └── xpipe_installer_error          # project workspace installation failures
+#       ├── xpipe_installer_path       # directory creation or overwrite conflict
+#       └── xpipe_installer_pepper     # pepper missing when batch hash required
 #
 # Usage in tryCatch / try_fetch:
 #   rlang::try_fetch(expr, xpipe_error = function(e) ...)   # catch anything
@@ -242,15 +245,24 @@ get_xpipe_config <- function() {
 #' @return Normalized XNE configuration.
 #' @noRd
 .load_xne_config <- function(path = NULL, project_root = NULL) {
+  is_local_fallback <- FALSE
+
   if (is.null(path)) {
     root <- project_root %||% fs::path_abs(".")
     primary_path <- fs::path(root, "xne.json")
 
-    path <- if (fs::file_exists(primary_path)) {
-      primary_path
+    if (fs::file_exists(primary_path)) {
+      path <- primary_path
     } else {
-      .find_asset("xne.local.json")
+      path <- .find_asset("xne.local.json")
+      is_local_fallback <- TRUE
     }
+  } else if (identical(fs::path_file(path), "xne.local.json")) {
+    is_local_fallback <- TRUE
+  }
+
+  if (is_local_fallback && is.null(project_root)) {
+    project_root <- fs::path_abs("xne.local")
   }
 
   .validate_json_schema(
@@ -516,7 +528,10 @@ get_xpipe_config <- function() {
     expr,
     xpipe_error = function(e) {
       cli::cli_abort(
-        "Failed to {label}",
+        c(
+          "Failed to {label}",
+          "i" = "To initialize a new XNE project workspace, run {.code init_xne_project(path = \"<path>\")}"
+        ),
         parent = e,
         call = NULL,
         class = c("xpipe_config_error", "xpipe_error")

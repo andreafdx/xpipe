@@ -1,0 +1,13 @@
+{
+  "layer": "batch",
+  "role": "immutable_event_log",
+  "storage": {
+    "format": "parquet",
+    "layout": "one_database_per_import",
+    "path_pattern": "data/batch/{batch_id}_{stream_id}_{method_id}/",
+    "table_pattern": "{source_table_name}.parquet"
+  },
+  "expected_hash": "",
+  "created_at": "2026-07-20",
+  "description": "Flat, append-only batch layer. Each subdirectory is an immutable batch event."
+}

@@ -20,6 +20,10 @@
       "minLength": 1
     },
 
+    "storage": {
+      "type": "object"
+    },
+
     "created_at": {
       "type": "string",
       "format": "date"

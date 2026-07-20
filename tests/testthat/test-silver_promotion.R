@@ -5,8 +5,8 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 test_that("EMUR silver promotion and harmonization works end-to-end", {
-  proj_root <- fs::path_abs(testthat::test_path("../.."))
-  inbox_src <- fs::path_abs(testthat::test_path("../../inbox/emur"))
+  proj_root <- fs::path_abs(testthat::test_path("../../xne.local"))
+  inbox_src <- fs::path_abs(testthat::test_path("../../xne.local/inbox/emur"))
 
   # This is a full integration test that requires the real project directory
   # structure (inbox/emur/, data/shared/). Skip gracefully when running under

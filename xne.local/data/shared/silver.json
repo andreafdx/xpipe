@@ -1,0 +1,234 @@
+{
+  "_meta": {
+    "type": "silver_contract",
+    "version": "0.2.0"
+  },
+  "streams": {
+    "sdo": {
+      "canonical_method": "xml_campania_2026",
+      "current": {
+        "enabled": true
+      },
+      "harmonized": {
+        "enabled": true,
+        "profile": "sdo_harmonized_v1",
+        "tables": {
+          "accessi_dh": {
+            "source": "accessi_dh",
+            "columns": {
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "num_accesso": "numAccesso",
+              "data_accesso": "dataAccesso"
+            }
+          },
+
+          "anagrafica": {
+            "source": "anagrafica",
+            "columns": {
+              "trasmissione_tipo": "trasmissione_tipo",
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "sesso": "sesso",
+              "data_nascita": "dataNascita",
+              "livello_istruzione": "livelloIstruzione",
+              "stato_civile": "statoCivile",
+              "comune_residenza": "comuneResidenza",
+              "cittadinanza": "cittadinanza",
+              "identificativo_paziente": "identificativoPaziente",
+              "tip_id_paziente_in_ver_val": "tipIdPazienteInVerVal",
+              "regione_residenza": "regioneResidenza",
+              "asl_residenza": "aslResidenza",
+              "cognome": "cognome",
+              "nome": "nome",
+              "comune_nascita": "comuneNascita",
+              "quartiere": "quartiere",
+              "numero_sdo_puerpera": "numeroSDOpuerpera",
+              "num_id_istituzione_team": "numIdIstituzioneTEAM"
+            }
+          },
+
+          "diagnosi": {
+            "source": "diagnosi",
+            "columns": {
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "tipo_diagnosi": "tipoDiagnosi",
+              "num_diagnosi": "numDiagnosi",
+              "diagnosi_dimissione": "diagnosiDimissione",
+              "presente_al_ricovero": "presenteAlRicovero",
+              "lateralita": "Lateralita",
+              "stadiazione_condensata": "stadiazioneCondensata"
+            }
+          },
+
+          "procedure": {
+            "source": "procedure",
+            "columns": {
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "tipo_intervento": "tipoIntervento",
+              "num_intervento": "numIntervento",
+              "intervento": "intervento",
+              "intervento_esterno": "interventoEsterno",
+              "data_intervento": "dataIntervento",
+              "ora_intervento": "oraIntervento",
+              "chirurgo_intervento": "chirurgoIntervento",
+              "anestesista_intervento": "anestesistaIntervento",
+              "ck_list_sala_operatoria_intervento": "ckListSalaOperatoriaIntervento",
+              "lateralita": "Lateralita",
+              "flag_robot": "flagRobot",
+              "udi": "UDI"
+            }
+          },
+
+          "ricovero": {
+            "source": "ricovero",
+            "columns": {
+              "trasmissione_tipo": "trasmissione_tipo",
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "regime_ricovero": "regimeRicovero",
+              "data_prenotazione": "dataPrenotazione",
+              "classe_priorita": "classePriorita",
+              "data_ricovero": "dataRicovero",
+              "ora_ricovero": "oraRicovero",
+              "unita_operativa_ammissione": "unitaOperativaAmmissione",
+              "onere_degenza": "onereDegenza",
+              "provenienza_paziente": "provenienzaPaziente",
+              "tipo_ricovero": "tipoRicovero",
+              "rilevazione_dolore": "rilevazioneDolore",
+              "drg": "DRG",
+              "tariffa": "tariffa",
+              "dim_unita_operativa_dimissione": "dim_unitaOperativaDimissione",
+              "dim_data_dimissione_morte": "dim_dataDimissioneMorte",
+              "dim_ora_dimissione_morte": "dim_oraDimissioneMorte",
+              "dim_modalita_dimissione": "dim_modalitaDimissione",
+              "dim_flag_i_ciclo_cura": "dim_FlagICicloCura",
+              "traumatismi_intossicazioni": "traumatismiIntossicazioni",
+              "codice_causa_esterna": "codiceCausaEsterna",
+              "pressione_arteriosa_sistolica": "pressioneArteriosaSistolica",
+              "riscontro_autoptico": "riscontroAutoptico",
+              "espianto": "espianto",
+              "motivo_ricovero_regime_diurno": "motivoRicoveroRegimeDiurno",
+              "num_giornate_ricovero_diurno": "numGiornateRicoveroDiurno",
+              "peso_nascita": "pesoNascita",
+              "eta_gestazionale": "etaGestazionale",
+              "creatinina_serica": "creatininaSerica"
+            }
+          },
+
+          "trasferimenti": {
+            "source": "trasferimenti",
+            "columns": {
+              "codice_istituto_di_cura": "codiceIstitutoDiCura",
+              "progressivo_sdo": "progressivoSDO",
+              "num_trasferimento": "numTrasferimento",
+              "data_trasferimento": "dataTrasferimento",
+              "ora_trasferimento": "oraTrasferimento",
+              "unita_trasferimento": "unitaTrasferimento"
+            }
+          }
+        }
+      }
+    },
+    "emur": {
+      "canonical_method": "xml_emur_campania_2026",
+      "current": {
+        "enabled": true
+      },
+      "harmonized": {
+        "enabled": true,
+        "profile": "emur_harmonized_v1",
+        "tables": {
+          "anagrafica": {
+            "source": "anagrafica",
+            "columns": {
+              "anno": "Struttura_Anno",
+              "codice_struttura_erogatore": "Struttura_CodStrutturaErog",
+              "progressivo": "Struttura_Progressivo",
+              "codice_regione": "Ente_CodRegione",
+              "codice_usl": "Ente_CodUslErog",
+              "cognome": "Assistito_CognomeAssistito",
+              "nome": "Assistito_NomeAssistito",
+              "codice_fiscale": "Assistito_CodFiscaleAssistito",
+              "sesso": "Assistito_Sesso",
+              "data_nascita": "Assistito_DataNascita",
+              "luogo_residenza": "Assistito_LuogoResidenza",
+              "asl_residenza": "Assistito_ASLResidenza",
+              "regione_residenza": "Assistito_RegioneResidenza",
+              "stato_estero": "Assistito_StatoEstero"
+            }
+          },
+          "ps": {
+            "source": "ps",
+            "columns": {
+              "codice_regione": "Ente_CodRegione",
+              "codice_usl": "Ente_CodUslErog",
+              "anno": "Struttura_Anno",
+              "codice_struttura_erogatore": "Struttura_CodStrutturaErog",
+              "progressivo": "Struttura_Progressivo",
+              "tipo_trasmissione": "Struttura_TipoTrasmissione",
+              "data_entrata": "Accesso_DataEntrata",
+              "ora_entrata": "Accesso_OraEntrata",
+              "modalita_arrivo": "Accesso_ModArrivo",
+              "responsabile_invio": "InfPreAccesso_RespInvio",
+              "problema_principale": "InfPreAccesso_ProblemaPrincipale",
+              "triage_accesso": "InformazioniPS_TriageAccesso",
+              "violenza_triage": "InformazioniPS_ViolenzaTriage",
+              "data_presa_in_carico": "PresaInCarico_DataPresaInCarico",
+              "ora_presa_in_carico": "PresaInCarico_OraPresaInCarico",
+              "esito_trattamento": "Dimissione_EsitoTrattamento",
+              "data_dest": "Dimissione_DataDest",
+              "ora_dest": "Dimissione_OraDest",
+              "data_uscita": "Dimissione_DataUscita",
+              "ora_uscita": "Dimissione_OraUscita",
+              "livello_appropriatezza_accesso": "Dimissione_LivelloAppropriatezzaAccesso",
+              "regime_erogazione": "Importo_RegimeErogazione",
+              "importo_lordo": "Importo_ImpLordo",
+              "pos_assistito_ticket": "Importo_PosAssistitoTicket",
+              "importo_ticket": "Importo_ImpTicket",
+              "diagnosi_principale": "DatiSanitari_DiagnosiPrincipale",
+              "prestazione_principale": "DatiSanitari_PrestazionePrincipale",
+              "eta_presunta": "DatiSanitari_EtaPresunta",
+              "rilevazione_violenza": "Violenza_RilevazioneViolenza",
+              "trauma": "InformazioniPS_Trauma",
+              "codice_specialita_reparto": "Ricovero_CodiceSpecialitaReparto",
+              "prog_ricovero": "Ricovero_progRicovero",
+              "identificativo_co": "CentraleOperativa_IdentificativoCO",
+              "cod_missione": "CentraleOperativa_CodMissione",
+              "motivo_trasferimento": "Trasferimento_MotivoTrasferimento",
+              "istituto_trasferimento": "Trasferimento_IstitutoTrasferimento",
+              "istituto_provenienza": "InfPreAccesso_IstitutoProvenienza"
+            }
+          },
+          "procedure": {
+            "source": "procedure",
+            "columns": {
+              "codice_struttura_erogatore": "Struttura_CodStrutturaErog",
+              "progressivo": "Struttura_Progressivo",
+              "prestazione": "Prestazione",
+              "tipo_prestazione": "TipoPrestazione",
+              "num_procedura": "numProcedura"
+            }
+          },
+          "obi": {
+            "source": "obi",
+            "columns": {
+              "codice_struttura_erogatore": "Struttura_CodStrutturaErog",
+              "progressivo": "Struttura_Progressivo",
+              "problema_principale_obi": "ProblemaPrincipaleOBI",
+              "diagnosi_principale_uscita_obi": "DiagnosiPrincipaleUscitaOBI",
+              "prestazione_principale_obi": "PrestazionePrincipaleOBI",
+              "data_ingresso_obi": "DataIngressoOBI",
+              "ora_ingresso_obi": "OraIngressoOBI",
+              "data_uscita_obi": "DataUscitaOBI",
+              "ora_uscita_obi": "OraUscitaOBI",
+              "esito_obi": "EsitoOBI"
+            }
+          }
+        }
+      }
+    }
+  }
+}

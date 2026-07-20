@@ -1,0 +1,185 @@
+{
+  "quani_mdb": {
+    "schema_domain": "sdo",
+    "type": "access_mdb",
+    "input_type": "file",
+    "source_tables": [
+      "TblScheda",
+      "TblSchedaDiagnosi",
+      "TblSchedaProcedure",
+      "TblSchedaTrasferimenti"
+    ],
+    "anchor_table": "TblScheda",
+    "identity_keys": [
+      "i_IDScheda"
+    ],
+    "partition_column": "d_DataDimissione",
+    "privacy": {
+      "hash": {
+        "TblScheda": {
+          "c_CodicePaziente": "scalar",
+          "c_CodiceMadre": "scalar"
+        }
+      },
+      "skip": {
+        "TblScheda": {
+          "v_Nome": "scalar",
+          "v_Cognome": "scalar"
+        }
+      }
+    }
+  },
+  "xml_campania_2026": {
+    "schema_domain": "sdo",
+    "type": "xml",
+    "input_type": "directory",
+    "xml_profile": "sdo_tracciato_abcd",
+    "input_files": {
+      "file_a": "*_A.xml",
+      "file_b": "*_B.xml"
+    },
+    "output_tables": {
+      "required": [
+        "ricovero"
+      ],
+      "optional": [
+        "anagrafica",
+        "diagnosi",
+        "procedure",
+        "trasferimenti",
+        "accessi_dh"
+      ]
+    },
+    "anchor_table": "ricovero",
+    "identity_keys": [
+      "codiceIstitutoDiCura",
+      "progressivoSDO"
+    ],
+    "partition_column": "dim_dataDimissioneMorte",
+    "privacy": {
+      "hash": {
+        "anagrafica": {
+          "identificativoPaziente": "scalar"
+        },
+        "procedure": {
+          "chirurgoIntervento": "list",
+          "anestesistaIntervento": "list"
+        }
+      },
+      "skip": {
+        "anagrafica": {
+          "nome": "scalar",
+          "cognome": "scalar"
+        }
+      }
+    },
+    "column_types": {
+      "ricovero": {
+        "codiceIstitutoDiCura": "character",
+        "progressivoSDO": "character",
+        "unitaOperativaAmmissione": "character",
+        "dim_unitaOperativaDimissione": "character",
+        "DRG": "character"
+      },
+      "diagnosi": {
+        "codiceIstitutoDiCura": "character",
+        "progressivoSDO": "character",
+        "diagnosiDimissione": "character"
+      },
+      "procedure": {
+        "codiceIstitutoDiCura": "character",
+        "progressivoSDO": "character",
+        "intervento": "character"
+      }
+    }
+  },
+  "ps_csv": {
+    "schema_domain": "emur",
+    "type": "csv",
+    "input_type": "file",
+    "anchor_table": "data",
+    "identity_keys": [
+      "id_accesso"
+    ],
+    "partition_column": "data_ingresso",
+    "privacy": {
+      "hash": {
+        "data": {
+          "cf": "scalar"
+        }
+      },
+      "skip": {
+        "data": {
+          "nome": "scalar",
+          "cognome": "scalar"
+        }
+      }
+    }
+  },
+  "xml_emur_campania_2026": {
+    "schema_domain": "emur",
+    "type": "xml",
+    "input_type": "directory",
+    "xml_profile": "emur_tracciato_ab",
+    "input_files": {
+      "file_a": "*_ana.xml",
+      "file_b": "*_san.xml"
+    },
+    "output_tables": {
+      "required": [
+        "ps"
+      ],
+      "optional": [
+        "anagrafica",
+        "procedure",
+        "obi"
+      ]
+    },
+    "anchor_table": "ps",
+    "identity_keys": [
+      "Struttura_CodStrutturaErog",
+      "Struttura_Progressivo"
+    ],
+    "partition_column": "Dimissione_DataUscita",
+    "privacy": {
+      "hash": {
+        "anagrafica": {
+          "Assistito_CodFiscaleAssistito": "scalar"
+        }
+      },
+      "skip": {
+        "anagrafica": {
+          "Assistito_CognomeAssistito": "scalar",
+          "Assistito_NomeAssistito": "scalar"
+        }
+      }
+    },
+    "column_types": {
+      "anagrafica": {
+        "Struttura_CodStrutturaErog": "character",
+        "Struttura_Progressivo": "character",
+        "Assistito_LuogoResidenza": "character",
+        "Assistito_ASLResidenza": "character",
+        "Assistito_RegioneResidenza": "character"
+      },
+      "ps": {
+        "Struttura_CodStrutturaErog": "character",
+        "Struttura_Progressivo": "character",
+        "DatiSanitari_DiagnosiPrincipale": "character",
+        "DatiSanitari_PrestazionePrincipale": "character"
+      },
+      "procedure": {
+        "Struttura_CodStrutturaErog": "character",
+        "Struttura_Progressivo": "character",
+        "Prestazione": "character"
+      },
+      "obi": {
+        "Struttura_CodStrutturaErog": "character",
+        "Struttura_Progressivo": "character",
+        "ProblemaPrincipaleOBI": "character",
+        "DiagnosiPrincipaleUscitaOBI": "character",
+        "PrestazionePrincipaleOBI": "character"
+      }
+    }
+  }
+}

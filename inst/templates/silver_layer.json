@@ -1,0 +1,19 @@
+{
+  "layer": "silver",
+  "role": "derived_current_and_harmonized_table_families",
+  "storage": {
+    "format": "duckdb",
+    "layout": "one_database_per_stream",
+    "path_pattern": "data/silver/{stream_id}.duckdb",
+    "table_pattern": {
+      "current": "current.{source_table_name}",
+      "harmonized": "harmonized.{source_table_name}"
+    }
+  },
+  "authoritative_state": {
+    "location": "inside_duckdb_or_contract",
+    "notes": "Silver-current is rebuilt from Bronze using the canonical method declared in the Silver contract."
+  },
+  "created_at": "2026-07-20",
+  "description": "DuckDB-native Silver layer. Stores derived current table families per stream in current schema. Harmonized tables are derived from current tables and stored in the same db, in harmonized schema."
+}
