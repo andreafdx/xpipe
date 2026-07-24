@@ -157,7 +157,12 @@
               "luogo_residenza": "Assistito_LuogoResidenza",
               "asl_residenza": "Assistito_ASLResidenza",
               "regione_residenza": "Assistito_RegioneResidenza",
-              "stato_estero": "Assistito_StatoEstero"
+              "stato_estero": "Assistito_StatoEstero",
+              "ente_cod_asl_ao_erogatore": "Ente_CodAslAoErogatore",
+              "tipo_struttura": "Struttura_TipoStruttura",
+              "tipo_trasmissione": "Struttura_TipoTrasmissione",
+              "cittadinanza": "Assistito_Cittadinanza",
+              "num_identificativo_tessera": "Assistito_NumIdentificativoTessera"
             }
           },
           "ps": {
@@ -191,15 +196,27 @@
               "diagnosi_principale": "DatiSanitari_DiagnosiPrincipale",
               "prestazione_principale": "DatiSanitari_PrestazionePrincipale",
               "eta_presunta": "DatiSanitari_EtaPresunta",
-              "rilevazione_violenza": "Violenza_RilevazioneViolenza",
+              "v_rilevazione_violenza": "Violenza_RilevazioneViolenza",
               "trauma": "InformazioniPS_Trauma",
-              "codice_specialita_reparto": "Ricovero_CodiceSpecialitaReparto",
-              "prog_ricovero": "Ricovero_progRicovero",
-              "identificativo_co": "CentraleOperativa_IdentificativoCO",
-              "cod_missione": "CentraleOperativa_CodMissione",
-              "motivo_trasferimento": "Trasferimento_MotivoTrasferimento",
-              "istituto_trasferimento": "Trasferimento_IstitutoTrasferimento",
-              "istituto_provenienza": "InfPreAccesso_IstitutoProvenienza"
+              "ric_codice_specialita_reparto": "Ricovero_CodiceSpecialitaReparto",
+              "ric_prog_ricovero": "Ricovero_progRicovero",
+              "co_identificativo_co": "CentraleOperativa_IdentificativoCO",
+              "co_cod_missione": "CentraleOperativa_CodMissione",
+              "trasf_motivo_trasferimento": "Trasferimento_MotivoTrasferimento",
+              "trasf_istituto_trasferimento": "Trasferimento_IstitutoTrasferimento",
+              "istituto_provenienza": "InfPreAccesso_IstitutoProvenienza",
+              "ente_cod_asl_ao_erogatore": "Ente_CodAslAoErogatore",
+              "v_rel_vittima_autore": "Violenza_RelVittimaAutore",
+              "v_tipologia_violenza_fisica": "Violenza_TipologiaViolenzaFisica",
+              "v_tipologia_violenza_sessuale": "Violenza_TipologiaViolenzaSessuale",
+              "v_tipologia_violenza_psicologica": "Violenza_TipologiaViolenzaPsicologica",
+              "v_tipologia_violenza_economica": "Violenza_TipologiaViolenzaEconomica",
+              "v_violenza_assistita": "Violenza_ViolenzaAssistita",
+              "v_vittima_atti_persecutori": "Violenza_VittimaAttiPersecutori",
+              "v_brafed_used": "Violenza_Brafed_used",
+              "v_brafed_esito": "Violenza_Brafed_esito",
+              "v_percorso_violenza": "Violenza_Percorso_Violenza",
+              "codice_esenzione_ticket": "Importo_CodiceEsenzioneTicket"
             }
           },
           "procedure": {
@@ -224,7 +241,9 @@
               "ora_ingresso_obi": "OraIngressoOBI",
               "data_uscita_obi": "DataUscitaOBI",
               "ora_uscita_obi": "OraUscitaOBI",
-              "esito_obi": "EsitoOBI"
+              "esito_obi": "EsitoOBI",
+              "diagnosi_secondaria_uscita_obi": "DiagnosiSecondariaUscitaOBI",
+              "prestazione_secondaria_obi": "PrestazioneSecondariaOBI"
             }
           }
         }
