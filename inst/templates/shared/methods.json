@@ -93,29 +93,6 @@
       }
     }
   },
-  "ps_csv": {
-    "schema_domain": "emur",
-    "type": "csv",
-    "input_type": "file",
-    "anchor_table": "data",
-    "identity_keys": [
-      "id_accesso"
-    ],
-    "partition_column": "data_ingresso",
-    "privacy": {
-      "hash": {
-        "data": {
-          "cf": "scalar"
-        }
-      },
-      "skip": {
-        "data": {
-          "nome": "scalar",
-          "cognome": "scalar"
-        }
-      }
-    }
-  },
   "xml_emur_campania_2026": {
     "schema_domain": "emur",
     "type": "xml",
