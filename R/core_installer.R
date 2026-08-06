@@ -52,7 +52,11 @@ init_xne_project <- function(path, overwrite = FALSE, pepper = NULL) {
         "x" = "Environment variable {.envvar XNE_PEPPER_KEY} not set and no pepper supplied.",
         "i" = "Provide a valid pepper string or set {.envvar XNE_PEPPER_KEY}."
       ),
-      class = c("xpipe_installer_pepper", "xpipe_installer_error", "xpipe_error")
+      class = c(
+        "xpipe_installer_pepper",
+        "xpipe_installer_error",
+        "xpipe_error"
+      )
     )
   }
 
@@ -65,7 +69,11 @@ init_xne_project <- function(path, overwrite = FALSE, pepper = NULL) {
           "x" = "Project file {.file {xne_json_path}} already exists.",
           "i" = "Set {.code overwrite = TRUE} to overwrite existing project files."
         ),
-        class = c("xpipe_installer_path", "xpipe_installer_error", "xpipe_error")
+        class = c(
+          "xpipe_installer_path",
+          "xpipe_installer_error",
+          "xpipe_error"
+        )
       )
     }
 
@@ -77,6 +85,7 @@ init_xne_project <- function(path, overwrite = FALSE, pepper = NULL) {
     fs::path(target_root, "inbox"),
     fs::path(target_root, "logs"),
     fs::path(target_root, "data", "shared"),
+    fs::path(target_root, "data", "shared", "org"),
     fs::path(target_root, "data", "batch"),
     fs::path(target_root, "data", "bronze"),
     fs::path(target_root, "data", "silver")
@@ -115,30 +124,41 @@ init_xne_project <- function(path, overwrite = FALSE, pepper = NULL) {
   # Bronze Layer
   bronze_json_path <- fs::path(target_root, "data", "bronze", "layer.json")
   bronze_template_path <- .find_asset("templates", "bronze_layer.json")
-  bronze_meta <- jsonlite::fromJSON(bronze_template_path, simplifyVector = FALSE)
+  bronze_meta <- jsonlite::fromJSON(
+    bronze_template_path,
+    simplifyVector = FALSE
+  )
   bronze_meta$created_at <- today
   .write_json_pretty(bronze_meta, bronze_json_path)
 
   # Silver Layer
   silver_json_path <- fs::path(target_root, "data", "silver", "layer.json")
   silver_template_path <- .find_asset("templates", "silver_layer.json")
-  silver_meta <- jsonlite::fromJSON(silver_template_path, simplifyVector = FALSE)
+  silver_meta <- jsonlite::fromJSON(
+    silver_template_path,
+    simplifyVector = FALSE
+  )
   silver_meta$created_at <- today
   .write_json_pretty(silver_meta, silver_json_path)
 
-  cli::cli_alert_success("XNE project structure initialized at {.file {target_root}}.")
+  cli::cli_alert_success(
+    "XNE project structure initialized at {.file {target_root}}."
+  )
 
   # 5. Config Load Validation
   # Temporarily ensure XNE_PEPPER_KEY is present in env if passed explicitly
   old_env_pepper <- Sys.getenv("XNE_PEPPER_KEY", unset = NA)
   Sys.setenv(XNE_PEPPER_KEY = pepper_key)
-  on.exit({
-    if (is.na(old_env_pepper)) {
-      Sys.unsetenv("XNE_PEPPER_KEY")
-    } else {
-      Sys.setenv(XNE_PEPPER_KEY = old_env_pepper)
-    }
-  }, add = TRUE)
+  on.exit(
+    {
+      if (is.na(old_env_pepper)) {
+        Sys.unsetenv("XNE_PEPPER_KEY")
+      } else {
+        Sys.setenv(XNE_PEPPER_KEY = old_env_pepper)
+      }
+    },
+    add = TRUE
+  )
 
   config <- load_xpipe_config(path = xne_json_path, project_root = target_root)
   invisible(config)
@@ -156,8 +176,13 @@ init_xne_project <- function(path, overwrite = FALSE, pepper = NULL) {
 #' @noRd
 .confirm_overwrite <- function(target_root) {
   if (interactive()) {
-    cli::cli_div(theme = list(rule = list(color = "red", "line-type" = "double")))
-    cli::cli_rule(cli::format_inline("{.strong OVERWRITE WARNING}"), right = "xpipe")
+    cli::cli_div(
+      theme = list(rule = list(color = "red", "line-type" = "double"))
+    )
+    cli::cli_rule(
+      cli::format_inline("{.strong OVERWRITE WARNING}"),
+      right = "xpipe"
+    )
 
     cli::cli_alert_danger(
       "You have selected to overwrite an existing XNE project workspace at {.file {target_root}}."
@@ -173,7 +198,9 @@ init_xne_project <- function(path, overwrite = FALSE, pepper = NULL) {
     cli::cli_rule()
     cli::cli_end()
 
-    response <- readline(prompt = "Type exact word 'yes' to confirm and proceed: ")
+    response <- readline(
+      prompt = "Type exact word 'yes' to confirm and proceed: "
+    )
     clean_response <- trimws(tolower(response))
 
     if (!identical(clean_response, "yes")) {
@@ -183,7 +210,11 @@ init_xne_project <- function(path, overwrite = FALSE, pepper = NULL) {
           "x" = "Confirmation answer was {.val {response}} instead of {.val yes}.",
           "i" = "No files were modified."
         ),
-        class = c("xpipe_installer_cancelled", "xpipe_installer_error", "xpipe_error")
+        class = c(
+          "xpipe_installer_cancelled",
+          "xpipe_installer_error",
+          "xpipe_error"
+        )
       )
     }
   }
