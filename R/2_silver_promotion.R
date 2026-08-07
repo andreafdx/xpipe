@@ -240,6 +240,12 @@ promote_to_silver <- function(
        r.* REPLACE (",
     drg_normalized_expr,
     " AS drg),
+       ",
+    .silver_sql_timestamp("r.data_ricovero", "r.ora_ricovero"),
+    " AS t_amm,
+       ",
+    .silver_sql_timestamp("r.data_dimissione_morte", "r.ora_dimissione_morte"),
+    " AS t_dim,
        d.diagnosi_principale,
        d.diagnosi_secondarie,
        d.tutte_le_diagnosi,
@@ -266,6 +272,16 @@ promote_to_silver <- function(
 
   DBI::dbExecute(con, sql)
 
+  .load_org_registry_to_duckdb(con)
+
+  .enrich_harmonized_unit_codes(
+    con = con,
+    table_name = "ricovero",
+    code_col = "unita_operativa_dimissione",
+    date_col = "data_dimissione_morte",
+    prefix = "unita_operativa_dimissione"
+  )
+
   invisible(TRUE)
 }
 
@@ -288,41 +304,26 @@ promote_to_silver <- function(
   method_id,
   config
 ) {
-  # Helper to build timestamp SQL expression safely
-  sql_timestamp <- function(date_col, time_col) {
-    paste0(
-      "CASE WHEN ",
-      date_col,
-      " IS NULL OR trim(",
-      date_col,
-      ") = '' ",
-      "OR ",
-      time_col,
-      " IS NULL OR trim(",
-      time_col,
-      ") = '' THEN NULL ",
-      "ELSE TRY_CAST(",
-      date_col,
-      " || ' ' || ",
-      time_col,
-      " AS TIMESTAMP) END"
-    )
-  }
-
   sql_select <- paste0(
     "ps.*, ",
-    sql_timestamp("ps.data_entrata", "ps.ora_entrata"),
+    .silver_sql_timestamp("ps.data_entrata", "ps.ora_entrata"),
     " AS t0, ",
-    sql_timestamp("ps.data_presa_in_carico", "ps.ora_presa_in_carico"),
+    .silver_sql_timestamp("ps.data_presa_in_carico", "ps.ora_presa_in_carico"),
     " AS t1, ",
     "NULL::TIMESTAMP AS t2, ",
-    sql_timestamp("ps.data_uscita", "ps.ora_uscita"),
+    .silver_sql_timestamp("ps.data_uscita", "ps.ora_uscita"),
     " AS t3"
   )
   sql_joins <- ""
 
   # 1. Aggregate and join procedures if present
-  if (NROW(DBI::dbGetQuery(con, "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'harmonized' AND table_name = 'procedure'")) > 0) {
+  if (
+    NROW(DBI::dbGetQuery(
+      con,
+      "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'harmonized' AND table_name = 'procedure'"
+    )) >
+      0
+  ) {
     proc_aggregated_sql <- "
       SELECT
         codice_struttura_erogatore,
@@ -347,7 +348,13 @@ promote_to_silver <- function(
   }
 
   # 2. Join patient demographics from anagrafica if present
-  if (NROW(DBI::dbGetQuery(con, "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'harmonized' AND table_name = 'anagrafica'")) > 0) {
+  if (
+    NROW(DBI::dbGetQuery(
+      con,
+      "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'harmonized' AND table_name = 'anagrafica'"
+    )) >
+      0
+  ) {
     id_paziente_sql <- "
       SELECT
         codice_struttura_erogatore,
@@ -380,7 +387,13 @@ promote_to_silver <- function(
   }
 
   # 3. Join OBI details if present
-  if (NROW(DBI::dbGetQuery(con, "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'harmonized' AND table_name = 'obi'")) > 0) {
+  if (
+    NROW(DBI::dbGetQuery(
+      con,
+      "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'harmonized' AND table_name = 'obi'"
+    )) >
+      0
+  ) {
     obi_sql <- "
       SELECT
         codice_struttura_erogatore,
@@ -405,9 +418,9 @@ promote_to_silver <- function(
       ", o.data_uscita_obi",
       ", o.ora_uscita_obi",
       ", o.esito_obi, ",
-      sql_timestamp("o.data_ingresso_obi", "o.ora_ingresso_obi"),
+      .silver_sql_timestamp("o.data_ingresso_obi", "o.ora_ingresso_obi"),
       " AS t4, ",
-      sql_timestamp("o.data_uscita_obi", "o.ora_uscita_obi"),
+      .silver_sql_timestamp("o.data_uscita_obi", "o.ora_uscita_obi"),
       " AS t5"
     )
     sql_joins <- paste0(
@@ -439,6 +452,218 @@ promote_to_silver <- function(
   invisible(TRUE)
 }
 
+
+#' Load Organizational Registry into DuckDB Temporary Tables
+#'
+#' Loads validated org registry CSVs through xpipe loaders and registers them
+#' as temporary DuckDB tables for SQL-based Silver enrichment.
+#'
+#' @param con DuckDB connection.
+#' @return Invisibly TRUE.
+#' @keywords internal
+#' @noRd
+.load_org_registry_to_duckdb <- function(con) {
+  sites <- load_sites(validate = TRUE)
+  departments <- load_departments(validate = TRUE)
+  units <- load_units(validate = TRUE)
+  unit_codes <- load_unit_codes(validate = TRUE)
+
+  DBI::dbWriteTable(con, "org_sites", sites, temporary = TRUE, overwrite = TRUE)
+  DBI::dbWriteTable(
+    con,
+    "org_departments",
+    departments,
+    temporary = TRUE,
+    overwrite = TRUE
+  )
+  DBI::dbWriteTable(con, "org_units", units, temporary = TRUE, overwrite = TRUE)
+  DBI::dbWriteTable(
+    con,
+    "org_unit_codes",
+    unit_codes,
+    temporary = TRUE,
+    overwrite = TRUE
+  )
+
+  invisible(TRUE)
+}
+
+#' Enrich Harmonized Table with Internal and External Unit Code Metadata
+#'
+#' Adds minimal organizational unit-code enrichment to a harmonized table by
+#' joining a source unit/reparto code against the validated unit_codes registry,
+#' using validity-window filtering.
+#'
+#' The source code column may contain:
+#' - plain codes: 2601
+#' - spaced codes: 26 01
+#' - dotted codes: 26.01
+#' - decimal-imported codes: 2601.00
+#' - extended structure codes: 150901002601
+#'
+#' Output columns:
+#' - <prefix>_unit_code_internal
+#' - <prefix>_unit_short_name_internal
+#' - <prefix>_unit_code_external
+#' - <prefix>_unit_short_name_external
+#'
+#' Logic:
+#' - if source code resolves to an external code, both internal and external
+#'   columns contain the matched external code
+#' - if source code resolves to an internal code, internal columns contain the
+#'   matched internal code and external columns contain the parent external code
+#'
+#' @param con DuckDB connection.
+#' @param table_name Character scalar. Harmonized table name.
+#' @param code_col Character scalar. Column containing the unit code or extended code.
+#' @param date_col Character scalar. Reference date column for validity-window matching.
+#' @param prefix Character scalar. Prefix for added enrichment columns.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
+#' @noRd
+.enrich_harmonized_unit_codes <- function(
+  con,
+  table_name,
+  code_col,
+  date_col,
+  prefix = "unit"
+) {
+  checkmate::assert_string(table_name)
+  checkmate::assert_string(code_col)
+  checkmate::assert_string(date_col)
+  checkmate::assert_string(prefix)
+
+  table_id <- DBI::dbQuoteIdentifier(
+    con,
+    DBI::Id(schema = "harmonized", table = table_name)
+  )
+
+  code_sql <- DBI::dbQuoteIdentifier(con, code_col)
+  date_sql <- DBI::dbQuoteIdentifier(con, date_col)
+
+  out_cols <- paste0(
+    prefix,
+    c(
+      "_unit_code_internal",
+      "_unit_short_name_internal",
+      "_unit_code_external",
+      "_unit_short_name_external"
+    )
+  )
+
+  out_cols_sql <- DBI::dbQuoteIdentifier(con, out_cols)
+
+  raw_code_expr <- paste0(
+    "trim(CAST(h.",
+    code_sql,
+    " AS VARCHAR))"
+  )
+
+  clean_code_expr <- paste0(
+    "regexp_replace(
+       regexp_replace(",
+    raw_code_expr,
+    ", '\\\\.0+$', ''),
+       '[^0-9]',
+       '',
+       'g'
+     )"
+  )
+
+  normalized_code_expr <- paste0(
+    "CASE
+       WHEN ",
+    raw_code_expr,
+    " IS NULL OR ",
+    raw_code_expr,
+    " = '' THEN NULL
+       WHEN ",
+    clean_code_expr,
+    " = '' THEN NULL
+       WHEN length(",
+    clean_code_expr,
+    ") >= 4 THEN right(",
+    clean_code_expr,
+    ", 4)
+       ELSE lpad(",
+    clean_code_expr,
+    ", 4, '0')
+     END"
+  )
+
+  date_expr <- paste0(
+    "COALESCE(
+       TRY_CAST(h.",
+    date_sql,
+    " AS DATE),
+       CAST(TRY_STRPTIME(CAST(h.",
+    date_sql,
+    " AS VARCHAR), '%d/%m/%Y') AS DATE),
+       CAST(TRY_STRPTIME(CAST(h.",
+    date_sql,
+    " AS VARCHAR), '%Y-%m-%d') AS DATE)
+     )"
+  )
+
+  sql <- paste0(
+    "CREATE OR REPLACE TABLE ",
+    table_id,
+    " AS
+     SELECT
+       h.*,
+
+       uc.unit_code AS ",
+    out_cols_sql[[1]],
+    ",
+
+       uc.short_name AS ",
+    out_cols_sql[[2]],
+    ",
+
+       uce.unit_code AS ",
+    out_cols_sql[[3]],
+    ",
+
+       uce.short_name AS ",
+    out_cols_sql[[4]],
+    "
+
+     FROM ",
+    table_id,
+    " h
+
+     LEFT JOIN org_unit_codes uc
+       ON ",
+    normalized_code_expr,
+    " = uc.unit_code
+      AND ",
+    date_expr,
+    " >= uc.valid_from
+      AND ",
+    date_expr,
+    " <= COALESCE(uc.valid_to, DATE '9999-12-31')
+
+     LEFT JOIN org_unit_codes uce
+       ON CASE
+            WHEN uc.is_external = TRUE THEN uc.unit_code
+            ELSE uc.parent_unit_code
+          END = uce.unit_code
+      AND uce.is_external = TRUE
+      AND ",
+    date_expr,
+    " >= uce.valid_from
+      AND ",
+    date_expr,
+    " <= COALESCE(uce.valid_to, DATE '9999-12-31')"
+  )
+
+  DBI::dbExecute(con, sql)
+
+  invisible(TRUE)
+}
+
+
 #' Silver-harmonized profile registry
 #'
 #' Internal registry mapping harmonization profile identifiers
@@ -449,6 +674,37 @@ promote_to_silver <- function(
 )
 
 # Helpers -----------------------------------------------------------------
+
+#' Build Safe Timestamp SQL Expression
+#'
+#' Builds a DuckDB SQL expression combining a date column and a time column into
+#' a TIMESTAMP. Returns NULL when either component is missing or empty.
+#'
+#' @param date_col SQL column reference for the date component, e.g. "ps.data_entrata".
+#' @param time_col SQL column reference for the time component, e.g. "ps.ora_entrata".
+#'
+#' @return Character scalar SQL expression.
+#' @keywords internal
+#' @noRd
+.silver_sql_timestamp <- function(date_col, time_col) {
+  paste0(
+    "CASE WHEN ",
+    date_col,
+    " IS NULL OR trim(CAST(",
+    date_col,
+    " AS VARCHAR)) = '' ",
+    "OR ",
+    time_col,
+    " IS NULL OR trim(CAST(",
+    time_col,
+    " AS VARCHAR)) = '' THEN NULL ",
+    "ELSE TRY_CAST(CAST(",
+    date_col,
+    " AS VARCHAR) || ' ' || CAST(",
+    time_col,
+    " AS VARCHAR) AS TIMESTAMP) END"
+  )
+}
 
 #' @keywords internal
 #' @noRd
@@ -648,13 +904,23 @@ promote_to_silver <- function(
     latest_bronze$batch_id[[1]]
   }
 
-  silver_latest <- if (NROW(DBI::dbGetQuery(con, "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'current' AND table_name = ?", params = list(anchor_tbl))) > 0) {
+  silver_latest <- if (
+    NROW(DBI::dbGetQuery(
+      con,
+      "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'current' AND table_name = ?",
+      params = list(anchor_tbl)
+    )) >
+      0
+  ) {
     out <- DBI::dbGetQuery(
       con,
       paste0(
         "SELECT __batch_id AS batch_id
          FROM ",
-        DBI::dbQuoteIdentifier(con, DBI::Id(schema = "current", table = anchor_tbl)),
+        DBI::dbQuoteIdentifier(
+          con,
+          DBI::Id(schema = "current", table = anchor_tbl)
+        ),
         "
          ORDER BY __batch_created_at DESC, __batch_id DESC
          LIMIT 1"
@@ -698,7 +964,11 @@ promote_to_silver <- function(
 ) {
   actual_cols <- names(DBI::dbGetQuery(
     con,
-    paste0("SELECT * FROM ", DBI::dbQuoteIdentifier(con, source_table), " LIMIT 0")
+    paste0(
+      "SELECT * FROM ",
+      DBI::dbQuoteIdentifier(con, source_table),
+      " LIMIT 0"
+    )
   ))
 
   if (length(column_map) > 0) {
@@ -779,7 +1049,8 @@ promote_to_silver <- function(
       con,
       "SELECT 1 FROM duckdb_tables() WHERE schema_name = 'current' AND table_name = ?",
       params = list(src)
-    )) > 0
+    )) >
+      0
 
     if (!src_exists) {
       .log_debug(paste0(

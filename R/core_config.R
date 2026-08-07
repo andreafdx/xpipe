@@ -164,7 +164,7 @@ load_xpipe_config <- function(path = NULL, project_root = NULL) {
     }
   }
 
-  cli::cli_alert_success("Configuration system loaded and validated.")
+  cli::cli_alert_success("xpipe configuration system loaded and validated.")
 
   config_obj <- structure(config, class = "xpipe_config")
   .xpipe_env$config <- config_obj
@@ -892,10 +892,20 @@ get_xpipe_config <- function() {
   if (!is.null(x$xne$meta)) {
     meta_bullets <- character()
     if (!is.null(x$xne$meta$project)) {
-      meta_bullets <- c(meta_bullets, paste0("{pad_nbsp('Project', 10)}: {.field ", x$xne$meta$project, "}"))
+      meta_bullets <- c(
+        meta_bullets,
+        paste0("{pad_nbsp('Project', 10)}: {.field ", x$xne$meta$project, "}")
+      )
     }
     if (!is.null(x$xne$meta$last_updated_at)) {
-      meta_bullets <- c(meta_bullets, paste0("{pad_nbsp('Last updated', 10)}: {.field ", x$xne$meta$last_updated_at, "}"))
+      meta_bullets <- c(
+        meta_bullets,
+        paste0(
+          "{pad_nbsp('Last updated', 10)}: {.field ",
+          x$xne$meta$last_updated_at,
+          "}"
+        )
+      )
     }
     if (length(meta_bullets) > 0) {
       cli::cli_bullets(meta_bullets)
