@@ -78,6 +78,7 @@ init_xne_org_registry <- function(
   fs::dir_create(org_dir)
 
   org_files <- c(
+    "sites.csv",
     "departments.csv",
     "units.csv",
     "unit_codes.csv"

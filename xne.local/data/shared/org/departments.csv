@@ -1,10 +1,10 @@
-department_id,department_name,valid_from,valid_to
-1,Dipartimento dell'emergenza e dell'area critica,2022-01-01,
-2,Dipartimento reti tempo-dipendenti,2022-01-01,
-3,Dipartimento integrato oncoematologico e toraco-polmonare,2022-01-01,
-4,Dipartimento medico polispecialistico,2022-01-01,
-5,Dipartimento di chirurgia generale e della salute della donna,2022-01-01,
-6,Dipartimento chirurgico polispecialistico,2022-01-01,
-7,Dipartimento di anestesia e rianimazione,2022-01-01,
-8,Dipartimento delle tecnologie avanzate diagnostico terapeutiche e dei servizi sanitari,2022-01-01,
-9,Dipartimento servizi strategici di area sanitaria,2022-01-01,
+department_id,department_name,valid_from,valid_to,site_id
+1,Dipartimento dell'emergenza e dell'area critica,2022-01-01,,cardarelli
+2,Dipartimento reti tempo-dipendenti,2022-01-01,,cardarelli
+3,Dipartimento integrato oncoematologico e toraco-polmonare,2022-01-01,,cardarelli
+4,Dipartimento medico polispecialistico,2022-01-01,,cardarelli
+5,Dipartimento di chirurgia generale e della salute della donna,2022-01-01,,cardarelli
+6,Dipartimento chirurgico polispecialistico,2022-01-01,,cardarelli
+7,Dipartimento di anestesia e rianimazione,2022-01-01,,cardarelli
+8,Dipartimento delle tecnologie avanzate diagnostico terapeutiche e dei servizi sanitari,2022-01-01,,cardarelli
+9,Dipartimento servizi strategici di area sanitaria,2022-01-01,,cardarelli
