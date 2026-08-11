@@ -463,33 +463,35 @@ promote_to_silver <- function(
 #' @keywords internal
 #' @noRd
 .load_org_registry_to_duckdb <- function(con) {
-  organizations <- load_organizations(validate = TRUE)
-  structures <- load_structures(validate = TRUE)
-  facilities <- load_facilities(validate = TRUE)
-  departments <- load_departments(validate = TRUE)
-  units <- load_units(validate = TRUE)
-  unit_codes <- load_unit_codes(validate = TRUE)
+  tryCatch(
+    {
+      organizations <- load_organizations(validate = TRUE)
+      structures <- load_structures(validate = TRUE)
+      facilities <- load_facilities(validate = TRUE)
+      departments <- load_departments(validate = TRUE)
+      units <- load_units(validate = TRUE)
+      unit_codes <- load_unit_codes(validate = TRUE)
 
-  DBI::dbWriteTable(con, "org_organizations", organizations, temporary = TRUE, overwrite = TRUE)
-  DBI::dbWriteTable(con, "org_structures", structures, temporary = TRUE, overwrite = TRUE)
-  DBI::dbWriteTable(con, "org_facilities", facilities, temporary = TRUE, overwrite = TRUE)
-  DBI::dbWriteTable(
-    con,
-    "org_departments",
-    departments,
-    temporary = TRUE,
-    overwrite = TRUE
-  )
-  DBI::dbWriteTable(con, "org_units", units, temporary = TRUE, overwrite = TRUE)
-  DBI::dbWriteTable(
-    con,
-    "org_unit_codes",
-    unit_codes,
-    temporary = TRUE,
-    overwrite = TRUE
-  )
+      DBI::dbWriteTable(con, "org_organizations", organizations, temporary = TRUE, overwrite = TRUE)
+      DBI::dbWriteTable(con, "org_structures", structures, temporary = TRUE, overwrite = TRUE)
+      DBI::dbWriteTable(con, "org_facilities", facilities, temporary = TRUE, overwrite = TRUE)
+      DBI::dbWriteTable(con, "org_departments", departments, temporary = TRUE, overwrite = TRUE)
+      DBI::dbWriteTable(con, "org_units", units, temporary = TRUE, overwrite = TRUE)
+      DBI::dbWriteTable(con, "org_unit_codes", unit_codes, temporary = TRUE, overwrite = TRUE)
 
-  invisible(TRUE)
+      TRUE
+    },
+    error = function(e) {
+      cli::cli_warn(
+        c(
+          "Organizational registry unavailable or invalid",
+          "i" = "Unit code enrichment will be skipped (columns will be set to NA).",
+          "x" = conditionMessage(e)
+        )
+      )
+      FALSE
+    }
+  )
 }
 
 #' Enrich Harmonized Table with Internal and External Unit Code Metadata
@@ -498,24 +500,15 @@ promote_to_silver <- function(
 #' joining a source unit/reparto code against the validated unit_codes registry,
 #' using validity-window filtering.
 #'
-#' The source code column may contain:
-#' - plain codes: 2601
-#' - spaced codes: 26 01
-#' - dotted codes: 26.01
-#' - decimal-imported codes: 2601.00
-#' - extended structure codes: 150901002601
-#'
 #' Output columns:
 #' - <prefix>_unit_code_internal
-#' - <prefix>_unit_short_name_internal
 #' - <prefix>_unit_code_external
 #' - <prefix>_unit_short_name_external
 #'
 #' Logic:
-#' - if source code resolves to an external code, both internal and external
-#'   columns contain the matched external code
-#' - if source code resolves to an internal code, internal columns contain the
-#'   matched internal code and external columns contain the parent external code
+#' - Non-blocking: if org tables are missing or query fails, columns are filled with NA
+#' - Matches source unit code (4-digit uuuu) against org_unit_codes
+#' - Resolves internal unit code, external unit code, and external short name
 #'
 #' @param con DuckDB connection.
 #' @param table_name Character scalar. Harmonized table name.
@@ -550,7 +543,6 @@ promote_to_silver <- function(
     prefix,
     c(
       "_unit_code_internal",
-      "_unit_short_name_internal",
       "_unit_code_external",
       "_unit_short_name_external"
     )
@@ -558,111 +550,92 @@ promote_to_silver <- function(
 
   out_cols_sql <- DBI::dbQuoteIdentifier(con, out_cols)
 
-  raw_code_expr <- paste0(
-    "trim(CAST(h.",
-    code_sql,
-    " AS VARCHAR))"
+  # Check if org_unit_codes temporary table was loaded successfully
+  org_loaded <- NROW(DBI::dbGetQuery(
+    con,
+    "SELECT 1 FROM temp.duckdb_tables() WHERE table_name = 'org_unit_codes'"
+  )) > 0
+
+  if (!org_loaded) {
+    # Non-blocking fallback: add output columns as NULL/NA
+    sql_fallback <- paste0(
+      "CREATE OR REPLACE TABLE ",
+      table_id,
+      " AS SELECT h.*, NULL::VARCHAR AS ",
+      out_cols_sql[[1]],
+      ", NULL::VARCHAR AS ",
+      out_cols_sql[[2]],
+      ", NULL::VARCHAR AS ",
+      out_cols_sql[[3]],
+      " FROM ",
+      table_id,
+      " h"
+    )
+    try(DBI::dbExecute(con, sql_fallback), silent = TRUE)
+    return(invisible(TRUE))
+  }
+
+  tryCatch(
+    {
+      raw_code_expr <- paste0("trim(CAST(h.", code_sql, " AS VARCHAR))")
+
+      clean_code_expr <- paste0(
+        "regexp_replace(regexp_replace(",
+        raw_code_expr,
+        ", '\\\\.0+$', ''), '[^0-9]', '', 'g')"
+      )
+
+      normalized_code_expr <- paste0(
+        "CASE WHEN ", raw_code_expr, " IS NULL OR ", raw_code_expr, " = '' THEN NULL ",
+        "WHEN ", clean_code_expr, " = '' THEN NULL ",
+        "WHEN length(", clean_code_expr, ") >= 4 THEN right(", clean_code_expr, ", 4) ",
+        "ELSE lpad(", clean_code_expr, ", 4, '0') END"
+      )
+
+      date_expr <- paste0(
+        "COALESCE(",
+        "TRY_CAST(h.", date_sql, " AS DATE), ",
+        "CAST(TRY_STRPTIME(CAST(h.", date_sql, " AS VARCHAR), '%d/%m/%Y') AS DATE), ",
+        "CAST(TRY_STRPTIME(CAST(h.", date_sql, " AS VARCHAR), '%Y-%m-%d') AS DATE))"
+      )
+
+      sql <- paste0(
+        "CREATE OR REPLACE TABLE ", table_id, " AS ",
+        "SELECT h.*, ",
+        "uc.unit_code AS ", out_cols_sql[[1]], ", ",
+        "uce.unit_code AS ", out_cols_sql[[2]], ", ",
+        "uce.short_name AS ", out_cols_sql[[3]], " ",
+        "FROM ", table_id, " h ",
+        "LEFT JOIN org_unit_codes uc ",
+        "  ON ", normalized_code_expr, " = uc.unit_code ",
+        " AND ", date_expr, " >= uc.valid_from ",
+        " AND ", date_expr, " <= COALESCE(uc.valid_to, DATE '9999-12-31') ",
+        "LEFT JOIN org_unit_codes uce ",
+        "  ON CASE WHEN uc.is_external = TRUE THEN uc.unit_code ELSE uc.parent_unit_code END = uce.unit_code ",
+        " AND uce.is_external = TRUE ",
+        " AND ", date_expr, " >= uce.valid_from ",
+        " AND ", date_expr, " <= COALESCE(uce.valid_to, DATE '9999-12-31')"
+      )
+
+      DBI::dbExecute(con, sql)
+    },
+    error = function(e) {
+      cli::cli_warn(
+        c(
+          "Unit code enrichment warning",
+          "i" = "Enrichment failed for table {.val {table_name}}. Output columns populated with NA.",
+          "x" = conditionMessage(e)
+        )
+      )
+      sql_fallback <- paste0(
+        "CREATE OR REPLACE TABLE ", table_id, " AS SELECT h.*, ",
+        "NULL::VARCHAR AS ", out_cols_sql[[1]], ", ",
+        "NULL::VARCHAR AS ", out_cols_sql[[2]], ", ",
+        "NULL::VARCHAR AS ", out_cols_sql[[3]], " FROM ", table_id, " h"
+      )
+      try(DBI::dbExecute(con, sql_fallback), silent = TRUE)
+    }
   )
-
-  clean_code_expr <- paste0(
-    "regexp_replace(
-       regexp_replace(",
-    raw_code_expr,
-    ", '\\\\.0+$', ''),
-       '[^0-9]',
-       '',
-       'g'
-     )"
-  )
-
-  normalized_code_expr <- paste0(
-    "CASE
-       WHEN ",
-    raw_code_expr,
-    " IS NULL OR ",
-    raw_code_expr,
-    " = '' THEN NULL
-       WHEN ",
-    clean_code_expr,
-    " = '' THEN NULL
-       WHEN length(",
-    clean_code_expr,
-    ") >= 4 THEN right(",
-    clean_code_expr,
-    ", 4)
-       ELSE lpad(",
-    clean_code_expr,
-    ", 4, '0')
-     END"
-  )
-
-  date_expr <- paste0(
-    "COALESCE(
-       TRY_CAST(h.",
-    date_sql,
-    " AS DATE),
-       CAST(TRY_STRPTIME(CAST(h.",
-    date_sql,
-    " AS VARCHAR), '%d/%m/%Y') AS DATE),
-       CAST(TRY_STRPTIME(CAST(h.",
-    date_sql,
-    " AS VARCHAR), '%Y-%m-%d') AS DATE)
-     )"
-  )
-
-  sql <- paste0(
-    "CREATE OR REPLACE TABLE ",
-    table_id,
-    " AS
-     SELECT
-       h.*,
-
-       uc.unit_code AS ",
-    out_cols_sql[[1]],
-    ",
-
-       uc.short_name AS ",
-    out_cols_sql[[2]],
-    ",
-
-       uce.unit_code AS ",
-    out_cols_sql[[3]],
-    ",
-
-       uce.short_name AS ",
-    out_cols_sql[[4]],
-    "
-
-     FROM ",
-    table_id,
-    " h
-
-     LEFT JOIN org_unit_codes uc
-       ON ",
-    normalized_code_expr,
-    " = uc.unit_code
-      AND ",
-    date_expr,
-    " >= uc.valid_from
-      AND ",
-    date_expr,
-    " <= COALESCE(uc.valid_to, DATE '9999-12-31')
-
-     LEFT JOIN org_unit_codes uce
-       ON CASE
-            WHEN uc.is_external = TRUE THEN uc.unit_code
-            ELSE uc.parent_unit_code
-          END = uce.unit_code
-      AND uce.is_external = TRUE
-      AND ",
-    date_expr,
-    " >= uce.valid_from
-      AND ",
-    date_expr,
-    " <= COALESCE(uce.valid_to, DATE '9999-12-31')"
-  )
-
-  DBI::dbExecute(con, sql)
 
   invisible(TRUE)
 }
