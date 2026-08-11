@@ -1,2 +1,2 @@
-department_id,department_name,valid_from,valid_to,site_id
-1,Dipartimento dell'emergenza e dell'area critica,2022-01-01,,cardarelli
+department_uid,department_name,organization_uid,valid_from,valid_to
+1,Dipartimento dell'emergenza e dell'area critica,cardarelli,2022-01-01,

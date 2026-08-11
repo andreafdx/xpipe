@@ -1,2 +1,0 @@
-site_id   , region_code, structure_code, presidio_code, site_name              , organization_name                                          , address                 , city  , province, valid_from, valid_to, notes
-cardarelli,         150,            901,            00, AORN Antonio Cardarelli, Azienda Ospedaliera di Rilievo Nazionale Antonio Cardarelli, Via Antonio Cardarelli 9, Napoli, NA      , 2022-01-01,         , Presidio code set to 00 because no specific presidio distinction is currently used

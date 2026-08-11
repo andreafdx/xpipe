@@ -1,2 +1,2 @@
-uo_id,uo_name,uo_type,department_id,valid_from,valid_to
+uo_uid,uo_name,uo_type,department_uid,valid_from,valid_to
 1,Cardiologia con UTIC,UOC,2,2022-01-01,

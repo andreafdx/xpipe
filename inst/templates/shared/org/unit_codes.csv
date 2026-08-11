@@ -1,2 +1,2 @@
-unit_code,short_name,uo_id,parent_unit_code,is_external,in_week,valid_from,valid_to
-0801,Cardiologia 1,1,,TRUE,,2022-01-01,
+region_code,structure_code,facility_code,unit_code,short_name,uo_uid,parent_unit_code,is_external,in_week,valid_from,valid_to
+150,901,00,0801,Cardiologia 1,1,,TRUE,,2022-01-01,

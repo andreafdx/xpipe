@@ -1,61 +1,61 @@
-uo_id,uo_name,uo_type,department_id,valid_from,valid_to
-1,Cardiologia con UTIC,UOC,2,2022-01-01,
-2,Cardiologia,UOC,2,2022-01-01,
-3,Chirurgia generale ad alta specializzazione pancreatica,UOC,5,2022-01-01,
-4,Chirurgia generale ad indirizzo oncologico mininvasivo con alta specializzazione esofago-gastrica,UOC,5,2022-01-01,
-5,Chirurgia generale ad alta specializzazione gastroenterologica,UOC,5,2022-01-01,
-6,Chirurgia d'urgenza,UOC,1,2022-01-01,
-7,Chirurgia epatobiliare e trapianto di fegato,UOC,5,2022-01-01,
-8,Trauma Center,UOSD,1,2022-01-01,
-9,Chirurgia senologica,UOC,5,2022-01-01,
-10,Chirurgia metabolica grandi obesi,UOSD,5,2022-01-01,
-11,Week e Day Surgery,UOSD,5,2022-01-01,
-12,Chirurgia della tiroide e paratiroide,UOSD,5,2022-01-01,
-13,Chirurgia maxillo-facciale,UOC,6,2022-01-01,
-14,Centro grandi ustionati e chirurgia plastica ricostruttiva,UOC,6,2022-01-01,
-15,Chirurgia toracica,UOC,3,2022-01-01,
-16,Chirurgia vascolare ed endovascolare,UOC,6,2022-01-01,
-17,Ematologia,UOC,3,2022-01-01,
-18,Malattie rare del globulo rosso,UOSD,3,2022-01-01,
-19,Ematologia con trapianti di cellule staminali ematopoietiche e terapia intensiva,UOC,3,2022-01-01,
-20,Medicina 1,UOC,4,2022-01-01,
-21,Medicina 2,UOC,4,2022-01-01,
-22,Medicina 3,UOC,4,2022-01-01,
-23,Medicina DEA e complessità clinica,UOC,1,2022-01-01,
-24,Genetica medica e di laboratorio,UOC,8,2022-01-01,
-25,Diabetologia,UOSD,4,2022-01-01,
-26,Endocrinologia,UOC,4,2022-01-01,
-27,Medicina a indirizzo geriatrico,UOC,4,2022-01-01,
-28,Nefrologia ed emofialisi in elezione e in emergenza,UOC,4,2022-01-01,
-29,Neurochirurgia,UOC,1,2022-01-01,
-30,Neurologia,UOC,2,2022-01-01,
-31,Neurofisiopatologia,UOC,2,2022-01-01,
-32,Oculistica,UOC,6,2022-01-01,
-33,Maculopatia e patologia vitreo-retinica,UOSD,6,2022-01-01,
-34,Odontostomatologia,UOC,6,2022-01-01,
-35,Ortopedia 1,UOC,6,2022-01-01,
-36,Ortopedia 2,UOC,6,2022-01-01,
-37,Ostetricia e ginecologia,UOC,5,2022-01-01,
-38,Otorinolaringoiatria,UOC,6,2022-01-01,
-39,Urologia,UOC,6,2022-01-01,
-40,Andrologia,UOSD,6,2022-01-01,
-41,Rianimazione DEA,UOC,7,2022-01-01,
-42,Terapia intensiva post operatoria,UOC,7,2022-01-01,
-43,Terapia intensiva grandi ustionati,UOC,7,2022-01-01,
-44,Terapia intensiva fegato,UOC,7,2022-01-01,
-45,Dermatologia,UOSD,4,2022-01-01,
-46,Riabilitazione specialistica,UOC,4,2022-01-01,
-47,Gastroenterologia,UOC,4,2022-01-01,
-48,Epatologia,UOC,4,2022-01-01,
-49,Oncologia,UOC,3,2022-01-01,
-50,Pneumologia e terapia semintensiva respiratoria,UOC,3,2022-01-01,
-51,Pneumologia,UOC,3,2022-01-01,
-52,Pneumologia interventistica,UOC,3,2022-01-01,
-53,Radiologia vascolare ed interventistica,UOC,8,2022-01-01,
-54,Neuroradiologia,UOC,8,2022-01-01,
-55,Medicina nucleare,UOC,8,2022-01-01,
-56,Diagnostica senologica,UOSD,8,2022-01-01,
-57,Terapia intensiva neonatale e neonatologia,UOC,7,2022-01-01,
-58,PS OBI e medicina d'emergenza e urgenza,UOC,1,2022-01-01,
-59,Servizio di terapia del dolore,UOSD,7,2022-01-01,
-60,Reparto detenuti,UOSD,4,2022-01-01,
+"uo_uid","uo_name","uo_type","department_uid","valid_from","valid_to"
+"1","Cardiologia con UTIC","UOC","2","2022-01-01",""
+"2","Cardiologia","UOC","2","2022-01-01",""
+"3","Chirurgia generale ad alta specializzazione pancreatica","UOC","5","2022-01-01",""
+"4","Chirurgia generale ad indirizzo oncologico mininvasivo con alta specializzazione esofago-gastrica","UOC","5","2022-01-01",""
+"5","Chirurgia generale ad alta specializzazione gastroenterologica","UOC","5","2022-01-01",""
+"6","Chirurgia d'urgenza","UOC","1","2022-01-01",""
+"7","Chirurgia epatobiliare e trapianto di fegato","UOC","5","2022-01-01",""
+"8","Trauma Center","UOSD","1","2022-01-01",""
+"9","Chirurgia senologica","UOC","5","2022-01-01",""
+"10","Chirurgia metabolica grandi obesi","UOSD","5","2022-01-01",""
+"11","Week e Day Surgery","UOSD","5","2022-01-01",""
+"12","Chirurgia della tiroide e paratiroide","UOSD","5","2022-01-01",""
+"13","Chirurgia maxillo-facciale","UOC","6","2022-01-01",""
+"14","Centro grandi ustionati e chirurgia plastica ricostruttiva","UOC","6","2022-01-01",""
+"15","Chirurgia toracica","UOC","3","2022-01-01",""
+"16","Chirurgia vascolare ed endovascolare","UOC","6","2022-01-01",""
+"17","Ematologia","UOC","3","2022-01-01",""
+"18","Malattie rare del globulo rosso","UOSD","3","2022-01-01",""
+"19","Ematologia con trapianti di cellule staminali ematopoietiche e terapia intensiva","UOC","3","2022-01-01",""
+"20","Medicina 1","UOC","4","2022-01-01",""
+"21","Medicina 2","UOC","4","2022-01-01",""
+"22","Medicina 3","UOC","4","2022-01-01",""
+"23","Medicina DEA e complessità clinica","UOC","1","2022-01-01",""
+"24","Genetica medica e di laboratorio","UOC","8","2022-01-01",""
+"25","Diabetologia","UOSD","4","2022-01-01",""
+"26","Endocrinologia","UOC","4","2022-01-01",""
+"27","Medicina a indirizzo geriatrico","UOC","4","2022-01-01",""
+"28","Nefrologia ed emofialisi in elezione e in emergenza","UOC","4","2022-01-01",""
+"29","Neurochirurgia","UOC","1","2022-01-01",""
+"30","Neurologia","UOC","2","2022-01-01",""
+"31","Neurofisiopatologia","UOC","2","2022-01-01",""
+"32","Oculistica","UOC","6","2022-01-01",""
+"33","Maculopatia e patologia vitreo-retinica","UOSD","6","2022-01-01",""
+"34","Odontostomatologia","UOC","6","2022-01-01",""
+"35","Ortopedia 1","UOC","6","2022-01-01",""
+"36","Ortopedia 2","UOC","6","2022-01-01",""
+"37","Ostetricia e ginecologia","UOC","5","2022-01-01",""
+"38","Otorinolaringoiatria","UOC","6","2022-01-01",""
+"39","Urologia","UOC","6","2022-01-01",""
+"40","Andrologia","UOSD","6","2022-01-01",""
+"41","Rianimazione DEA","UOC","7","2022-01-01",""
+"42","Terapia intensiva post operatoria","UOC","7","2022-01-01",""
+"43","Terapia intensiva grandi ustionati","UOC","7","2022-01-01",""
+"44","Terapia intensiva fegato","UOC","7","2022-01-01",""
+"45","Dermatologia","UOSD","4","2022-01-01",""
+"46","Riabilitazione specialistica","UOC","4","2022-01-01",""
+"47","Gastroenterologia","UOC","4","2022-01-01",""
+"48","Epatologia","UOC","4","2022-01-01",""
+"49","Oncologia","UOC","3","2022-01-01",""
+"50","Pneumologia e terapia semintensiva respiratoria","UOC","3","2022-01-01",""
+"51","Pneumologia","UOC","3","2022-01-01",""
+"52","Pneumologia interventistica","UOC","3","2022-01-01",""
+"53","Radiologia vascolare ed interventistica","UOC","8","2022-01-01",""
+"54","Neuroradiologia","UOC","8","2022-01-01",""
+"55","Medicina nucleare","UOC","8","2022-01-01",""
+"56","Diagnostica senologica","UOSD","8","2022-01-01",""
+"57","Terapia intensiva neonatale e neonatologia","UOC","7","2022-01-01",""
+"58","PS OBI e medicina d'emergenza e urgenza","UOC","1","2022-01-01",""
+"59","Servizio di terapia del dolore","UOSD","7","2022-01-01",""
+"60","Reparto detenuti","UOSD","4","2022-01-01",""
