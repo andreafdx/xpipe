@@ -463,12 +463,16 @@ promote_to_silver <- function(
 #' @keywords internal
 #' @noRd
 .load_org_registry_to_duckdb <- function(con) {
-  sites <- load_sites(validate = TRUE)
+  organizations <- load_organizations(validate = TRUE)
+  structures <- load_structures(validate = TRUE)
+  facilities <- load_facilities(validate = TRUE)
   departments <- load_departments(validate = TRUE)
   units <- load_units(validate = TRUE)
   unit_codes <- load_unit_codes(validate = TRUE)
 
-  DBI::dbWriteTable(con, "org_sites", sites, temporary = TRUE, overwrite = TRUE)
+  DBI::dbWriteTable(con, "org_organizations", organizations, temporary = TRUE, overwrite = TRUE)
+  DBI::dbWriteTable(con, "org_structures", structures, temporary = TRUE, overwrite = TRUE)
+  DBI::dbWriteTable(con, "org_facilities", facilities, temporary = TRUE, overwrite = TRUE)
   DBI::dbWriteTable(
     con,
     "org_departments",

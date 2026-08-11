@@ -7,7 +7,8 @@
 # medallion layers. They describe organizational master data used for
 # enrichment and analytical reporting.
 #
-# Public API:  load_sites(), load_departments(), load_units(), load_unit_codes(),
+# Public API:  load_organizations(), load_structures(), load_facilities(),
+#              load_departments(), load_units(), load_unit_codes(),
 #              validate_org_registry()
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -16,55 +17,49 @@
 #   ├── xpipe_org_error                # shared organizational registry errors
 #   │   ├── xpipe_org_missing          # registry file missing
 #   │   ├── xpipe_org_parse            # CSV parsing failure
-#   │   ├── xpipe_org_sites            # invalid sites.csv
+#   │   ├── xpipe_org_organizations    # invalid organizations.csv
+#   │   ├── xpipe_org_structures       # invalid structures.csv
+#   │   ├── xpipe_org_facilities       # invalid facilities.csv
 #   │   ├── xpipe_org_departments      # invalid departments.csv
 #   │   ├── xpipe_org_units            # invalid units.csv
 #   │   └── xpipe_org_unit_codes       # invalid unit_codes.csv
 
 # Public API ------------------------------------------------------------------
 
-#' Load Sites Registry
+#' Load Organizations Registry
 #'
-#' Loads the shared sites registry from the active XNE project.
+#' Loads the shared organizations registry from the active XNE project.
 #'
 #' Expected path:
-#' <xne_root>/data/shared/org/sites.csv
+#' `<xne_root>/data/shared/org/organizations.csv`
 #'
 #' @param validate Logical. If TRUE, validate the registry after loading.
-#' @return A tibble with site metadata.
+#' @return A tibble with organization metadata.
 #' @export
-load_sites <- function(validate = TRUE) {
+load_organizations <- function(validate = TRUE) {
   checkmate::assert_flag(validate)
 
   cfg <- get_xpipe_config()
-  path <- fs::path(cfg$xne$paths$shared, "org", "sites.csv")
+  path <- fs::path(cfg$xne$paths$shared, "org", "organizations.csv")
 
   if (!fs::file_exists(path)) {
     cli::cli_abort(
       c(
-        "Sites registry not found",
+        "Organizations registry not found",
         "x" = "Expected file: {.file {path}}"
       ),
       class = c("xpipe_org_missing", "xpipe_org_error", "xpipe_error")
     )
   }
 
-  sites <- rlang::try_fetch(
+  orgs <- rlang::try_fetch(
     readr::read_csv(
       file = path,
       col_types = readr::cols(
-        site_id = readr::col_character(),
-        region_code = readr::col_character(),
-        structure_code = readr::col_character(),
-        presidio_code = readr::col_character(),
-        site_name = readr::col_character(),
+        organization_uid = readr::col_character(),
         organization_name = readr::col_character(),
-        address = readr::col_character(),
-        city = readr::col_character(),
-        province = readr::col_character(),
         valid_from = readr::col_date(),
-        valid_to = readr::col_date(),
-        notes = readr::col_character()
+        valid_to = readr::col_date()
       ),
       na = c("", "NA"),
       show_col_types = FALSE
@@ -72,7 +67,7 @@ load_sites <- function(validate = TRUE) {
     error = function(e) {
       cli::cli_abort(
         c(
-          "Failed to read sites registry",
+          "Failed to read organizations registry",
           "x" = "File {.file {path}} could not be parsed as CSV."
         ),
         parent = e,
@@ -82,10 +77,128 @@ load_sites <- function(validate = TRUE) {
   )
 
   if (isTRUE(validate)) {
-    .validate_sites(sites)
+    .validate_organizations(orgs)
   }
 
-  sites
+  orgs
+}
+
+#' Load Structures Registry
+#'
+#' Loads the shared structures registry from the active XNE project.
+#'
+#' Expected path:
+#' `<xne_root>/data/shared/org/structures.csv`
+#'
+#' @param validate Logical. If TRUE, validate the registry after loading.
+#' @return A tibble with structure metadata.
+#' @export
+load_structures <- function(validate = TRUE) {
+  checkmate::assert_flag(validate)
+
+  cfg <- get_xpipe_config()
+  path <- fs::path(cfg$xne$paths$shared, "org", "structures.csv")
+
+  if (!fs::file_exists(path)) {
+    cli::cli_abort(
+      c(
+        "Structures registry not found",
+        "x" = "Expected file: {.file {path}}"
+      ),
+      class = c("xpipe_org_missing", "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  structs <- rlang::try_fetch(
+    readr::read_csv(
+      file = path,
+      col_types = readr::cols(
+        structure_code = readr::col_character(),
+        structure_name = readr::col_character(),
+        region_code = readr::col_character(),
+        asl_code = readr::col_character(),
+        organization_uid = readr::col_character(),
+        valid_from = readr::col_date(),
+        valid_to = readr::col_date()
+      ),
+      na = c("", "NA"),
+      show_col_types = FALSE
+    ),
+    error = function(e) {
+      cli::cli_abort(
+        c(
+          "Failed to read structures registry",
+          "x" = "File {.file {path}} could not be parsed as CSV."
+        ),
+        parent = e,
+        class = c("xpipe_org_parse", "xpipe_org_error", "xpipe_error")
+      )
+    }
+  )
+
+  if (isTRUE(validate)) {
+    .validate_structures(structs)
+  }
+
+  structs
+}
+
+#' Load Facilities Registry
+#'
+#' Loads the shared facilities registry from the active XNE project.
+#'
+#' Expected path:
+#' `<xne_root>/data/shared/org/facilities.csv`
+#'
+#' @param validate Logical. If TRUE, validate the registry after loading.
+#' @return A tibble with facility metadata.
+#' @export
+load_facilities <- function(validate = TRUE) {
+  checkmate::assert_flag(validate)
+
+  cfg <- get_xpipe_config()
+  path <- fs::path(cfg$xne$paths$shared, "org", "facilities.csv")
+
+  if (!fs::file_exists(path)) {
+    cli::cli_abort(
+      c(
+        "Facilities registry not found",
+        "x" = "Expected file: {.file {path}}"
+      ),
+      class = c("xpipe_org_missing", "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  facs <- rlang::try_fetch(
+    readr::read_csv(
+      file = path,
+      col_types = readr::cols(
+        facility_code = readr::col_character(),
+        facility_name = readr::col_character(),
+        structure_code = readr::col_character(),
+        valid_from = readr::col_date(),
+        valid_to = readr::col_date()
+      ),
+      na = c("", "NA"),
+      show_col_types = FALSE
+    ),
+    error = function(e) {
+      cli::cli_abort(
+        c(
+          "Failed to read facilities registry",
+          "x" = "File {.file {path}} could not be parsed as CSV."
+        ),
+        parent = e,
+        class = c("xpipe_org_parse", "xpipe_org_error", "xpipe_error")
+      )
+    }
+  )
+
+  if (isTRUE(validate)) {
+    .validate_facilities(facs)
+  }
+
+  facs
 }
 
 #' Load Departments Registry
@@ -118,12 +231,13 @@ load_departments <- function(validate = TRUE) {
     readr::read_csv(
       file = path,
       col_types = readr::cols(
-        department_id = readr::col_integer(),
+        department_uid = readr::col_character(),
         department_name = readr::col_character(),
+        organization_uid = readr::col_character(),
         valid_from = readr::col_date(),
-        valid_to = readr::col_date(),
-        site_id = readr::col_character()
+        valid_to = readr::col_date()
       ),
+      na = c("", "NA"),
       show_col_types = FALSE
     ),
     error = function(e) {
@@ -150,7 +264,7 @@ load_departments <- function(validate = TRUE) {
 #' Loads the shared units registry from the active XNE project.
 #'
 #' Expected path:
-#' <xne_root>/data/shared/org/units.csv
+#' `<xne_root>/data/shared/org/units.csv`
 #'
 #' @param validate Logical. If TRUE, validate the registry after loading.
 #' @return A tibble with unit metadata.
@@ -175,13 +289,14 @@ load_units <- function(validate = TRUE) {
     readr::read_csv(
       file = path,
       col_types = readr::cols(
-        uo_id = readr::col_integer(),
+        uo_uid = readr::col_character(),
         uo_name = readr::col_character(),
         uo_type = readr::col_character(),
-        department_id = readr::col_integer(),
+        department_uid = readr::col_character(),
         valid_from = readr::col_date(),
         valid_to = readr::col_date()
       ),
+      na = c("", "NA"),
       show_col_types = FALSE
     ),
     error = function(e) {
@@ -208,7 +323,7 @@ load_units <- function(validate = TRUE) {
 #' Loads the shared unit codes registry from the active XNE project.
 #'
 #' Expected path:
-#' <xne_root>/data/shared/org/unit_codes.csv
+#' `<xne_root>/data/shared/org/unit_codes.csv`
 #'
 #' @param validate Logical. If TRUE, validate the registry after loading.
 #' @return A tibble with unit code metadata.
@@ -233,9 +348,12 @@ load_unit_codes <- function(validate = TRUE) {
     readr::read_csv(
       file = path,
       col_types = readr::cols(
+        region_code = readr::col_character(),
+        structure_code = readr::col_character(),
+        facility_code = readr::col_character(),
         unit_code = readr::col_character(),
         short_name = readr::col_character(),
-        uo_id = readr::col_integer(),
+        uo_uid = readr::col_character(),
         parent_unit_code = readr::col_character(),
         is_external = readr::col_logical(),
         in_week = readr::col_logical(),
@@ -270,6 +388,9 @@ load_unit_codes <- function(validate = TRUE) {
 #' Validates shared organizational registries available in the XNE project.
 #'
 #' Currently validates:
+#' - organizations.csv
+#' - structures.csv
+#' - facilities.csv
 #' - departments.csv
 #' - units.csv
 #' - unit_codes.csv
@@ -277,17 +398,23 @@ load_unit_codes <- function(validate = TRUE) {
 #' @return Invisibly TRUE.
 #' @export
 validate_org_registry <- function() {
-  sites <- load_sites(validate = FALSE)
-  .validate_sites(sites)
+  orgs <- load_organizations(validate = FALSE)
+  .validate_organizations(orgs)
+
+  structs <- load_structures(validate = FALSE)
+  .validate_structures(structs, organizations = orgs)
+
+  facs <- load_facilities(validate = FALSE)
+  .validate_facilities(facs, structures = structs)
 
   departments <- load_departments(validate = FALSE)
-  .validate_departments(departments, sites = sites)
+  .validate_departments(departments, organizations = orgs)
 
   units <- load_units(validate = FALSE)
   .validate_units(units, departments = departments)
 
   unit_codes <- load_unit_codes(validate = FALSE)
-  .validate_unit_codes(unit_codes, units = units)
+  .validate_unit_codes(unit_codes, units = units, facilities = facs)
 
   cli::cli_alert_success("Organizational registry validated.")
 
@@ -296,215 +423,225 @@ validate_org_registry <- function() {
 
 # Internal Helpers ---------------------------------------------------------
 
-#' Validate Sites Registry
-#'
-#' Validates the sites shared registry.
-#'
-#' @param sites A data frame loaded from sites.csv.
-#' @return Invisibly TRUE.
+#' Validate Organizations Registry
 #' @noRd
-.validate_sites <- function(sites) {
-  checkmate::assert_data_frame(sites)
+.validate_organizations <- function(orgs) {
+  checkmate::assert_data_frame(orgs)
 
   required_cols <- c(
-    "site_id",
-    "region_code",
-    "structure_code",
-    "presidio_code",
-    "site_name",
+    "organization_uid",
     "organization_name",
-    "address",
-    "city",
-    "province",
     "valid_from",
-    "valid_to",
-    "notes"
+    "valid_to"
   )
 
-  missing_cols <- setdiff(required_cols, names(sites))
-
+  missing_cols <- setdiff(required_cols, names(orgs))
   if (length(missing_cols) > 0) {
     cli::cli_abort(
       c(
-        "Invalid sites registry",
+        "Invalid organizations registry",
         "x" = "Missing required columns: {.val {missing_cols}}"
       ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
+      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
     )
   }
 
-  if (nrow(sites) == 0) {
+  if (nrow(orgs) == 0) {
     cli::cli_abort(
       c(
-        "Invalid sites registry",
+        "Invalid organizations registry",
         "x" = "Registry is empty."
       ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
+      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
     )
   }
 
-  bad_site_id <- is.na(sites$site_id) | trimws(sites$site_id) == ""
-
-  if (any(bad_site_id)) {
+  if (any(is.na(orgs$organization_uid) | trimws(orgs$organization_uid) == "")) {
     cli::cli_abort(
       c(
-        "Invalid sites registry",
-        "x" = "Column {.field site_id} contains missing or empty values."
+        "Invalid organizations registry",
+        "x" = "Column {.field organization_uid} contains missing or empty values."
       ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
+      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
     )
   }
 
-  bad_region_code <- is.na(sites$region_code) |
-    !grepl("^[0-9]{3}$", sites$region_code)
-
-  if (any(bad_region_code)) {
-    bad_codes <- unique(sites$region_code[bad_region_code])
-
+  if (any(is.na(orgs$organization_name) | trimws(orgs$organization_name) == "")) {
     cli::cli_abort(
       c(
-        "Invalid sites registry",
-        "x" = "Invalid region_code values found: {.val {bad_codes}}",
-        "i" = "Expected 3-character numeric codes."
-      ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_structure_code <- is.na(sites$structure_code) |
-    !grepl("^[0-9]{3}$", sites$structure_code)
-
-  if (any(bad_structure_code)) {
-    bad_codes <- unique(sites$structure_code[bad_structure_code])
-
-    cli::cli_abort(
-      c(
-        "Invalid sites registry",
-        "x" = "Invalid structure_code values found: {.val {bad_codes}}",
-        "i" = "Expected 3-character numeric codes."
-      ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_presidio_code <- is.na(sites$presidio_code) |
-    !grepl("^[0-9]{2}$", sites$presidio_code)
-
-  if (any(bad_presidio_code)) {
-    bad_codes <- unique(sites$presidio_code[bad_presidio_code])
-
-    cli::cli_abort(
-      c(
-        "Invalid sites registry",
-        "x" = "Invalid presidio_code values found: {.val {bad_codes}}",
-        "i" = "Expected 2-character numeric codes, preserving leading zeroes."
-      ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_site_name <- is.na(sites$site_name) | trimws(sites$site_name) == ""
-
-  if (any(bad_site_name)) {
-    cli::cli_abort(
-      c(
-        "Invalid sites registry",
-        "x" = "Column {.field site_name} contains missing or empty values."
-      ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_organization_name <- is.na(sites$organization_name) |
-    trimws(sites$organization_name) == ""
-
-  if (any(bad_organization_name)) {
-    cli::cli_abort(
-      c(
-        "Invalid sites registry",
+        "Invalid organizations registry",
         "x" = "Column {.field organization_name} contains missing or empty values."
       ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
+      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
     )
   }
 
-  if (any(is.na(sites$valid_from))) {
+  if (any(is.na(orgs$valid_from))) {
     cli::cli_abort(
       c(
-        "Invalid sites registry",
+        "Invalid organizations registry",
         "x" = "Column {.field valid_from} contains missing or invalid dates."
       ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
+      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
     )
   }
 
-  bad_valid_to <- !is.na(sites$valid_to) &
-    sites$valid_to < sites$valid_from
-
+  bad_valid_to <- !is.na(orgs$valid_to) & orgs$valid_to < orgs$valid_from
   if (any(bad_valid_to)) {
     cli::cli_abort(
       c(
-        "Invalid sites registry",
+        "Invalid organizations registry",
         "x" = "Some {.field valid_to} values are earlier than {.field valid_from}."
       ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
+      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
     )
   }
 
-  .validate_no_site_period_overlap(sites)
+  invisible(TRUE)
+}
+
+#' Validate Structures Registry
+#' @noRd
+.validate_structures <- function(structs, organizations = NULL) {
+  checkmate::assert_data_frame(structs)
+
+  required_cols <- c(
+    "structure_code",
+    "structure_name",
+    "region_code",
+    "asl_code",
+    "organization_uid",
+    "valid_from",
+    "valid_to"
+  )
+
+  missing_cols <- setdiff(required_cols, names(structs))
+  if (length(missing_cols) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid structures registry",
+        "x" = "Missing required columns: {.val {missing_cols}}"
+      ),
+      class = c("xpipe_org_structures", "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  if (nrow(structs) == 0) {
+    cli::cli_abort(
+      c(
+        "Invalid structures registry",
+        "x" = "Registry is empty."
+      ),
+      class = c("xpipe_org_structures", "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  bad_code <- is.na(structs$structure_code) | !grepl("^[0-9]{6}$", structs$structure_code)
+  if (any(bad_code)) {
+    cli::cli_abort(
+      c(
+        "Invalid structures registry",
+        "x" = "Invalid structure_code format. Expected 6 numeric characters."
+      ),
+      class = c("xpipe_org_structures", "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  if (is.null(organizations)) {
+    organizations <- load_organizations(validate = FALSE)
+  }
+
+  unknown_orgs <- setdiff(unique(structs$organization_uid), unique(organizations$organization_uid))
+  if (length(unknown_orgs) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid structures registry",
+        "x" = "Unknown organization_uid values found: {.val {unknown_orgs}}"
+      ),
+      class = c("xpipe_org_structures", "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+#' Validate Facilities Registry
+#' @noRd
+.validate_facilities <- function(facs, structures = NULL) {
+  checkmate::assert_data_frame(facs)
+
+  required_cols <- c(
+    "facility_code",
+    "facility_name",
+    "structure_code",
+    "valid_from",
+    "valid_to"
+  )
+
+  missing_cols <- setdiff(required_cols, names(facs))
+  if (length(missing_cols) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid facilities registry",
+        "x" = "Missing required columns: {.val {missing_cols}}"
+      ),
+      class = c("xpipe_org_facilities", "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  if (nrow(facs) == 0) {
+    cli::cli_abort(
+      c(
+        "Invalid facilities registry",
+        "x" = "Registry is empty."
+      ),
+      class = c("xpipe_org_facilities", "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  bad_code <- is.na(facs$facility_code) | !grepl("^[0-9]{8}$", facs$facility_code)
+  if (any(bad_code)) {
+    cli::cli_abort(
+      c(
+        "Invalid facilities registry",
+        "x" = "Invalid facility_code format. Expected 8 numeric characters."
+      ),
+      class = c("xpipe_org_facilities", "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  if (is.null(structures)) {
+    structures <- load_structures(validate = FALSE)
+  }
+
+  unknown_structs <- setdiff(unique(facs$structure_code), unique(structures$structure_code))
+  if (length(unknown_structs) > 0) {
+    cli::cli_abort(
+      c(
+        "Invalid facilities registry",
+        "x" = "Unknown structure_code values found: {.val {unknown_structs}}"
+      ),
+      class = c("xpipe_org_facilities", "xpipe_org_error", "xpipe_error")
+    )
+  }
 
   invisible(TRUE)
 }
 
 #' Validate Departments Registry
-#'
-#' Validates the departments shared registry.
-#'
-#' @param departments A data frame loaded from departments.csv.
-#' @return Invisibly TRUE.
 #' @noRd
-.validate_departments <- function(departments, sites = NULL) {
+.validate_departments <- function(departments, organizations = NULL) {
   checkmate::assert_data_frame(departments)
 
   required_cols <- c(
-    "department_id",
-    "site_id",
+    "department_uid",
+    "organization_uid",
     "department_name",
     "valid_from",
     "valid_to"
   )
 
-  if (any(is.na(departments$site_id) | trimws(departments$site_id) == "")) {
-    cli::cli_abort(
-      c(
-        "Invalid departments registry",
-        "x" = "Column {.field site_id} contains missing or empty values."
-      ),
-      class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (is.null(sites)) {
-    sites <- load_sites(validate = FALSE)
-  }
-
-  unknown_site_ids <- setdiff(
-    unique(departments$site_id),
-    unique(sites$site_id)
-  )
-
-  if (length(unknown_site_ids) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid departments registry",
-        "x" = "Unknown site_id values found: {.val {unknown_site_ids}}"
-      ),
-      class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
   missing_cols <- setdiff(required_cols, names(departments))
-
   if (length(missing_cols) > 0) {
     cli::cli_abort(
       c(
@@ -525,51 +662,30 @@ validate_org_registry <- function() {
     )
   }
 
-  bad_id <- is.na(departments$department_id)
+  if (is.null(organizations)) {
+    organizations <- load_organizations(validate = FALSE)
+  }
 
-  if (any(bad_id)) {
+  unknown_org_ids <- setdiff(
+    unique(departments$organization_uid),
+    unique(organizations$organization_uid)
+  )
+
+  if (length(unknown_org_ids) > 0) {
     cli::cli_abort(
       c(
         "Invalid departments registry",
-        "x" = "Column {.field department_id} contains missing values."
+        "x" = "Unknown organization_uid values found: {.val {unknown_org_ids}}"
       ),
       class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
     )
   }
 
-  bad_name <- is.na(departments$department_name) |
-    trimws(departments$department_name) == ""
-
-  if (any(bad_name)) {
+  if (any(is.na(departments$department_uid) | trimws(departments$department_uid) == "")) {
     cli::cli_abort(
       c(
         "Invalid departments registry",
-        "x" = "Column {.field department_name} contains missing or empty values."
-      ),
-      class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_valid_from <- is.na(departments$valid_from)
-
-  if (any(bad_valid_from)) {
-    cli::cli_abort(
-      c(
-        "Invalid departments registry",
-        "x" = "Column {.field valid_from} contains missing or invalid dates."
-      ),
-      class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_valid_to <- !is.na(departments$valid_to) &
-    departments$valid_to < departments$valid_from
-
-  if (any(bad_valid_to)) {
-    cli::cli_abort(
-      c(
-        "Invalid departments registry",
-        "x" = "Some {.field valid_to} values are earlier than {.field valid_from}."
+        "x" = "Column {.field department_uid} contains missing or empty values."
       ),
       class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
     )
@@ -581,21 +697,15 @@ validate_org_registry <- function() {
 }
 
 #' Validate Units Registry
-#'
-#' Validates the units shared registry.
-#'
-#' @param units A data frame loaded from units.csv.
-#' @param departments Optional departments data frame. If NULL, departments are loaded.
-#' @return Invisibly TRUE.
 #' @noRd
 .validate_units <- function(units, departments = NULL) {
   checkmate::assert_data_frame(units)
 
   required_cols <- c(
-    "uo_id",
+    "uo_uid",
     "uo_name",
     "uo_type",
-    "department_id",
+    "department_uid",
     "valid_from",
     "valid_to"
   )
@@ -622,30 +732,17 @@ validate_org_registry <- function() {
     )
   }
 
-  if (any(is.na(units$uo_id))) {
+  if (any(is.na(units$uo_uid) | trimws(units$uo_uid) == "")) {
     cli::cli_abort(
       c(
         "Invalid units registry",
-        "x" = "Column {.field uo_id} contains missing values."
+        "x" = "Column {.field uo_uid} contains missing or empty values."
       ),
       class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
     )
   }
 
-  bad_name <- is.na(units$uo_name) | trimws(units$uo_name) == ""
-
-  if (any(bad_name)) {
-    cli::cli_abort(
-      c(
-        "Invalid units registry",
-        "x" = "Column {.field uo_name} contains missing or empty values."
-      ),
-      class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_type <- is.na(units$uo_type) |
-    !(units$uo_type %in% c("UOC", "UOSD"))
+  bad_type <- is.na(units$uo_type) | !(units$uo_type %in% c("UOC", "UOSD"))
 
   if (any(bad_type)) {
     cli::cli_abort(
@@ -658,53 +755,20 @@ validate_org_registry <- function() {
     )
   }
 
-  if (any(is.na(units$department_id))) {
-    cli::cli_abort(
-      c(
-        "Invalid units registry",
-        "x" = "Column {.field department_id} contains missing values."
-      ),
-      class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (any(is.na(units$valid_from))) {
-    cli::cli_abort(
-      c(
-        "Invalid units registry",
-        "x" = "Column {.field valid_from} contains missing or invalid dates."
-      ),
-      class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_valid_to <- !is.na(units$valid_to) &
-    units$valid_to < units$valid_from
-
-  if (any(bad_valid_to)) {
-    cli::cli_abort(
-      c(
-        "Invalid units registry",
-        "x" = "Some {.field valid_to} values are earlier than {.field valid_from}."
-      ),
-      class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
   if (is.null(departments)) {
     departments <- load_departments(validate = FALSE)
   }
 
   unknown_department_ids <- setdiff(
-    unique(units$department_id),
-    unique(departments$department_id)
+    unique(units$department_uid),
+    unique(departments$department_uid)
   )
 
   if (length(unknown_department_ids) > 0) {
     cli::cli_abort(
       c(
         "Invalid units registry",
-        "x" = "Unknown department_id values found: {.val {unknown_department_ids}}"
+        "x" = "Unknown department_uid values found: {.val {unknown_department_ids}}"
       ),
       class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
     )
@@ -716,20 +780,17 @@ validate_org_registry <- function() {
 }
 
 #' Validate Unit Codes Registry
-#'
-#' Validates the unit codes shared registry.
-#'
-#' @param unit_codes A data frame loaded from unit_codes.csv.
-#' @param units Optional units registry. If NULL, units are loaded.
-#' @return Invisibly TRUE.
 #' @noRd
-.validate_unit_codes <- function(unit_codes, units = NULL) {
+.validate_unit_codes <- function(unit_codes, units = NULL, facilities = NULL) {
   checkmate::assert_data_frame(unit_codes)
 
   required_cols <- c(
+    "region_code",
+    "structure_code",
+    "facility_code",
     "unit_code",
     "short_name",
-    "uo_id",
+    "uo_uid",
     "parent_unit_code",
     "is_external",
     "in_week",
@@ -759,19 +820,6 @@ validate_org_registry <- function() {
     )
   }
 
-  bad_code <- is.na(unit_codes$unit_code) |
-    trimws(unit_codes$unit_code) == ""
-
-  if (any(bad_code)) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Column {.field unit_code} contains missing or empty values."
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
   bad_code_format <- !grepl("^[0-9]{4}$", unit_codes$unit_code)
 
   if (any(bad_code_format)) {
@@ -787,201 +835,20 @@ validate_org_registry <- function() {
     )
   }
 
-  bad_name <- is.na(unit_codes$short_name) |
-    trimws(unit_codes$short_name) == ""
-
-  if (any(bad_name)) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Column {.field short_name} contains missing or empty values."
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (any(is.na(unit_codes$uo_id))) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Column {.field uo_id} contains missing values."
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (any(is.na(unit_codes$is_external))) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Column {.field is_external} contains missing values."
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (any(is.na(unit_codes$valid_from))) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Column {.field valid_from} contains missing or invalid dates."
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_valid_to <- !is.na(unit_codes$valid_to) &
-    unit_codes$valid_to < unit_codes$valid_from
-
-  if (any(bad_valid_to)) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Some {.field valid_to} values are earlier than {.field valid_from}."
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
   if (is.null(units)) {
     units <- load_units(validate = FALSE)
   }
 
   unknown_uo_ids <- setdiff(
-    unique(unit_codes$uo_id),
-    unique(units$uo_id)
+    unique(unit_codes$uo_uid),
+    unique(units$uo_uid)
   )
 
   if (length(unknown_uo_ids) > 0) {
     cli::cli_abort(
       c(
         "Invalid unit codes registry",
-        "x" = "Unknown uo_id values found: {.val {unknown_uo_ids}}"
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  parent_codes <- stats::na.omit(unit_codes$parent_unit_code)
-
-  unknown_parent_codes <- setdiff(
-    unique(parent_codes),
-    unique(unit_codes$unit_code)
-  )
-
-  if (length(unknown_parent_codes) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Unknown parent_unit_code values found: {.val {unknown_parent_codes}}"
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  self_reference <- !is.na(unit_codes$parent_unit_code) &
-    unit_codes$parent_unit_code == unit_codes$unit_code
-
-  if (any(self_reference)) {
-    bad_codes <- unit_codes$unit_code[self_reference]
-
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Self-referencing parent_unit_code found for unit_code: {.val {bad_codes}}"
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  parent_lookup <- unit_codes |>
-    dplyr::select(
-      parent_unit_code = "unit_code",
-      parent_uo_id = "uo_id",
-      parent_is_external = "is_external",
-      parent_valid_from = "valid_from",
-      parent_valid_to = "valid_to"
-    )
-
-  child_parent_check <- unit_codes |>
-    dplyr::filter(!is.na(.data$parent_unit_code)) |>
-    dplyr::mutate(child_row_id = dplyr::row_number()) |>
-    dplyr::left_join(parent_lookup, by = "parent_unit_code")
-
-  bad_parent_uo <- child_parent_check |>
-    dplyr::filter(.data$uo_id != .data$parent_uo_id)
-
-  if (nrow(bad_parent_uo) > 0) {
-    bad_codes <- unique(bad_parent_uo$unit_code)
-
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Child unit codes with different uo_id from parent found: {.val {bad_codes}}"
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  bad_parent_external <- child_parent_check |>
-    dplyr::filter(!.data$parent_is_external)
-
-  if (nrow(bad_parent_external) > 0) {
-    bad_codes <- unique(bad_parent_external$unit_code)
-
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Child unit codes referencing non-external parent codes found: {.val {bad_codes}}"
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  child_parent_validity <- child_parent_check |>
-    dplyr::mutate(
-      child_valid_to_check = dplyr::coalesce(
-        .data$valid_to,
-        as.Date("9999-12-31")
-      ),
-      parent_valid_to_check = dplyr::coalesce(
-        .data$parent_valid_to,
-        as.Date("9999-12-31")
-      ),
-      validity_contained = .data$valid_from >= .data$parent_valid_from &
-        .data$child_valid_to_check <= .data$parent_valid_to_check
-    ) |>
-    dplyr::group_by(.data$child_row_id, .data$unit_code) |>
-    dplyr::summarise(
-      has_containing_parent_window = any(.data$validity_contained),
-      .groups = "drop"
-    )
-
-  bad_parent_validity <- child_parent_validity |>
-    dplyr::filter(!.data$has_containing_parent_window)
-
-  if (nrow(bad_parent_validity) > 0) {
-    bad_codes <- unique(bad_parent_validity$unit_code)
-
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Child unit codes with validity window outside parent validity window found: {.val {bad_codes}}"
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  missing_parent_for_internal <- !unit_codes$is_external &
-    is.na(unit_codes$parent_unit_code)
-
-  if (any(missing_parent_for_internal)) {
-    bad_codes <- unit_codes$unit_code[missing_parent_for_internal]
-
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Internal unit codes without parent_unit_code found: {.val {bad_codes}}"
+        "x" = "Unknown uo_uid values found: {.val {unknown_uo_ids}}"
       ),
       class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
     )
@@ -992,69 +859,13 @@ validate_org_registry <- function() {
   invisible(TRUE)
 }
 
-#' Validate No Overlapping Site Validity Periods
-#'
-#' @param sites Sites registry.
-#' @return Invisibly TRUE.
-#' @noRd
-.validate_no_site_period_overlap <- function(sites) {
-  x <- sites |>
-    dplyr::mutate(
-      valid_to_check = dplyr::coalesce(
-        .data$valid_to,
-        as.Date("9999-12-31")
-      )
-    ) |>
-    dplyr::arrange(
-      .data$site_id,
-      .data$valid_from,
-      .data$valid_to_check
-    ) |>
-    dplyr::group_by(.data$site_id) |>
-    dplyr::mutate(
-      previous_valid_to = dplyr::lag(.data$valid_to_check),
-      overlaps_previous = !is.na(.data$previous_valid_to) &
-        .data$valid_from <= .data$previous_valid_to
-    ) |>
-    dplyr::ungroup()
-
-  overlaps <- x |>
-    dplyr::filter(.data$overlaps_previous)
-
-  if (nrow(overlaps) > 0) {
-    bad_ids <- sort(unique(overlaps$site_id))
-
-    cli::cli_abort(
-      c(
-        "Invalid sites registry",
-        "x" = "Overlapping validity periods found for site_id: {.val {bad_ids}}"
-      ),
-      class = c("xpipe_org_sites", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  invisible(TRUE)
-}
-
-#' Validate No Overlapping Department Validity Periods
-#'
-#' @param departments Departments registry.
-#' @return Invisibly TRUE.
-#' @noRd
 .validate_no_department_period_overlap <- function(departments) {
   x <- departments |>
     dplyr::mutate(
-      valid_to_check = dplyr::coalesce(
-        .data$valid_to,
-        as.Date("9999-12-31")
-      )
+      valid_to_check = dplyr::coalesce(.data$valid_to, as.Date("9999-12-31"))
     ) |>
-    dplyr::arrange(
-      .data$department_id,
-      .data$valid_from,
-      .data$valid_to_check
-    ) |>
-    dplyr::group_by(.data$department_id) |>
+    dplyr::arrange(.data$department_uid, .data$valid_from, .data$valid_to_check) |>
+    dplyr::group_by(.data$department_uid) |>
     dplyr::mutate(
       previous_valid_to = dplyr::lag(.data$valid_to_check),
       overlaps_previous = !is.na(.data$previous_valid_to) &
@@ -1062,16 +873,14 @@ validate_org_registry <- function() {
     ) |>
     dplyr::ungroup()
 
-  overlaps <- x |>
-    dplyr::filter(.data$overlaps_previous)
+  overlaps <- x |> dplyr::filter(.data$overlaps_previous)
 
   if (nrow(overlaps) > 0) {
-    bad_ids <- sort(unique(overlaps$department_id))
-
+    bad_ids <- sort(unique(overlaps$department_uid))
     cli::cli_abort(
       c(
         "Invalid departments registry",
-        "x" = "Overlapping validity periods found for department_id: {.val {bad_ids}}"
+        "x" = "Overlapping validity periods found for department_uid: {.val {bad_ids}}"
       ),
       class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
     )
@@ -1080,22 +889,13 @@ validate_org_registry <- function() {
   invisible(TRUE)
 }
 
-
-#' Validate No Overlapping Unit Validity Periods
-#'
-#' @param units Units registry.
-#' @return Invisibly TRUE.
-#' @noRd
 .validate_no_unit_period_overlap <- function(units) {
   x <- units |>
     dplyr::mutate(
-      valid_to_check = dplyr::coalesce(
-        .data$valid_to,
-        as.Date("9999-12-31")
-      )
+      valid_to_check = dplyr::coalesce(.data$valid_to, as.Date("9999-12-31"))
     ) |>
-    dplyr::arrange(.data$uo_id, .data$valid_from, .data$valid_to_check) |>
-    dplyr::group_by(.data$uo_id) |>
+    dplyr::arrange(.data$uo_uid, .data$valid_from, .data$valid_to_check) |>
+    dplyr::group_by(.data$uo_uid) |>
     dplyr::mutate(
       previous_valid_to = dplyr::lag(.data$valid_to_check),
       overlaps_previous = !is.na(.data$previous_valid_to) &
@@ -1103,16 +903,14 @@ validate_org_registry <- function() {
     ) |>
     dplyr::ungroup()
 
-  overlaps <- x |>
-    dplyr::filter(.data$overlaps_previous)
+  overlaps <- x |> dplyr::filter(.data$overlaps_previous)
 
   if (nrow(overlaps) > 0) {
-    bad_ids <- sort(unique(overlaps$uo_id))
-
+    bad_ids <- sort(unique(overlaps$uo_uid))
     cli::cli_abort(
       c(
         "Invalid units registry",
-        "x" = "Overlapping validity periods found for uo_id: {.val {bad_ids}}"
+        "x" = "Overlapping validity periods found for uo_uid: {.val {bad_ids}}"
       ),
       class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
     )
@@ -1121,26 +919,25 @@ validate_org_registry <- function() {
   invisible(TRUE)
 }
 
-
-#' Validate No Overlapping Unit Code Validity Periods
-#'
-#' @param unit_codes Unit codes registry.
-#' @return Invisibly TRUE.
-#' @noRd
 .validate_no_unit_code_period_overlap <- function(unit_codes) {
   x <- unit_codes |>
     dplyr::mutate(
-      valid_to_check = dplyr::coalesce(
-        .data$valid_to,
-        as.Date("9999-12-31")
-      )
+      valid_to_check = dplyr::coalesce(.data$valid_to, as.Date("9999-12-31"))
     ) |>
     dplyr::arrange(
+      .data$region_code,
+      .data$structure_code,
+      .data$facility_code,
       .data$unit_code,
       .data$valid_from,
       .data$valid_to_check
     ) |>
-    dplyr::group_by(.data$unit_code) |>
+    dplyr::group_by(
+      .data$region_code,
+      .data$structure_code,
+      .data$facility_code,
+      .data$unit_code
+    ) |>
     dplyr::mutate(
       previous_valid_to = dplyr::lag(.data$valid_to_check),
       overlaps_previous = !is.na(.data$previous_valid_to) &
@@ -1148,12 +945,10 @@ validate_org_registry <- function() {
     ) |>
     dplyr::ungroup()
 
-  overlaps <- x |>
-    dplyr::filter(.data$overlaps_previous)
+  overlaps <- x |> dplyr::filter(.data$overlaps_previous)
 
   if (nrow(overlaps) > 0) {
     bad_codes <- sort(unique(overlaps$unit_code))
-
     cli::cli_abort(
       c(
         "Invalid unit codes registry",
