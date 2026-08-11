@@ -7,13 +7,11 @@
 test_that("EMUR silver promotion and harmonization works end-to-end", {
   proj_root <- fs::path_abs(testthat::test_path("../../xne.local"))
   inbox_src <- fs::path_abs(testthat::test_path("../../xne.local/inbox/emur"))
+  fixture_dir <- fs::path_abs(testthat::test_path("fixtures"))
 
-  # This is a full integration test that requires the real project directory
-  # structure (inbox/emur/, data/shared/). Skip gracefully when running under
-  # R CMD check or any other environment that doesn't have those paths.
   skip_if_not(
-    fs::dir_exists(inbox_src),
-    "inbox/emur not found; skipping integration test"
+    fs::dir_exists(inbox_src) || fs::dir_exists(fixture_dir),
+    "inbox/emur or fixtures not found; skipping integration test"
   )
   skip_if_not(
     fs::dir_exists(fs::path(proj_root, "data", "shared")),
@@ -23,9 +21,14 @@ test_that("EMUR silver promotion and harmonization works end-to-end", {
   base_cfg <- load_xpipe_config(project_root = proj_root)
 
   withr::with_tempdir({
-    # Copy inbox emur to local tempdir
-    fs::dir_create("inbox")
-    fs::dir_copy(inbox_src, "inbox/emur")
+    # Copy inbox emur or fixtures to local tempdir
+    fs::dir_create("inbox/emur")
+    if (fs::dir_exists(inbox_src)) {
+      fs::dir_copy(inbox_src, "inbox/emur", overwrite = TRUE)
+    } else {
+      fs::file_copy(fs::path(fixture_dir, "sample_emur_ana.xml"), "inbox/emur/emur150901_ana.xml")
+      fs::file_copy(fs::path(fixture_dir, "sample_emur_san.xml"), "inbox/emur/emur150901_san.xml")
+    }
 
     # Construct a test config
     test_config <- load_xpipe_config(project_root = proj_root)

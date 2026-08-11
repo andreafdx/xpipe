@@ -17,14 +17,8 @@ test_that(".resolve_extraction_instrument aborts on unregistered method type", {
   )
 })
 
-test_that(".resolve_extraction_instrument aborts when function is not loaded", {
-  # Register a type that maps to a function that doesn't exist in the env
-  ctx <- list(method_config = list(type = "access_mdb"))
-
-  # Temporarily ensure the function is absent
-  if (exists("extract_access_db", mode = "function")) {
-    skip("extract_access_db is loaded; cannot test missing-function guard here")
-  }
+test_that(".resolve_extraction_instrument aborts when function is not registered or loaded", {
+  ctx <- list(method_config = list(type = "non_existent_method_type"))
 
   expect_error(
     .resolve_extraction_instrument(ctx, NULL),

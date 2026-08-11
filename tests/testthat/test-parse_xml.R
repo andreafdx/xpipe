@@ -5,7 +5,7 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 test_that(".parse_emur_a extracts correct columns and data", {
-  xml_path <- testthat::test_path("../../inbox/emur/emur150901_ana.xml")
+  xml_path <- testthat::test_path("fixtures/sample_emur_ana.xml")
   skip_if_not(file.exists(xml_path), "EMUR ANA sample XML file not found")
 
   doc <- xml2::read_xml(xml_path)
@@ -33,7 +33,7 @@ test_that(".parse_emur_a extracts correct columns and data", {
 })
 
 test_that(".parse_emur_b extracts correct tables and fields", {
-  xml_path <- testthat::test_path("../../inbox/emur/emur150901_san.xml")
+  xml_path <- testthat::test_path("fixtures/sample_emur_san.xml")
   skip_if_not(file.exists(xml_path), "EMUR SAN sample XML file not found")
 
   doc <- xml2::read_xml(xml_path)
