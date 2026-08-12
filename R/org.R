@@ -597,6 +597,16 @@ validate_org_registry <- function() {
     registry_name = "structures",
     error_class = "xpipe_org_structures"
   )
+  .validate_child_period_containment(
+    child = structs,
+    child_parent_col = "organization_uid",
+    parent = organizations,
+    parent_col = "organization_uid",
+    child_key_cols = "structure_code",
+    registry_name = "structures",
+    parent_registry_name = "organizations",
+    error_class = "xpipe_org_structures"
+  )
 
   .validate_no_period_overlap(
     x = structs,
@@ -604,6 +614,7 @@ validate_org_registry <- function() {
     registry_name = "structures",
     error_class = "xpipe_org_structures"
   )
+
 
   invisible(TRUE)
 }
@@ -684,12 +695,24 @@ validate_org_registry <- function() {
     error_class = "xpipe_org_facilities"
   )
 
+  .validate_child_period_containment(
+    child = facs,
+    child_parent_col = "structure_code",
+    parent = structures,
+    parent_col = "structure_code",
+    child_key_cols = "facility_code",
+    registry_name = "facilities",
+    parent_registry_name = "structures",
+    error_class = "xpipe_org_facilities"
+  )
+
   .validate_no_period_overlap(
     x = facs,
     key_cols = "facility_code",
     registry_name = "facilities",
     error_class = "xpipe_org_facilities"
   )
+
 
   invisible(TRUE)
 }
@@ -774,6 +797,17 @@ validate_org_registry <- function() {
     parent = organizations,
     parent_col = "organization_uid",
     registry_name = "departments",
+    error_class = "xpipe_org_departments"
+  )
+
+  .validate_child_period_containment(
+    child = departments,
+    child_parent_col = "organization_uid",
+    parent = organizations,
+    parent_col = "organization_uid",
+    child_key_cols = "department_uid",
+    registry_name = "departments",
+    parent_registry_name = "organizations",
     error_class = "xpipe_org_departments"
   )
 
@@ -873,6 +907,17 @@ validate_org_registry <- function() {
     parent = departments,
     parent_col = "department_uid",
     registry_name = "units",
+    error_class = "xpipe_org_units"
+  )
+
+  .validate_child_period_containment(
+    child = units,
+    child_parent_col = "department_uid",
+    parent = departments,
+    parent_col = "department_uid",
+    child_key_cols = "uo_uid",
+    registry_name = "units",
+    parent_registry_name = "departments",
     error_class = "xpipe_org_units"
   )
 
@@ -1004,6 +1049,28 @@ validate_org_registry <- function() {
     parent = facilities,
     parent_col = "facility_code",
     registry_name = "unit codes",
+    error_class = "xpipe_org_unit_codes"
+  )
+
+  .validate_child_period_containment(
+    child = unit_codes,
+    child_parent_col = "uo_uid",
+    parent = units,
+    parent_col = "uo_uid",
+    child_key_cols = c("facility_code", "unit_code"),
+    registry_name = "unit codes",
+    parent_registry_name = "units",
+    error_class = "xpipe_org_unit_codes"
+  )
+
+  .validate_child_period_containment(
+    child = unit_codes,
+    child_parent_col = "facility_code",
+    parent = facilities,
+    parent_col = "facility_code",
+    child_key_cols = c("facility_code", "unit_code"),
+    registry_name = "unit codes",
+    parent_registry_name = "facilities",
     error_class = "xpipe_org_unit_codes"
   )
 
@@ -1209,6 +1276,80 @@ validate_org_registry <- function() {
       c(
         paste0("Invalid ", registry_name, " registry"),
         "x" = "Some {.field valid_to} values are earlier than {.field valid_from}."
+      ),
+      class = c(error_class, "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
+#' Validate Child Validity Window Is Contained in Parent Window
+#' @noRd
+.validate_child_period_containment <- function(
+    child,
+    child_parent_col,
+    parent,
+    parent_col,
+    child_key_cols,
+    registry_name,
+    parent_registry_name,
+    error_class
+) {
+
+  child_valid_to <- dplyr::coalesce(
+    child$valid_to,
+    as.Date("9999-12-31")
+  )
+
+  parent_valid_to <- dplyr::coalesce(
+    parent$valid_to,
+    as.Date("9999-12-31")
+  )
+
+  bad_rows <- logical(nrow(child))
+
+  for (i in seq_len(nrow(child))) {
+    parent_value <- child[[child_parent_col]][[i]]
+
+    matches <- which(parent[[parent_col]] == parent_value)
+
+    if (length(matches) == 0) {
+      next
+    }
+
+    contained <- any(
+      child$valid_from[[i]] >= parent$valid_from[matches] &
+        child_valid_to[[i]] <= parent_valid_to[matches]
+    )
+
+    bad_rows[[i]] <- !contained
+  }
+
+  if (any(bad_rows)) {
+    bad_keys <- child[bad_rows, child_key_cols, drop = FALSE]
+
+    bad_labels <- apply(
+      bad_keys,
+      1,
+      function(row) {
+        paste(
+          paste0(names(row), "=", row),
+          collapse = ", "
+        )
+      }
+    )
+
+    cli::cli_abort(
+      c(
+        paste0("Invalid ", registry_name, " registry"),
+        "x" = paste0(
+          "Some child validity windows are not contained within the matching ",
+          parent_registry_name,
+          " validity window."
+        ),
+        "i" = "Problematic keys: {.val {bad_labels}}"
       ),
       class = c(error_class, "xpipe_org_error", "xpipe_error")
     )
