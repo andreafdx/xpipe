@@ -4,5 +4,6 @@ folder <- "C:/Users/78299/OneDrive - A.O.R.N. Antonio Cardarelli/EpiLab - Code/X
 #folder <- "/home/andrea/R projects/XNE"
 
 load_xpipe_config(project_root = folder)
+validate_org_registry()
 
 xplorer::load_xplorer_config(project_root = folder)
