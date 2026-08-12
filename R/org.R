@@ -423,8 +423,6 @@ validate_org_registry <- function() {
 
 #' Validate Organizations Registry
 #' @noRd
-#' Validate Organizations Registry
-#' @noRd
 .validate_organizations <- function(orgs) {
   checkmate::assert_data_frame(orgs)
 

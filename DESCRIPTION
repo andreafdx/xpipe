@@ -34,5 +34,6 @@ Imports:
     rlang,
     tibble,
     xml2,
-    readr
+    readr,
+    glue
 Config/roxygen2/version: 8.0.0
