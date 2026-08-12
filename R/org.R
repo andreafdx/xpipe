@@ -615,7 +615,6 @@ validate_org_registry <- function() {
     error_class = "xpipe_org_structures"
   )
 
-
   invisible(TRUE)
 }
 
@@ -712,7 +711,6 @@ validate_org_registry <- function() {
     registry_name = "facilities",
     error_class = "xpipe_org_facilities"
   )
-
 
   invisible(TRUE)
 }
@@ -1288,16 +1286,15 @@ validate_org_registry <- function() {
 #' Validate Child Validity Window Is Contained in Parent Window
 #' @noRd
 .validate_child_period_containment <- function(
-    child,
-    child_parent_col,
-    parent,
-    parent_col,
-    child_key_cols,
-    registry_name,
-    parent_registry_name,
-    error_class
+  child,
+  child_parent_col,
+  parent,
+  parent_col,
+  child_key_cols,
+  registry_name,
+  parent_registry_name,
+  error_class
 ) {
-
   child_valid_to <- dplyr::coalesce(
     child$valid_to,
     as.Date("9999-12-31")
@@ -1312,6 +1309,10 @@ validate_org_registry <- function() {
 
   for (i in seq_len(nrow(child))) {
     parent_value <- child[[child_parent_col]][[i]]
+
+    if (is.na(parent_value) || trimws(parent_value) == "") {
+      next
+    }
 
     matches <- which(parent[[parent_col]] == parent_value)
 
