@@ -20,6 +20,7 @@ output/
 *.tar.gz
 !data/**/*.json
 !data/*.json
+tests/testthat/fixtures
 
 node_modules/
 package.json
