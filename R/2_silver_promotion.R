@@ -639,6 +639,16 @@ promote_to_silver <- function(
         ", 4, '0') END"
       )
 
+      facility_code_expr <- paste0(
+        "CASE ",
+        "WHEN length(",
+        clean_code_expr,
+        ") >= 12 THEN left(",
+        clean_code_expr,
+        ", 8) ",
+        "ELSE NULL END"
+      )
+
       date_expr <- paste0(
         "COALESCE(",
         "TRY_CAST(h.",
@@ -670,9 +680,25 @@ promote_to_silver <- function(
         table_id,
         " h ",
         "LEFT JOIN org_unit_codes uc ",
-        "  ON ",
+        "  ON (",
+        "       (",
+        facility_code_expr,
+        " IS NOT NULL ",
+        "       AND ",
+        facility_code_expr,
+        " = uc.facility_code ",
+        "       AND ",
         normalized_code_expr,
-        " = uc.unit_code ",
+        " = uc.unit_code",
+        "       ) ",
+        "       OR (",
+        facility_code_expr,
+        " IS NULL ",
+        "       AND ",
+        normalized_code_expr,
+        " = uc.unit_code",
+        "       )",
+        "     ) ",
         " AND ",
         date_expr,
         " >= uc.valid_from ",
@@ -680,7 +706,12 @@ promote_to_silver <- function(
         date_expr,
         " <= COALESCE(uc.valid_to, DATE '9999-12-31') ",
         "LEFT JOIN org_unit_codes uce ",
-        "  ON CASE WHEN uc.is_external = TRUE THEN uc.unit_code ELSE uc.parent_unit_code END = uce.unit_code ",
+        "  ON CASE ",
+        "       WHEN uc.is_external = TRUE ",
+        "       THEN uc.unit_code ",
+        "       ELSE uc.parent_unit_code ",
+        "     END = uce.unit_code ",
+        " AND uce.facility_code = uc.facility_code ",
         " AND uce.is_external = TRUE ",
         " AND ",
         date_expr,

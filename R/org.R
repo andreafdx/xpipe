@@ -423,6 +423,8 @@ validate_org_registry <- function() {
 
 #' Validate Organizations Registry
 #' @noRd
+#' Validate Organizations Registry
+#' @noRd
 .validate_organizations <- function(orgs) {
   checkmate::assert_data_frame(orgs)
 
@@ -433,48 +435,25 @@ validate_org_registry <- function() {
     "valid_to"
   )
 
-  missing_cols <- setdiff(required_cols, names(orgs))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid organizations registry",
-        "x" = "Missing required columns: {.val {missing_cols}}"
-      ),
-      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_required_columns(
+    x = orgs,
+    required_cols = required_cols,
+    registry_name = "organizations",
+    error_class = "xpipe_org_organizations"
+  )
 
-  if (nrow(orgs) == 0) {
-    cli::cli_abort(
-      c(
-        "Invalid organizations registry",
-        "x" = "Registry is empty."
-      ),
-      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_non_empty_registry(
+    x = orgs,
+    registry_name = "organizations",
+    error_class = "xpipe_org_organizations"
+  )
 
-  if (any(is.na(orgs$organization_uid) | trimws(orgs$organization_uid) == "")) {
-    cli::cli_abort(
-      c(
-        "Invalid organizations registry",
-        "x" = "Column {.field organization_uid} contains missing or empty values."
-      ),
-      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (
-    any(is.na(orgs$organization_name) | trimws(orgs$organization_name) == "")
-  ) {
-    cli::cli_abort(
-      c(
-        "Invalid organizations registry",
-        "x" = "Column {.field organization_name} contains missing or empty values."
-      ),
-      class = c("xpipe_org_organizations", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_required_character(
+    x = orgs,
+    cols = c("organization_uid", "organization_name"),
+    registry_name = "organizations",
+    error_class = "xpipe_org_organizations"
+  )
 
   .validate_validity_window(
     x = orgs,
@@ -507,38 +486,25 @@ validate_org_registry <- function() {
     "valid_to"
   )
 
-  missing_cols <- setdiff(required_cols, names(structs))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid structures registry",
-        "x" = "Missing required columns: {.val {missing_cols}}"
-      ),
-      class = c("xpipe_org_structures", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_required_columns(
+    x = structs,
+    required_cols = required_cols,
+    registry_name = "structures",
+    error_class = "xpipe_org_structures"
+  )
 
-  if (nrow(structs) == 0) {
-    cli::cli_abort(
-      c(
-        "Invalid structures registry",
-        "x" = "Registry is empty."
-      ),
-      class = c("xpipe_org_structures", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_non_empty_registry(
+    x = structs,
+    registry_name = "structures",
+    error_class = "xpipe_org_structures"
+  )
 
-  if (
-    any(is.na(structs$structure_name) | trimws(structs$structure_name) == "")
-  ) {
-    cli::cli_abort(
-      c(
-        "Invalid structures registry",
-        "x" = "Column {.field structure_name} contains missing or empty values."
-      ),
-      class = c("xpipe_org_structures", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_required_character(
+    x = structs,
+    cols = c("structure_name"),
+    registry_name = "structures",
+    error_class = "xpipe_org_structures"
+  )
 
   bad_code <- is.na(structs$structure_code) |
     !grepl("^[0-9]{6}$", structs$structure_code)
@@ -597,6 +563,7 @@ validate_org_registry <- function() {
     registry_name = "structures",
     error_class = "xpipe_org_structures"
   )
+
   .validate_child_period_containment(
     child = structs,
     child_parent_col = "organization_uid",
@@ -631,26 +598,25 @@ validate_org_registry <- function() {
     "valid_to"
   )
 
-  missing_cols <- setdiff(required_cols, names(facs))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid facilities registry",
-        "x" = "Missing required columns: {.val {missing_cols}}"
-      ),
-      class = c("xpipe_org_facilities", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_required_columns(
+    x = facs,
+    required_cols = required_cols,
+    registry_name = "facilities",
+    error_class = "xpipe_org_facilities"
+  )
 
-  if (nrow(facs) == 0) {
-    cli::cli_abort(
-      c(
-        "Invalid facilities registry",
-        "x" = "Registry is empty."
-      ),
-      class = c("xpipe_org_facilities", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_non_empty_registry(
+    x = facs,
+    registry_name = "facilities",
+    error_class = "xpipe_org_facilities"
+  )
+
+  .validate_required_character(
+    x = facs,
+    cols = c("facility_name"),
+    registry_name = "facilities",
+    error_class = "xpipe_org_facilities"
+  )
 
   bad_code <- is.na(facs$facility_code) |
     !grepl("^[0-9]{8}$", facs$facility_code)
@@ -660,16 +626,6 @@ validate_org_registry <- function() {
       c(
         "Invalid facilities registry",
         "x" = "Invalid facility_code format. Expected 8 numeric characters."
-      ),
-      class = c("xpipe_org_facilities", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (any(is.na(facs$facility_name) | trimws(facs$facility_name) == "")) {
-    cli::cli_abort(
-      c(
-        "Invalid facilities registry",
-        "x" = "Column {.field facility_name} contains missing or empty values."
       ),
       class = c("xpipe_org_facilities", "xpipe_org_error", "xpipe_error")
     )
@@ -728,56 +684,25 @@ validate_org_registry <- function() {
     "valid_to"
   )
 
-  missing_cols <- setdiff(required_cols, names(departments))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid departments registry",
-        "x" = "Missing required columns: {.val {missing_cols}}"
-      ),
-      class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_required_columns(
+    x = departments,
+    required_cols = required_cols,
+    registry_name = "departments",
+    error_class = "xpipe_org_departments"
+  )
 
-  if (nrow(departments) == 0) {
-    cli::cli_abort(
-      c(
-        "Invalid departments registry",
-        "x" = "Registry is empty."
-      ),
-      class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_non_empty_registry(
+    x = departments,
+    registry_name = "departments",
+    error_class = "xpipe_org_departments"
+  )
 
-  if (
-    any(
-      is.na(departments$department_uid) |
-        trimws(departments$department_uid) == ""
-    )
-  ) {
-    cli::cli_abort(
-      c(
-        "Invalid departments registry",
-        "x" = "Column {.field department_uid} contains missing or empty values."
-      ),
-      class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (
-    any(
-      is.na(departments$department_name) |
-        trimws(departments$department_name) == ""
-    )
-  ) {
-    cli::cli_abort(
-      c(
-        "Invalid departments registry",
-        "x" = "Column {.field department_name} contains missing or empty values."
-      ),
-      class = c("xpipe_org_departments", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_required_character(
+    x = departments,
+    cols = c("department_uid", "department_name"),
+    registry_name = "departments",
+    error_class = "xpipe_org_departments"
+  )
 
   .validate_validity_window(
     x = departments,
@@ -833,47 +758,25 @@ validate_org_registry <- function() {
     "valid_to"
   )
 
-  missing_cols <- setdiff(required_cols, names(units))
+  .validate_required_columns(
+    x = units,
+    required_cols = required_cols,
+    registry_name = "units",
+    error_class = "xpipe_org_units"
+  )
 
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid units registry",
-        "x" = "Missing required columns: {.val {missing_cols}}"
-      ),
-      class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_non_empty_registry(
+    x = units,
+    registry_name = "units",
+    error_class = "xpipe_org_units"
+  )
 
-  if (nrow(units) == 0) {
-    cli::cli_abort(
-      c(
-        "Invalid units registry",
-        "x" = "Registry is empty."
-      ),
-      class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (any(is.na(units$uo_uid) | trimws(units$uo_uid) == "")) {
-    cli::cli_abort(
-      c(
-        "Invalid units registry",
-        "x" = "Column {.field uo_uid} contains missing or empty values."
-      ),
-      class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (any(is.na(units$uo_name) | trimws(units$uo_name) == "")) {
-    cli::cli_abort(
-      c(
-        "Invalid units registry",
-        "x" = "Column {.field uo_name} contains missing or empty values."
-      ),
-      class = c("xpipe_org_units", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_required_character(
+    x = units,
+    cols = c("uo_uid", "uo_name"),
+    registry_name = "units",
+    error_class = "xpipe_org_units"
+  )
 
   bad_type <- is.na(units$uo_type) |
     !(units$uo_type %in% c("UOC", "UOSD"))
@@ -946,27 +849,25 @@ validate_org_registry <- function() {
     "valid_to"
   )
 
-  missing_cols <- setdiff(required_cols, names(unit_codes))
+  .validate_required_columns(
+    x = unit_codes,
+    required_cols = required_cols,
+    registry_name = "unit codes",
+    error_class = "xpipe_org_unit_codes"
+  )
 
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Missing required columns: {.val {missing_cols}}"
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_non_empty_registry(
+    x = unit_codes,
+    registry_name = "unit codes",
+    error_class = "xpipe_org_unit_codes"
+  )
 
-  if (nrow(unit_codes) == 0) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Registry is empty."
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
+  .validate_required_character(
+    x = unit_codes,
+    cols = c("short_name"),
+    registry_name = "unit codes",
+    error_class = "xpipe_org_unit_codes"
+  )
 
   bad_facility_code <- is.na(unit_codes$facility_code) |
     !grepl("^[0-9]{8}$", unit_codes$facility_code)
@@ -993,16 +894,6 @@ validate_org_registry <- function() {
         "Invalid unit codes registry",
         "x" = "Invalid unit_code format found: {.val {bad_codes}}",
         "i" = "Expected 4-character numeric codes, preserving leading zeroes."
-      ),
-      class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
-    )
-  }
-
-  if (any(is.na(unit_codes$short_name) | trimws(unit_codes$short_name) == "")) {
-    cli::cli_abort(
-      c(
-        "Invalid unit codes registry",
-        "x" = "Column {.field short_name} contains missing or empty values."
       ),
       class = c("xpipe_org_unit_codes", "xpipe_org_error", "xpipe_error")
     )
@@ -1149,6 +1040,87 @@ validate_org_registry <- function() {
     registry_name = "unit codes",
     error_class = "xpipe_org_unit_codes"
   )
+
+  invisible(TRUE)
+}
+
+
+#' Validate Required Columns
+#' @noRd
+.validate_required_columns <- function(
+  x,
+  required_cols,
+  registry_name,
+  error_class
+) {
+  missing_cols <- setdiff(required_cols, names(x))
+
+  if (length(missing_cols) > 0) {
+    cli::cli_abort(
+      c(
+        paste0("Invalid ", registry_name, " registry"),
+        "x" = "Missing required columns: {.val {missing_cols}}"
+      ),
+      class = c(error_class, "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
+#' Validate Registry Is Not Empty
+#' @noRd
+.validate_non_empty_registry <- function(
+  x,
+  registry_name,
+  error_class
+) {
+  if (nrow(x) == 0) {
+    cli::cli_abort(
+      c(
+        paste0("Invalid ", registry_name, " registry"),
+        "x" = "Registry is empty."
+      ),
+      class = c(error_class, "xpipe_org_error", "xpipe_error")
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
+#' Validate Required Character Columns
+#' @noRd
+.validate_required_character <- function(
+  x,
+  cols,
+  registry_name,
+  error_class
+) {
+  bad_cols <- character()
+
+  for (col in cols) {
+    values <- x[[col]]
+
+    bad_values <- is.na(values) | trimws(values) == ""
+
+    if (any(bad_values)) {
+      bad_cols <- c(bad_cols, col)
+    }
+  }
+
+  bad_cols <- unique(bad_cols)
+
+  if (length(bad_cols) > 0) {
+    cli::cli_abort(
+      c(
+        paste0("Invalid ", registry_name, " registry"),
+        "x" = "Required character columns contain missing or empty values: {.field {bad_cols}}"
+      ),
+      class = c(error_class, "xpipe_org_error", "xpipe_error")
+    )
+  }
 
   invisible(TRUE)
 }
