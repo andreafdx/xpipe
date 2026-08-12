@@ -4,8 +4,23 @@ test_that("load_org loaders read 6-table registry correctly", {
   on.exit(fs::dir_delete(tmp_dir), add = TRUE)
 
   # Copy templates directly to avoid triggering full init_xne_project batch hash checks
-  tmpl_dir <- fs::path_abs(testthat::test_path("../../inst/templates/shared/org"))
-  fs::dir_copy(tmpl_dir, fs::path(tmp_dir, "data", "shared", "org"), overwrite = TRUE)
+  tmpl_dir <- system.file(
+    "templates",
+    "shared",
+    "org",
+    package = "xpipe"
+  )
+
+  expect_true(fs::dir_exists(tmpl_dir))
+
+  print(tmpl_dir)
+  print(fs::dir_exists(tmpl_dir))
+
+  fs::dir_copy(
+    tmpl_dir,
+    fs::path(tmp_dir, "data", "shared", "org"),
+    overwrite = TRUE
+  )
 
   mock_cfg <- structure(
     list(
@@ -17,7 +32,8 @@ test_that("load_org loaders read 6-table registry correctly", {
     ),
     class = "xpipe_config"
   )
-  .xpipe_env$config <- mock_cfg
+  xenv <- get(".xpipe_env", envir = asNamespace("xpipe"))
+  xenv$config <- mock_cfg
 
   orgs <- load_organizations(validate = FALSE)
   expect_s3_class(orgs, "tbl_df")
@@ -48,8 +64,20 @@ test_that("validate_org_registry detects invalid structure_code", {
   fs::dir_create(fs::path(tmp_dir, "data", "shared", "org"), recurse = TRUE)
   on.exit(fs::dir_delete(tmp_dir), add = TRUE)
 
-  tmpl_dir <- fs::path_abs(testthat::test_path("../../inst/templates/shared/org"))
-  fs::dir_copy(tmpl_dir, fs::path(tmp_dir, "data", "shared", "org"), overwrite = TRUE)
+  tmpl_dir <- system.file(
+    "templates",
+    "shared",
+    "org",
+    package = "xpipe"
+  )
+
+  expect_true(fs::dir_exists(tmpl_dir))
+
+  fs::dir_copy(
+    tmpl_dir,
+    fs::path(tmp_dir, "data", "shared", "org"),
+    overwrite = TRUE
+  )
 
   mock_cfg <- structure(
     list(
@@ -61,7 +89,8 @@ test_that("validate_org_registry detects invalid structure_code", {
     ),
     class = "xpipe_config"
   )
-  .xpipe_env$config <- mock_cfg
+  xenv <- get(".xpipe_env", envir = asNamespace("xpipe"))
+  xenv$config <- mock_cfg
 
   # Corrupt structure_code
   struct_path <- fs::path(tmp_dir, "data", "shared", "org", "structures.csv")
@@ -80,8 +109,20 @@ test_that("validate_org_registry detects invalid facility_code", {
   fs::dir_create(fs::path(tmp_dir, "data", "shared", "org"), recurse = TRUE)
   on.exit(fs::dir_delete(tmp_dir), add = TRUE)
 
-  tmpl_dir <- fs::path_abs(testthat::test_path("../../inst/templates/shared/org"))
-  fs::dir_copy(tmpl_dir, fs::path(tmp_dir, "data", "shared", "org"), overwrite = TRUE)
+  tmpl_dir <- system.file(
+    "templates",
+    "shared",
+    "org",
+    package = "xpipe"
+  )
+
+  expect_true(fs::dir_exists(tmpl_dir))
+
+  fs::dir_copy(
+    tmpl_dir,
+    fs::path(tmp_dir, "data", "shared", "org"),
+    overwrite = TRUE
+  )
 
   mock_cfg <- structure(
     list(
@@ -93,7 +134,8 @@ test_that("validate_org_registry detects invalid facility_code", {
     ),
     class = "xpipe_config"
   )
-  .xpipe_env$config <- mock_cfg
+  xenv <- get(".xpipe_env", envir = asNamespace("xpipe"))
+  xenv$config <- mock_cfg
 
   # Corrupt facility_code
   fac_path <- fs::path(tmp_dir, "data", "shared", "org", "facilities.csv")
@@ -112,8 +154,20 @@ test_that("validate_org_registry detects unknown foreign keys", {
   fs::dir_create(fs::path(tmp_dir, "data", "shared", "org"), recurse = TRUE)
   on.exit(fs::dir_delete(tmp_dir), add = TRUE)
 
-  tmpl_dir <- fs::path_abs(testthat::test_path("../../inst/templates/shared/org"))
-  fs::dir_copy(tmpl_dir, fs::path(tmp_dir, "data", "shared", "org"), overwrite = TRUE)
+  tmpl_dir <- system.file(
+    "templates",
+    "shared",
+    "org",
+    package = "xpipe"
+  )
+
+  expect_true(fs::dir_exists(tmpl_dir))
+
+  fs::dir_copy(
+    tmpl_dir,
+    fs::path(tmp_dir, "data", "shared", "org"),
+    overwrite = TRUE
+  )
 
   mock_cfg <- structure(
     list(
@@ -125,7 +179,8 @@ test_that("validate_org_registry detects unknown foreign keys", {
     ),
     class = "xpipe_config"
   )
-  .xpipe_env$config <- mock_cfg
+  xenv <- get(".xpipe_env", envir = asNamespace("xpipe"))
+  xenv$config <- mock_cfg
 
   # Set unknown organization_uid in departments
   dep_path <- fs::path(tmp_dir, "data", "shared", "org", "departments.csv")
