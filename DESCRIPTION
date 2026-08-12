@@ -1,6 +1,6 @@
 Package: xpipe
 Title: A Personal Medallion Data Pipeline for Health Administrative Data
-Version: 1.1.1
+Version: 1.2.0
 Authors@R: 
     person("Andrea", "Fidecicchi", , "andreafidecicchi@gmail.com", role = c("aut", "cre"))
 Description: Provides tools for ingesting, validating, and promoting
