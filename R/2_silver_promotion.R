@@ -234,40 +234,50 @@ promote_to_silver <- function(
 
   # Rebuild the master ricovero table via streamlined left joins
 
-  sql <- paste0(
-    "CREATE OR REPLACE TABLE harmonized.ricovero AS
-     SELECT
-       r.* REPLACE (",
-    drg_normalized_expr,
-    " AS drg),
-       ",
-    .silver_sql_timestamp("r.data_ricovero", "r.ora_ricovero"),
-    " AS t_amm,
-       ",
-    .silver_sql_timestamp("r.data_dimissione_morte", "r.ora_dimissione_morte"),
-    " AS t_dim,
-       d.diagnosi_principale,
-       d.diagnosi_secondarie,
-       d.tutte_le_diagnosi,
-       p.procedura_principale,
-       p.tutte_le_procedure,
-       a.identificativo_paziente
-     FROM harmonized.ricovero r
-     LEFT JOIN (",
-    diag_aggregated_sql,
-    ") d
-       ON r.codice_istituto_di_cura = d.codice_istituto_di_cura
-      AND r.progressivo_sdo = d.progressivo_sdo
-     LEFT JOIN (",
-    proc_aggregated_sql,
-    ") p
-       ON r.codice_istituto_di_cura = p.codice_istituto_di_cura
-      AND r.progressivo_sdo = p.progressivo_sdo
-     LEFT JOIN (",
-    id_paziente_sql,
-    ") a
-       ON r.codice_istituto_di_cura = a.codice_istituto_di_cura
-      AND r.progressivo_sdo = a.progressivo_sdo"
+  sql <- glue::glue(
+    "
+    CREATE OR REPLACE TABLE harmonized.ricovero AS
+    SELECT
+      r.* REPLACE (
+        {drg_normalized_expr} AS drg
+      ),
+
+      {.silver_sql_timestamp('r.data_ricovero', 'r.ora_ricovero')} AS t_amm,
+
+      {.silver_sql_timestamp(
+        'r.data_dimissione_morte',
+        'r.ora_dimissione_morte'
+      )} AS t_dim,
+
+      d.diagnosi_principale,
+      d.diagnosi_secondarie,
+      d.tutte_le_diagnosi,
+
+      p.procedura_principale,
+      p.tutte_le_procedure,
+
+      a.identificativo_paziente
+
+    FROM harmonized.ricovero r
+
+    LEFT JOIN (
+    {diag_aggregated_sql}
+    ) d
+      ON r.codice_istituto_di_cura = d.codice_istituto_di_cura
+     AND r.progressivo_sdo = d.progressivo_sdo
+
+    LEFT JOIN (
+    {proc_aggregated_sql}
+    ) p
+      ON r.codice_istituto_di_cura = p.codice_istituto_di_cura
+     AND r.progressivo_sdo = p.progressivo_sdo
+
+    LEFT JOIN (
+    {id_paziente_sql}
+    ) a
+      ON r.codice_istituto_di_cura = a.codice_istituto_di_cura
+     AND r.progressivo_sdo = a.progressivo_sdo
+    "
   )
 
   DBI::dbExecute(con, sql)
@@ -586,6 +596,18 @@ promote_to_silver <- function(
 
   out_cols_sql <- DBI::dbQuoteIdentifier(con, out_cols)
 
+  sql_fallback <- glue::glue(
+    "
+    CREATE OR REPLACE TABLE {table_id} AS
+    SELECT
+      h.*,
+      NULL::VARCHAR AS {out_cols_sql[[1]]},
+      NULL::VARCHAR AS {out_cols_sql[[2]]},
+      NULL::VARCHAR AS {out_cols_sql[[3]]}
+    FROM {table_id} h
+    "
+  )
+
   tryCatch(
     {
       # Check if org_unit_codes temporary table was loaded successfully
@@ -596,19 +618,6 @@ promote_to_silver <- function(
       )
       if (!org_loaded) {
         # Non-blocking fallback: add output columns as NULL/NA
-        sql_fallback <- paste0(
-          "CREATE OR REPLACE TABLE ",
-          table_id,
-          " AS SELECT h.*, NULL::VARCHAR AS ",
-          out_cols_sql[[1]],
-          ", NULL::VARCHAR AS ",
-          out_cols_sql[[2]],
-          ", NULL::VARCHAR AS ",
-          out_cols_sql[[3]],
-          " FROM ",
-          table_id,
-          " h"
-        )
         try(DBI::dbExecute(con, sql_fallback), silent = TRUE)
         return(invisible(TRUE))
       }
@@ -620,105 +629,91 @@ promote_to_silver <- function(
         ", '\\\\.0+$', ''), '[^0-9]', '', 'g')"
       )
 
-      normalized_code_expr <- paste0(
-        "CASE WHEN ",
-        raw_code_expr,
-        " IS NULL OR ",
-        raw_code_expr,
-        " = '' THEN NULL ",
-        "WHEN ",
-        clean_code_expr,
-        " = '' THEN NULL ",
-        "WHEN length(",
-        clean_code_expr,
-        ") >= 4 THEN right(",
-        clean_code_expr,
-        ", 4) ",
-        "ELSE lpad(",
-        clean_code_expr,
-        ", 4, '0') END"
+      normalized_code_expr <- glue::glue(
+        "
+        CASE
+          WHEN {raw_code_expr} IS NULL
+               OR {raw_code_expr} = ''
+            THEN NULL
+
+          WHEN {clean_code_expr} = ''
+            THEN NULL
+
+          WHEN length({clean_code_expr}) >= 4
+            THEN right({clean_code_expr}, 4)
+
+          ELSE lpad({clean_code_expr}, 4, '0')
+        END
+        "
       )
 
-      facility_code_expr <- paste0(
-        "CASE ",
-        "WHEN length(",
-        clean_code_expr,
-        ") >= 12 THEN left(",
-        clean_code_expr,
-        ", 8) ",
-        "ELSE NULL END"
+      facility_code_expr <- glue::glue(
+        "
+        CASE
+          WHEN length({clean_code_expr}) >= 12
+            THEN left({clean_code_expr}, 8)
+          ELSE NULL
+        END
+        "
       )
 
-      date_expr <- paste0(
-        "COALESCE(",
-        "TRY_CAST(h.",
-        date_sql,
-        " AS DATE), ",
-        "CAST(TRY_STRPTIME(CAST(h.",
-        date_sql,
-        " AS VARCHAR), '%d/%m/%Y') AS DATE), ",
-        "CAST(TRY_STRPTIME(CAST(h.",
-        date_sql,
-        " AS VARCHAR), '%Y-%m-%d') AS DATE))"
+      date_expr <- glue::glue(
+        "
+        COALESCE(
+          TRY_CAST(h.{date_sql} AS DATE),
+          CAST(
+            TRY_STRPTIME(
+              CAST(h.{date_sql} AS VARCHAR),
+              '%d/%m/%Y'
+            ) AS DATE
+          ),
+          CAST(
+            TRY_STRPTIME(
+              CAST(h.{date_sql} AS VARCHAR),
+              '%Y-%m-%d'
+            ) AS DATE
+          )
+        )
+        "
       )
 
-      sql <- paste0(
-        "CREATE OR REPLACE TABLE ",
-        table_id,
-        " AS ",
-        "SELECT h.*, ",
-        "uc.unit_code AS ",
-        out_cols_sql[[1]],
-        ", ",
-        "uce.unit_code AS ",
-        out_cols_sql[[2]],
-        ", ",
-        "uce.short_name AS ",
-        out_cols_sql[[3]],
-        " ",
-        "FROM ",
-        table_id,
-        " h ",
-        "LEFT JOIN org_unit_codes uc ",
-        "  ON (",
-        "       (",
-        facility_code_expr,
-        " IS NOT NULL ",
-        "       AND ",
-        facility_code_expr,
-        " = uc.facility_code ",
-        "       AND ",
-        normalized_code_expr,
-        " = uc.unit_code",
-        "       ) ",
-        "       OR (",
-        facility_code_expr,
-        " IS NULL ",
-        "       AND ",
-        normalized_code_expr,
-        " = uc.unit_code",
-        "       )",
-        "     ) ",
-        " AND ",
-        date_expr,
-        " >= uc.valid_from ",
-        " AND ",
-        date_expr,
-        " <= COALESCE(uc.valid_to, DATE '9999-12-31') ",
-        "LEFT JOIN org_unit_codes uce ",
-        "  ON CASE ",
-        "       WHEN uc.is_external = TRUE ",
-        "       THEN uc.unit_code ",
-        "       ELSE uc.parent_unit_code ",
-        "     END = uce.unit_code ",
-        " AND uce.facility_code = uc.facility_code ",
-        " AND uce.is_external = TRUE ",
-        " AND ",
-        date_expr,
-        " >= uce.valid_from ",
-        " AND ",
-        date_expr,
-        " <= COALESCE(uce.valid_to, DATE '9999-12-31')"
+      sql <- glue::glue(
+        "
+        CREATE OR REPLACE TABLE {table_id} AS
+        SELECT
+          h.*,
+          uc.unit_code AS {out_cols_sql[[1]]},
+          uce.unit_code AS {out_cols_sql[[2]]},
+          uce.short_name AS {out_cols_sql[[3]]}
+        FROM {table_id} h
+
+        LEFT JOIN org_unit_codes uc
+          ON (
+               (
+                 {facility_code_expr} IS NOT NULL
+                 AND {facility_code_expr} = uc.facility_code
+                 AND {normalized_code_expr} = uc.unit_code
+               )
+               OR
+               (
+                 {facility_code_expr} IS NULL
+                 AND {normalized_code_expr} = uc.unit_code
+               )
+             )
+         AND {date_expr} >= uc.valid_from
+         AND {date_expr} <= COALESCE(uc.valid_to, DATE '9999-12-31')
+
+        LEFT JOIN org_unit_codes uce
+          ON CASE
+               WHEN uc.is_external = TRUE
+               THEN uc.unit_code
+               ELSE uc.parent_unit_code
+             END = uce.unit_code
+         AND uce.facility_code = uc.facility_code
+         AND uce.is_external = TRUE
+         AND {date_expr} >= uce.valid_from
+         AND {date_expr} <= COALESCE(uce.valid_to, DATE '9999-12-31')
+        "
       )
 
       DBI::dbExecute(con, sql)
@@ -730,22 +725,6 @@ promote_to_silver <- function(
           "i" = "Enrichment failed for table {.val {table_name}}. Output columns populated with NA.",
           "x" = conditionMessage(e)
         )
-      )
-      sql_fallback <- paste0(
-        "CREATE OR REPLACE TABLE ",
-        table_id,
-        " AS SELECT h.*, ",
-        "NULL::VARCHAR AS ",
-        out_cols_sql[[1]],
-        ", ",
-        "NULL::VARCHAR AS ",
-        out_cols_sql[[2]],
-        ", ",
-        "NULL::VARCHAR AS ",
-        out_cols_sql[[3]],
-        " FROM ",
-        table_id,
-        " h"
       )
       try(DBI::dbExecute(con, sql_fallback), silent = TRUE)
     }
