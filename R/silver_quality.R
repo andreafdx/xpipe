@@ -25,7 +25,9 @@
 #   .silver_quality_profile_registry
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Quality Contracts --------------------------------------------------------
+# Pipeline ----------------------------------------------------------------
+
+## Quality Contracts ------------------------------------------------------
 
 #' Validate quality findings output
 #'
@@ -141,7 +143,7 @@
   invisible(TRUE)
 }
 
-# Quality Persistence ---------------------------------------------------------------
+## Quality Persistence ----------------------------------------------------
 
 #' Write quality findings table
 #'
@@ -191,7 +193,7 @@
   invisible(TRUE)
 }
 
-# Quality Orchestration ----------------------------------------------------
+## Quality Orchestration --------------------------------------------------
 
 #' Run Silver quality profile
 #'
@@ -277,7 +279,7 @@
   invisible(TRUE)
 }
 
-# Quality Profiles ------------------------------------------------------
+## Quality Profiles -------------------------------------------------------
 
 .silver_quality_sdo_v1 <- function(
   con,
@@ -292,27 +294,15 @@
       severity = character(),
       quality_code = character(),
       message = character(),
-      detected_at = as.POSIXct(character()),
       stringsAsFactors = FALSE
     ),
-    assessment = data.frame(
-      scope = character(),
-      indicator_code = character(),
-      indicator_label = character(),
-      indicator_type = character(),
-      category = character(),
-      value_num = numeric(),
-      value_text = character(),
-      severity = character(),
-      message = character(),
-      batch_id = character(),
-      assessed_at = as.POSIXct(character()),
-      stringsAsFactors = FALSE
+    assessment = dplyr::bind_rows(
+      .sdo_indicator_internal_codes_differ(con)
     )
   )
 }
 
-# Quality profile registry ------------------------------------------------------
+## Quality profile registry -----------------------------------------------
 
 #' Silver quality profile registry
 #'
@@ -324,3 +314,50 @@
 .silver_quality_profile_registry <- list(
   sdo_quality_v1 = .silver_quality_sdo_v1
 )
+
+# SDO --------------------------------------------------------------------
+
+## Assessment ------------------------------------------------------------
+
+#' SDO Assessment: Internal Codes Differ From External
+#'
+#' Detects whether at least one matched internal unit code differs from
+#' its corresponding external unit code.
+#'
+#' @param con DuckDB connection.
+#'
+#' @return One-row data frame compatible with q_assessment.
+#' @keywords internal
+#' @noRd
+.sdo_indicator_internal_codes_differ <- function(con) {
+  has_distinct_internal <- DBI::dbGetQuery(
+    con,
+    "
+    SELECT EXISTS (
+      SELECT 1
+      FROM harmonized.ricovero
+      WHERE unita_operativa_dimissione_unit_code_internal IS NOT NULL
+        AND unita_operativa_dimissione_unit_code_external IS NOT NULL
+        AND unita_operativa_dimissione_unit_code_internal <>
+            unita_operativa_dimissione_unit_code_external
+    ) AS has_indicator
+    "
+  )$has_indicator[[1]]
+
+  data.frame(
+    scope = "ricovero",
+    indicator_code = "QA001",
+    indicator_label = "Distinct Internal Codes Detected",
+    indicator_type = "boolean",
+    category = "ORGANIZATION",
+    value_num = if (isTRUE(has_distinct_internal)) 1 else 0,
+    value_text = if (isTRUE(has_distinct_internal)) "YES" else "NO",
+    severity = if (isTRUE(has_distinct_internal)) "INFO" else "WARNING",
+    message = if (isTRUE(has_distinct_internal)) {
+      "At least one internal unit code differs from its external code"
+    } else {
+      "No internal unit codes distinct from external NSIS codes were detected. Did you set 'Internal Units' before exporting XML?"
+    },
+    stringsAsFactors = FALSE
+  )
+}
