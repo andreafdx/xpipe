@@ -151,7 +151,7 @@ promote_to_silver <- function(
   invisible(TRUE)
 }
 
-# Harmonization profile registry -------------------------------------------
+# Harmonization profiles registries --------------------------------------------
 
 #' SDO Silver-harmonized profile
 #'
@@ -462,7 +462,6 @@ promote_to_silver <- function(
   invisible(TRUE)
 }
 
-
 #' Load Organizational Registry into DuckDB Temporary Tables
 #'
 #' Loads validated org registry CSVs through xpipe loaders and registers them
@@ -733,7 +732,6 @@ promote_to_silver <- function(
   invisible(TRUE)
 }
 
-
 #' Silver-harmonized profile registry
 #'
 #' Internal registry mapping harmonization profile identifiers
@@ -741,6 +739,16 @@ promote_to_silver <- function(
 .silver_harmonized_profile_registry <- list(
   sdo_harmonized_v1 = .silver_profile_sdo_harmonized_v1,
   emur_harmonized_v1 = .silver_profile_emur_harmonized_v1
+)
+
+#' Silver quality profile registry
+#'
+#' Internal registry mapping quality profile identifiers
+#' (as declared in silver.json) to code-driven quality functions.
+#'
+#' @keywords internal
+#' @noRd
+.silver_quality_profile_registry <- list(
 )
 
 # Helpers -----------------------------------------------------------------
@@ -1215,6 +1223,53 @@ promote_to_silver <- function(
   )
 }
 
+#' Resolve quality profile for a Silver stream
+#'
+#' @param stream_id Character scalar.
+#' @param config xpipe_config.
+#'
+#' @return Character scalar profile identifier or NULL if disabled.
+#' @keywords internal
+#' @noRd
+.resolve_silver_quality_profile <- function(
+  stream_id,
+  config
+) {
+  checkmate::assert_string(stream_id)
+  checkmate::assert_class(config, "xpipe_config")
+
+  s <- config$silver[[stream_id]]
+
+  if (is.null(s)) {
+    cli::cli_abort(
+      c(
+        "Silver stream not configured",
+        "x" = "Stream {.val {stream_id}} not found in silver.json"
+      ),
+      class = c("xpipe_config_error", "xpipe_error")
+    )
+  }
+
+  qcfg <- s$quality
+
+  if (is.null(qcfg) || !isTRUE(qcfg$enabled)) {
+    return(NULL)
+  }
+
+  profile_id <- qcfg$profile %||% NA_character_
+
+  if (!checkmate::test_string(profile_id, min.chars = 1)) {
+    cli::cli_abort(
+      c(
+        "Invalid quality configuration",
+        "x" = "Quality profile must be specified for stream {.val {stream_id}}"
+      ),
+      class = c("xpipe_silver_config", "xpipe_error")
+    )
+  }
+
+  profile_id
+}
 
 ## Pipeline ----------------------------------------------------------------
 
