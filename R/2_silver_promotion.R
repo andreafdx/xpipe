@@ -741,16 +741,6 @@ promote_to_silver <- function(
   emur_harmonized_v1 = .silver_profile_emur_harmonized_v1
 )
 
-#' Silver quality profile registry
-#'
-#' Internal registry mapping quality profile identifiers
-#' (as declared in silver.json) to code-driven quality functions.
-#'
-#' @keywords internal
-#' @noRd
-.silver_quality_profile_registry <- list(
-)
-
 # Helpers -----------------------------------------------------------------
 
 #' Build Safe Timestamp SQL Expression

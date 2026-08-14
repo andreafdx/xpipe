@@ -25,6 +25,38 @@
 #   .silver_quality_profile_registry
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Quality Profiles ------------------------------------------------------
+
+.silver_quality_sdo_v1 <- function(
+  con,
+  stream_id,
+  config
+) {
+
+  list(
+    findings = data.frame(
+      table_name = character(),
+      record_id = character(),
+      severity = character(),
+      quality_code = character(),
+      message = character(),
+      stringsAsFactors = FALSE
+    ),
+    assessment = data.frame(
+      scope = character(),
+      indicator_code = character(),
+      indicator_label = character(),
+      indicator_type = character(),
+      category = character(),
+      value_num = numeric(),
+      value_text = character(),
+      severity = character(),
+      message = character(),
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
 
 # Quality Contracts --------------------------------------------------------
 
@@ -146,3 +178,110 @@
 
   invisible(TRUE)
 }
+
+# Quality Orchestration ----------------------------------------------------
+
+#' Run Silver quality profile
+#'
+#' Resolves and executes the configured quality profile for a stream,
+#' validates outputs, and writes quality artifacts to the harmonized schema.
+#'
+#' @param con DuckDB connection.
+#' @param stream_id Character scalar.
+#' @param config xpipe_config.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
+#' @noRd
+.run_silver_quality_profile <- function(
+  con,
+  stream_id,
+  config
+) {
+
+  checkmate::assert_string(stream_id)
+  checkmate::assert_class(config, "xpipe_config")
+
+  profile_id <- .resolve_silver_quality_profile(
+    stream_id = stream_id,
+    config = config
+  )
+
+  if (is.null(profile_id)) {
+    return(invisible(TRUE))
+  }
+
+  profile_fn <- .silver_quality_profile_registry[[profile_id]]
+
+  if (is.null(profile_fn)) {
+    cli::cli_abort(
+      c(
+        "Unknown Silver quality profile",
+        "x" = "Profile {.val {profile_id}} is not registered"
+      ),
+      class = c("xpipe_silver_quality_error", "xpipe_error")
+    )
+  }
+
+  out <- profile_fn(
+    con = con,
+    stream_id = stream_id,
+    config = config
+  )
+
+  if (!is.list(out)) {
+    cli::cli_abort(
+      c(
+        "Invalid quality profile output",
+        "x" = "Quality profile must return a list"
+      ),
+      class = c("xpipe_silver_quality_error", "xpipe_error")
+    )
+  }
+
+  if (!all(c("findings", "assessment") %in% names(out))) {
+    cli::cli_abort(
+      c(
+        "Invalid quality profile output",
+        "x" = "Output must contain {.val findings} and {.val assessment}"
+      ),
+      class = c("xpipe_silver_quality_error", "xpipe_error")
+    )
+  }
+
+  .validate_quality_findings(out$findings)
+  .validate_quality_assessment(out$assessment)
+
+  DBI::dbWriteTable(
+    con,
+    DBI::Id(schema = "harmonized", table = "q_findings"),
+    out$findings,
+    overwrite = TRUE
+  )
+
+  DBI::dbWriteTable(
+    con,
+    DBI::Id(schema = "harmonized", table = "q_assessment"),
+    out$assessment,
+    overwrite = TRUE
+  )
+
+  invisible(TRUE)
+}
+
+# Quality profile registry ------------------------------------------------------
+
+#' Silver quality profile registry
+#'
+#' Internal registry mapping quality profile identifiers
+#' (as declared in silver.json) to code-driven quality functions.
+#'
+#' @keywords internal
+#' @noRd
+.silver_quality_profile_registry <- list(
+  sdo_quality_v1 = .silver_quality_sdo_v1
+)
+
+# Temp ----------------------------------------------------------------
+.write_quality_findings()
+.write_quality_assessment()
