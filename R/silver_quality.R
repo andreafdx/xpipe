@@ -281,6 +281,7 @@
   invisible(TRUE)
 }
 
+
 ## Quality Profiles -------------------------------------------------------
 
 .silver_quality_sdo_v1 <- function(
@@ -289,14 +290,8 @@
   config
 ) {
   list(
-    findings = data.frame(
-      table_name = character(),
-      record_id = character(),
-      batch_id = character(),
-      severity = character(),
-      quality_code = character(),
-      message = character(),
-      stringsAsFactors = FALSE
+    findings = dplyr::bind_rows(
+      .sdo_finding_unknown_facility(con, stream_id, config)
     ),
     assessment = dplyr::bind_rows(
       .sdo_indicator_internal_codes_differ(con),
@@ -319,6 +314,192 @@
 )
 
 # SDO --------------------------------------------------------------------
+
+## Findings --------------------------------------------------------------
+
+#' SDO Finding: Unknown Facility
+#'
+#' Identifies ricovero records whose facility code is not present
+#' in the validated facilities registry.
+#'
+#' @param con DuckDB connection.
+#' @param stream_id Character scalar.
+#' @param config xpipe_config.
+#'
+#' @return Data frame compatible with q_findings.
+#' @keywords internal
+#' @noRd
+.sdo_finding_unknown_facility <- function(
+  con,
+  stream_id,
+  config
+) {
+  facilities <- load_facilities(validate = TRUE)
+
+  ricovero <- DBI::dbGetQuery(
+    con,
+    "
+    SELECT
+      codice_istituto_di_cura,
+      progressivo_sdo,
+      __batch_id
+    FROM harmonized.ricovero
+    "
+  )
+
+  bad_rows <- ricovero[
+    !(ricovero$codice_istituto_di_cura %in% facilities$facility_code),
+    ,
+    drop = FALSE
+  ]
+
+  if (nrow(bad_rows) == 0) {
+    return(
+      data.frame(
+        table_name = character(),
+        record_id = character(),
+        batch_id = character(),
+        severity = character(),
+        quality_code = character(),
+        message = character(),
+        stringsAsFactors = FALSE
+      )
+    )
+  }
+
+  record_id <- .build_quality_record_id(
+    data = bad_rows,
+    identity_keys = .get_harmonized_identity_keys(
+      stream_id = stream_id,
+      config = config
+    )
+  )
+
+  data.frame(
+    table_name = "ricovero",
+    record_id = record_id,
+    batch_id = bad_rows$__batch_id,
+    severity = "WARNING",
+    quality_code = "QF001",
+    message = "Facility code not found in facilities registry",
+    stringsAsFactors = FALSE
+  )
+}
+
+### (Useless?) Helpers ----------------------------------------------------
+
+#' Resolve harmonized identity keys
+#'
+#' Returns the identity columns as they exist in the harmonized schema.
+#'
+#' @param stream_id Character scalar.
+#' @param config xpipe_config.
+#'
+#' @return Character vector.
+#' @keywords internal
+#' @noRd
+.get_harmonized_identity_keys <- function(
+  stream_id,
+  config
+) {
+  checkmate::assert_string(stream_id)
+  checkmate::assert_class(config, "xpipe_config")
+
+  method_id <- .resolve_silver_canonical_method(
+    stream_id = stream_id,
+    config = config
+  )
+
+  method_cfg <- config$methods[[method_id]]
+
+  identity_keys <- method_cfg$identity_keys %||% character(0)
+
+  if (length(identity_keys) == 0) {
+    cli::cli_abort(
+      c(
+        "Identity keys not configured",
+        "x" = "Method {.val {method_id}} does not define identity_keys"
+      ),
+      class = c("xpipe_silver_quality_error", "xpipe_error")
+    )
+  }
+
+  hcfg <- config$silver[[stream_id]]$harmonized
+
+  anchor_table <- method_cfg$anchor_table
+
+  table_cfg <- hcfg$tables[[anchor_table]]
+
+  if (is.null(table_cfg)) {
+    return(identity_keys)
+  }
+
+  column_map <- unlist(table_cfg$columns) %||% character(0)
+
+  out <- vapply(
+    identity_keys,
+    function(key) {
+      hit <- names(column_map)[column_map == key]
+
+      if (length(hit) == 1) {
+        return(hit)
+      }
+
+      key
+    },
+    character(1)
+  )
+
+  out
+}
+
+#' Build quality record identifier
+#'
+#' Builds a stable record identifier from the supplied identity key columns.
+#'
+#' @param data Data frame.
+#' @param identity_keys Character vector.
+#'
+#' @return Character vector.
+#' @keywords internal
+#' @noRd
+.build_quality_record_id <- function(
+  data,
+  identity_keys
+) {
+  checkmate::assert_data_frame(data)
+  checkmate::assert_character(identity_keys, min.len = 1)
+
+  missing_cols <- setdiff(
+    identity_keys,
+    names(data)
+  )
+
+  if (length(missing_cols) > 0) {
+    cli::cli_abort(
+      c(
+        "Cannot build quality record identifiers",
+        "x" = paste(
+          "Missing identity columns:",
+          paste(missing_cols, collapse = ", ")
+        )
+      ),
+      class = c("xpipe_silver_quality_error", "xpipe_error")
+    )
+  }
+
+  apply(
+    data[, identity_keys, drop = FALSE],
+    1,
+    function(x) {
+      paste(
+        trimws(as.character(x)),
+        collapse = "|"
+      )
+    }
+  )
+}
+
 
 ## Assessment ------------------------------------------------------------
 
