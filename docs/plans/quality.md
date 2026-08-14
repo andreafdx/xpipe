@@ -352,12 +352,67 @@ Resident ASL completeness
 
 ---
 
+# Assessment Granularity
+
+Not all quality indicators operate at the same temporal level.
+
+Some indicators assess the entire stream.
+
+Others assess a reporting period such as a year or month.
+
+Examples:
+
+```text
+SDO
+- discharge year
+
+EMUR
+- reporting month
+```
+
+For example: 
+
+```text
+2024 -> valid
+2025 -> valid
+2026 -> extraction issue
+```
+
+A stream-wide indicator may incorrectly appear healthy because historical periods mask problems in the active reporting period.
+
+As a result, assessments must support period-aware evaluation.
+
+Future assessment records should support explicit temporal scope.
+
+Example:
+
+```text
+scope        = ricovero
+period_type  = YEAR
+period_value = 2026
+```
+Possible period types:
+
+```text
+STREAM
+YEAR
+MONTH
+```
+
+Not every indicator is required to use the same granularity.
+
+Some indicators may be stream-wide while others may be yearly or monthly.
+
+The chosen granularity is determined by the indicator itself.
+
 # Table: harmonized.q_assessment
 
 ## Suggested Structure
 
 ```text
 scope
+period_type
+period_value
 indicator_code
 indicator_label
 indicator_type
@@ -366,8 +421,6 @@ value_num
 value_text
 severity
 message
-batch_id
-assessed_at
 ```
 
 ---
@@ -704,18 +757,23 @@ tibble::tibble(
 
 ---
 
-# Quality Helper Structure
+# Quality Indicator Structure
 
-Profiles should remain lightweight.
+Quality profiles should remain lightweight.
 
-Preferred structure:
+Indicators should be implemented as small reusable functions.
+
+Example:
 
 ```r
 .silver_quality_sdo_v1 <- function(...) {
 
   list(
-    findings = .sdo_quality_findings(con),
-    assessment = .sdo_quality_assessment(con)
+    findings = ...,
+    assessment = dplyr::bind_rows(
+      .sdo_indicator_internal_codes_differ(con),
+      .sdo_indicator_facility_match_rate(con)
+    )
   )
 
 }
@@ -724,12 +782,16 @@ Preferred structure:
 Supporting helpers:
 
 ```r
-.sdo_quality_findings()
-.sdo_quality_assessment()
+.sdo_indicator_internal_codes_differ()
+.sdo_indicator_facility_match_rate()
 
-.emur_quality_findings()
-.emur_quality_assessment()
+.emur_indicator_x()
+.emur_indicator_y()
 ```
+
+Each indicator returns one assessment row.
+
+Quality profiles define which indicators are included in a specific quality version.
 
 ---
 
@@ -843,59 +905,38 @@ to execute quality assessment after harmonization.
 
 # Phase 2: Initial SDO Indicators
 
-Implement a small initial set.
+Implement a small initial set of assessment indicators.
 
-## Assessments
-
-### ORG_MATCH_RATE
-
-Percentage of records successfully matched to an organization.
-
----
-
-### FACILITY_MATCH_RATE
-
-Percentage of records successfully matched to a facility.
-
----
-
-### INTERNAL_CODES_PRESENT
-
-Boolean indicator.
+### QA001
+Internal Codes Differ From External
 
 Purpose:
 
-Detect streams containing only external unit codes.
+Detect exports where only external NSIS codes appear to have been provided.
+
+Expected state:
+
+```text
+At least one matched internal unit code differs from
+its corresponding external unit code.
+```
 
 Severity:
 
 ```text
-INFO
+INFO    -> condition satisfied
+WARNING -> condition not satisfied
 ```
-
-when present.
 
 ```text
-WARNING
+Facility Match Rate
+Known Facility Coverage
+Single Source Batch Detected
+Internal Unit Coverage
+External Unit Coverage
 ```
 
-when absent.
-
----
-
-## Findings
-
-### UNMATCHED_INTERNAL_UNIT
-
-Severity:
-
-```text
-WARNING
-```
-
-Generated when internal unit matching fails.
-
----
+Final indicator set to be refined iteratively during implementation.
 
 # Phase 3: xplorer Integration
 
@@ -963,3 +1004,23 @@ xplorer
 ```
 
 The framework remains generic, while individual streams remain free to define their own findings and assessment indicators.
+
+
+## Current Implementation Status 
+
+Completed:
+
+- Quality framework 
+- Quality profile registry 
+- Quality orchestration 
+- q_findings generation 
+- q_assessment generation 
+- Silver integration 
+- QA001 implementation 
+
+Open design topics: 
+
+- Assessment granularity 
+- Initial findings catalogue 
+- Additional assessment indicators 
+- xplorer presentation layer
