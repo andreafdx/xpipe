@@ -253,7 +253,7 @@
         }
       },
       "quality" : {
-        "enabled": false,
+        "enabled": true,
         "profile": "emur_quality_v1"
       }
     }

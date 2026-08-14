@@ -1667,7 +1667,7 @@ promote_to_silver <- function(
         config
       )
 
-      .run_silver_quality_profile(
+      quality_out <- .run_silver_quality_profile(
         con = con,
         stream_id = stream_id,
         config = config
@@ -1687,6 +1687,11 @@ promote_to_silver <- function(
 
       cli::cli_alert_success(
         "Silver-harmonized rebuilt for stream {.val {stream_id}} using method {.val {s$canonical_method}}."
+      )
+
+      .print_quality_report(
+        assessment = quality_out$assessment,
+        findings = quality_out$findings
       )
 
       invisible(TRUE)

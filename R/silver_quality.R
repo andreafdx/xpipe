@@ -278,9 +278,154 @@
     assessment = out$assessment
   )
 
-  invisible(TRUE)
+  out
 }
 
+#' Print Silver Quality Report
+#'
+#' Prints a concise summary of generated quality findings and assessments.
+#'
+#' @param assessment Data frame.
+#' @param findings Data frame.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
+#' @noRd
+.print_quality_report <- function(
+  assessment,
+  findings
+) {
+  checkmate::assert_data_frame(assessment)
+  checkmate::assert_data_frame(findings)
+
+  cli::cli_h1("Silver Harmonization Quality Report")
+
+  # Findings
+
+  cli::cli_h2("Findings")
+
+  if (nrow(findings) == 0) {
+    cli::cli_alert_success(
+      "No quality findings detected."
+    )
+  } else {
+    severity_summary <- findings |>
+      dplyr::count(
+        severity,
+        name = "n"
+      )
+
+    for (i in seq_len(nrow(severity_summary))) {
+      sev <- severity_summary$severity[[i]]
+      n <- severity_summary$n[[i]]
+
+      if (sev == "ERROR") {
+        cli::cli_alert_danger(
+          paste0("ERROR: ", n)
+        )
+      } else if (sev == "WARNING") {
+        cli::cli_alert_warning(
+          paste0("WARNING: ", n)
+        )
+      } else {
+        cli::cli_alert_info(
+          paste0("INFO: ", n)
+        )
+      }
+    }
+
+    code_summary <- findings |>
+      dplyr::count(
+        quality_code,
+        severity,
+        name = "n"
+      ) |>
+      dplyr::arrange(
+        severity,
+        quality_code
+      )
+
+    cli::cli_bullets(
+      stats::setNames(
+        paste0(
+          code_summary$quality_code,
+          ": ",
+          code_summary$n
+        ),
+        rep("*", nrow(code_summary))
+      )
+    )
+
+    cli::cli_inform(
+      "See harmonized.q_findings for details."
+    )
+  }
+
+  # Assessments
+
+  cli::cli_h2("Assessments")
+
+  if (nrow(assessment) == 0) {
+    cli::cli_alert_info(
+      "No assessment indicators generated."
+    )
+
+    return(invisible(TRUE))
+  }
+
+  indicator_groups <- split(
+    assessment,
+    assessment$indicator_code
+  )
+
+  for (grp in indicator_groups) {
+    worst_severity <- dplyr::case_when(
+      any(grp$severity == "ERROR") ~ "ERROR",
+      any(grp$severity == "WARNING") ~ "WARNING",
+      TRUE ~ "INFO"
+    )
+
+    label <- paste0(
+      "[",
+      grp$indicator_code[[1]],
+      "] ",
+      grp$indicator_label[[1]]
+    )
+
+    if (worst_severity == "INFO") {
+      cli::cli_alert_info(label)
+    } else {
+      problem_rows <- grp[
+        grp$severity %in% c("WARNING", "ERROR"),
+        ,
+        drop = FALSE
+      ]
+
+      for (i in seq_len(nrow(problem_rows))) {
+        row <- problem_rows[i, ]
+
+        row_label <- paste0(
+          label,
+          " (",
+          row$period_value,
+          ")"
+        )
+
+        if (row$severity == "WARNING") {
+          cli::cli_alert_warning(row_label)
+        } else {
+          cli::cli_alert_danger(row_label)
+        }
+
+        cli::cli_inform(
+          paste0("  ", row$message)
+        )
+      }
+    }
+  }
+
+  invisible(TRUE)
+}
 
 ## Quality Profiles -------------------------------------------------------
 
@@ -306,14 +451,8 @@
   config
 ) {
   list(
-    findings = data.frame(
-      table_name = character(),
-      record_id = character(),
-      batch_id = character(),
-      severity = character(),
-      quality_code = character(),
-      message = character(),
-      stringsAsFactors = FALSE
+    findings = dplyr::bind_rows(
+      .emur_finding_incoherent_timeline(con, stream_id, config)
     ),
     assessment = data.frame(
       scope = character(),
@@ -411,7 +550,7 @@
   data.frame(
     table_name = "ricovero",
     record_id = record_id,
-    batch_id = bad_rows$__batch_id,
+    batch_id = bad_rows[["__batch_id"]],
     severity = "WARNING",
     quality_code = "QF001",
     message = "Facility code not found in facilities registry",
@@ -574,7 +713,7 @@
     period_type = "YEAR",
     period_value = out$period_value,
     indicator_code = "QA001",
-    indicator_label = "Distinct Internal Codes Detected",
+    indicator_label = "Distinct Internal Codes",
     indicator_type = "boolean",
     category = "ORGANIZATION",
     value_num = out$has_distinct_internal,
@@ -641,9 +780,80 @@
       "All records originate from a single source batch",
       paste0(
         out$n_batches,
-        " distinct source batches detected"
+        " distinct source batches detected. Did you export all records for the specific period from QuaniSDO?"
       )
     ),
+    stringsAsFactors = FALSE
+  )
+}
+
+
+# EMUR --------------------------------------------------------------------
+
+## Findings ---------------------------------------------------------------
+
+#' EMUR Finding: Incoherent Core Timeline
+#'
+#' Identifies records where the exit timestamp (t3) occurs before
+#' the entry timestamp (t0).
+#'
+#' @param con DuckDB connection.
+#' @param stream_id Character scalar.
+#' @param config xpipe_config.
+#'
+#' @return Data frame compatible with q_findings.
+#' @keywords internal
+#' @noRd
+.emur_finding_incoherent_timeline <- function(
+  con,
+  stream_id,
+  config
+) {
+  ps <- DBI::dbGetQuery(
+    con,
+    "
+    SELECT
+      codice_struttura_erogatore,
+      progressivo,
+      __batch_id,
+      t0,
+      t3
+    FROM harmonized.ps
+    WHERE t0 IS NOT NULL
+      AND t3 IS NOT NULL
+      AND t3 < t0
+    "
+  )
+
+  if (nrow(ps) == 0) {
+    return(
+      data.frame(
+        table_name = character(),
+        record_id = character(),
+        batch_id = character(),
+        severity = character(),
+        quality_code = character(),
+        message = character(),
+        stringsAsFactors = FALSE
+      )
+    )
+  }
+
+  record_id <- .build_quality_record_id(
+    data = ps,
+    identity_keys = .get_harmonized_identity_keys(
+      stream_id = stream_id,
+      config = config
+    )
+  )
+
+  data.frame(
+    table_name = "ps",
+    record_id = record_id,
+    batch_id = ps[["__batch_id"]],
+    severity = "ERROR",
+    quality_code = "QF101",
+    message = "Exit timestamp (t3) occurs before entry timestamp (t0)",
     stringsAsFactors = FALSE
   )
 }
