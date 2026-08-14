@@ -99,6 +99,8 @@
 
   required_cols <- c(
     "scope",
+    "period_type",
+    "period_value",
     "indicator_code",
     "indicator_label",
     "indicator_type",
@@ -297,7 +299,8 @@
       stringsAsFactors = FALSE
     ),
     assessment = dplyr::bind_rows(
-      .sdo_indicator_internal_codes_differ(con)
+      .sdo_indicator_internal_codes_differ(con),
+      .sdo_indicator_single_source_batch(con)
     )
   )
 }
@@ -319,45 +322,114 @@
 
 ## Assessment ------------------------------------------------------------
 
-#' SDO Assessment: Internal Codes Differ From External
+#' SDO Assessment: Distinct Internal Codes
 #'
 #' Detects whether at least one matched internal unit code differs from
-#' its corresponding external unit code.
+#' its corresponding external unit code for each discharge year.
 #'
 #' @param con DuckDB connection.
 #'
-#' @return One-row data frame compatible with q_assessment.
+#' @return Data frame compatible with q_assessment.
 #' @keywords internal
 #' @noRd
 .sdo_indicator_internal_codes_differ <- function(con) {
-  has_distinct_internal <- DBI::dbGetQuery(
+  out <- DBI::dbGetQuery(
     con,
     "
-    SELECT EXISTS (
-      SELECT 1
-      FROM harmonized.ricovero
-      WHERE unita_operativa_dimissione_unit_code_internal IS NOT NULL
-        AND unita_operativa_dimissione_unit_code_external IS NOT NULL
-        AND unita_operativa_dimissione_unit_code_internal <>
-            unita_operativa_dimissione_unit_code_external
-    ) AS has_indicator
+    SELECT
+      CAST(EXTRACT(YEAR FROM t_dim) AS VARCHAR) AS period_value,
+      MAX(
+        CASE
+          WHEN unita_operativa_dimissione_unit_code_internal IS NOT NULL
+           AND unita_operativa_dimissione_unit_code_external IS NOT NULL
+           AND unita_operativa_dimissione_unit_code_internal <>
+               unita_operativa_dimissione_unit_code_external
+          THEN 1
+          ELSE 0
+        END
+      ) AS has_distinct_internal
+    FROM harmonized.ricovero
+    WHERE t_dim IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1
     "
-  )$has_indicator[[1]]
+  )
 
   data.frame(
     scope = "ricovero",
+    period_type = "YEAR",
+    period_value = out$period_value,
     indicator_code = "QA001",
     indicator_label = "Distinct Internal Codes Detected",
     indicator_type = "boolean",
     category = "ORGANIZATION",
-    value_num = if (isTRUE(has_distinct_internal)) 1 else 0,
-    value_text = if (isTRUE(has_distinct_internal)) "YES" else "NO",
-    severity = if (isTRUE(has_distinct_internal)) "INFO" else "WARNING",
-    message = if (isTRUE(has_distinct_internal)) {
-      "At least one internal unit code differs from its external code"
-    } else {
-      "No internal unit codes distinct from external NSIS codes were detected. Did you set 'Internal Units' before exporting XML?"
-    },
+    value_num = out$has_distinct_internal,
+    value_text = ifelse(
+      out$has_distinct_internal == 1,
+      "YES",
+      "NO"
+    ),
+    severity = ifelse(
+      out$has_distinct_internal == 1,
+      "INFO",
+      "WARNING"
+    ),
+    message = ifelse(
+      out$has_distinct_internal == 1,
+      "At least one internal unit code differs from its external code",
+      paste(
+        "No internal unit codes distinct from external NSIS codes",
+        "were detected. Did you set 'Internal Units' in QuaniSDO",
+        "before exporting XML?"
+      )
+    ),
+    stringsAsFactors = FALSE
+  )
+}
+
+#' SDO Assessment: Single Source Batch
+#'
+#' Checks whether all records for a discharge year originate from a single
+#' source batch.
+#'
+#' @param con DuckDB connection.
+#'
+#' @return Data frame compatible with q_assessment.
+#' @keywords internal
+#' @noRd
+.sdo_indicator_single_source_batch <- function(con) {
+  out <- DBI::dbGetQuery(
+    con,
+    "
+    SELECT
+      CAST(EXTRACT(YEAR FROM t_dim) AS VARCHAR) AS period_value,
+      COUNT(DISTINCT __batch_id) AS n_batches
+    FROM harmonized.ricovero
+    WHERE t_dim IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1
+    "
+  )
+
+  data.frame(
+    scope = "ricovero",
+    period_type = "YEAR",
+    period_value = out$period_value,
+    indicator_code = "QA002",
+    indicator_label = "Single Source Batch Detected",
+    indicator_type = "boolean",
+    category = "LINEAGE",
+    value_num = ifelse(out$n_batches == 1, 1, 0),
+    value_text = ifelse(out$n_batches == 1, "YES", "NO"),
+    severity = ifelse(out$n_batches == 1, "INFO", "WARNING"),
+    message = ifelse(
+      out$n_batches == 1,
+      "All records originate from a single source batch",
+      paste0(
+        out$n_batches,
+        " distinct source batches detected"
+      )
+    ),
     stringsAsFactors = FALSE
   )
 }
