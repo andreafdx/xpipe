@@ -130,6 +130,10 @@
             }
           }
         }
+      },
+      "quality" : {
+        "enabled": true,
+        "profile": "sdo_quality_v1"
       }
     },
     "emur": {
@@ -247,6 +251,10 @@
             }
           }
         }
+      },
+      "quality" : {
+        "enabled": true,
+        "profile": "emur_quality_v1"
       }
     }
   }
