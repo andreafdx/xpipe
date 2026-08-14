@@ -25,39 +25,6 @@
 #   .silver_quality_profile_registry
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Quality Profiles ------------------------------------------------------
-
-.silver_quality_sdo_v1 <- function(
-  con,
-  stream_id,
-  config
-) {
-
-  list(
-    findings = data.frame(
-      table_name = character(),
-      record_id = character(),
-      severity = character(),
-      quality_code = character(),
-      message = character(),
-      stringsAsFactors = FALSE
-    ),
-    assessment = data.frame(
-      scope = character(),
-      indicator_code = character(),
-      indicator_label = character(),
-      indicator_type = character(),
-      category = character(),
-      value_num = numeric(),
-      value_text = character(),
-      severity = character(),
-      message = character(),
-      stringsAsFactors = FALSE
-    )
-  )
-}
-
-
 # Quality Contracts --------------------------------------------------------
 
 #' Validate quality findings output
@@ -70,13 +37,11 @@
 #' @keywords internal
 #' @noRd
 .validate_quality_findings <- function(x) {
-
   checkmate::assert_data_frame(x)
 
   required_cols <- c(
     "table_name",
     "record_id",
-    "batch_id",
     "severity",
     "quality_code",
     "message"
@@ -128,7 +93,6 @@
 #' @keywords internal
 #' @noRd
 .validate_quality_assessment <- function(x) {
-
   checkmate::assert_data_frame(x)
 
   required_cols <- c(
@@ -137,8 +101,6 @@
     "indicator_label",
     "indicator_type",
     "category",
-    "value_num",
-    "value_text",
     "severity",
     "message"
   )
@@ -179,6 +141,56 @@
   invisible(TRUE)
 }
 
+# Quality Persistence ---------------------------------------------------------------
+
+#' Write quality findings table
+#'
+#' @param con DuckDB connection.
+#' @param findings Data frame.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
+#' @noRd
+.write_quality_findings <- function(
+  con,
+  findings
+) {
+  checkmate::assert_data_frame(findings)
+
+  DBI::dbWriteTable(
+    con,
+    DBI::Id(schema = "harmonized", table = "q_findings"),
+    findings,
+    overwrite = TRUE
+  )
+
+  invisible(TRUE)
+}
+
+#' Write quality assessment table
+#'
+#' @param con DuckDB connection.
+#' @param assessment Data frame.
+#'
+#' @return Invisibly TRUE.
+#' @keywords internal
+#' @noRd
+.write_quality_assessment <- function(
+  con,
+  assessment
+) {
+  checkmate::assert_data_frame(assessment)
+
+  DBI::dbWriteTable(
+    con,
+    DBI::Id(schema = "harmonized", table = "q_assessment"),
+    assessment,
+    overwrite = TRUE
+  )
+
+  invisible(TRUE)
+}
+
 # Quality Orchestration ----------------------------------------------------
 
 #' Run Silver quality profile
@@ -198,7 +210,7 @@
   stream_id,
   config
 ) {
-
+  checkmate::assert_class(con, "DBIConnection")
   checkmate::assert_string(stream_id)
   checkmate::assert_class(config, "xpipe_config")
 
@@ -252,18 +264,14 @@
   .validate_quality_findings(out$findings)
   .validate_quality_assessment(out$assessment)
 
-  DBI::dbWriteTable(
-    con,
-    DBI::Id(schema = "harmonized", table = "q_findings"),
-    out$findings,
-    overwrite = TRUE
+  .write_quality_findings(
+    con = con,
+    findings = out$findings
   )
 
-  DBI::dbWriteTable(
-    con,
-    DBI::Id(schema = "harmonized", table = "q_assessment"),
-    out$assessment,
-    overwrite = TRUE
+  .write_quality_assessment(
+    con = con,
+    assessment = out$assessment
   )
 
   invisible(TRUE)
@@ -282,6 +290,37 @@
   sdo_quality_v1 = .silver_quality_sdo_v1
 )
 
-# Temp ----------------------------------------------------------------
-.write_quality_findings()
-.write_quality_assessment()
+# Quality Profiles ------------------------------------------------------
+
+.silver_quality_sdo_v1 <- function(
+  con,
+  stream_id,
+  config
+) {
+  list(
+    findings = data.frame(
+      table_name = character(),
+      record_id = character(),
+      batch_id = character(),
+      severity = character(),
+      quality_code = character(),
+      message = character(),
+      detected_at = as.POSIXct(character()),
+      stringsAsFactors = FALSE
+    ),
+    assessment = data.frame(
+      scope = character(),
+      indicator_code = character(),
+      indicator_label = character(),
+      indicator_type = character(),
+      category = character(),
+      value_num = numeric(),
+      value_text = character(),
+      severity = character(),
+      message = character(),
+      batch_id = character(),
+      assessed_at = as.POSIXct(character()),
+      stringsAsFactors = FALSE
+    )
+  )
+}
