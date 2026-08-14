@@ -1,231 +1,634 @@
-# Future Idea: Silver Quality Assessment Framework
+# Silver Data Quality Framework
 
-## Motivation
+## Purpose
 
-Silver harmonized datasets may contain records that are technically
-valid and loadable, but still present quality concerns that could affect
-analysis.
+Silver harmonization produces analytically usable datasets, but successful harmonization does not guarantee that the resulting data is free from quality concerns.
+
+The goal of the Silver Data Quality Framework is to:
+
+- Detect suspicious records without preventing processing.
+- Assess the overall health of a harmonized stream.
+- Provide actionable feedback before analysis begins.
+- Support future integration with xplorer.
+- Preserve harmonized data without modification or record removal.
+
+Quality assessment is **not validation**.
+
+Validation determines whether data can be processed.
+
+Quality assessment determines whether processed data looks trustworthy.
+
+---
+
+# Conceptual Model
+
+```text
+Source Data
+    ↓
+Validation
+    ↓
+Silver Harmonization
+    ↓
+Record Quality Findings
+    ↓
+Stream Quality Assessment
+```
+
+Each layer has a distinct responsibility.
+
+---
+
+# Validation
+
+Validation answers:
+
+> Can xpipe process this dataset?
+
+Examples:
+
+- Missing required columns
+- Invalid contract configuration
+- Invalid registry structure
+- Invalid data types
+- Broken relationships
+
+Validation failures stop processing.
+
+Validation is not part of the quality framework.
+
+---
+
+# Record Quality Findings
+
+Record quality findings identify suspicious records after harmonization.
+
+They do not prevent loading.
 
 Examples:
 
 - Admission date after discharge date
 - Negative length of stay
-- Unmatched unit code
-- Unmatched facility code
-- Age outside expected bounds
-- Inconsistent clinical or organizational information
+- Facility not found
+- Internal unit code not matched
+- External unit code not matched
+- Age exceeds expected limits
 
-The goal is to make potential data quality issues visible, measurable,
-and filterable without preventing data loading.
+A single record may produce multiple findings.
 
-------------------------------------------------------------------------
-
-## High-Level Concept
-
-Introduce a quality assessment step after Silver Harmonization.
-
-``` text
-Bronze
-    ↓
-Silver Harmonized
-    ↓
-Silver Quality Assessment
-```
-
-Quality checks should be modular and extensible so that new rules can be
-added over time without redesigning the framework.
-
-------------------------------------------------------------------------
+---
 
 ## Quality Findings Table
 
-Create a dedicated quality findings table for each stream.
+One findings table exists for the entire harmonized database.
 
-Example:
-
-``` text
-silver_sdo_quality
+```text
+harmonized.quality
 ```
 
-Suggested columns:
+### Suggested Structure
 
-``` text
-record_id (unique, based on jsons rules)
+```text
+table_name
+record_id
 batch_id
-quality_code
 severity
+quality_code
 message
 detected_at
 ```
 
-Possible future additions:
+### Fields
 
-``` text
-stream_id
-rule_id
-```
+#### table_name
 
-Example rows:
-
-``` text
-12345 | B20260812 | Q001 | ERROR   | Admission date after discharge date
-12345 | B20260812 | Q010 | WARNING | Unit code not found in registry
-67890 | B20260812 | Q020 | INFO    | Missing discharge unit
-```
-
-A record may have multiple findings.
-
-------------------------------------------------------------------------
-
-## Quality Flags on Harmonized Tables
-
-Store lightweight summary flags directly on harmonized tables to support
-fast filtering.
-
-Suggested columns:
-
-``` text
-has_quality_findings
-has_error
-has_warning
-has_info
-```
+Source harmonized table.
 
 Examples:
 
-``` text
-FALSE FALSE FALSE FALSE
-TRUE  FALSE TRUE  FALSE
-TRUE  TRUE  TRUE  FALSE
+```text
+ricovero
+anagrafica
+ps
+procedure
 ```
 
-The detailed findings remain in the quality table.
+#### record_id
 
-------------------------------------------------------------------------
+Silver record identifier generated from the harmonization method.
 
-## Severity Levels
+This is the authoritative record reference.
 
-### INFO
+Quality findings are linked to records through the Silver identity model, not through batch identifiers.
 
-Data is valid and generally usable.
+#### batch_id
+
+Import batch that generated the finding.
+
+Useful for audit and traceability.
+
+Not used as the primary record identifier.
+
+#### severity
+
+```text
+ERROR
+WARNING
+INFO
+```
+
+#### quality_code
+
+Stable quality rule identifier.
 
 Examples:
 
-- Rare but plausible values
-- Missing optional information
+```text
+NEGATIVE_LOS
+ADMISSION_AFTER_DISCHARGE
+UNMATCHED_INTERNAL_UNIT
+```
 
-### WARNING
+#### message
 
-Data is usable but suspicious.
+Human-readable description.
 
-Examples:
+#### detected_at
 
-- Unit code not found in registry
-- Extremely long length of stay
-- Unusual value combinations
+Timestamp of assessment execution.
+
+---
+
+## Severity Definitions
 
 ### ERROR
 
-Data is likely incorrect.
+Record is likely incorrect.
 
 Examples:
 
 - Admission after discharge
 - Negative length of stay
-- Impossible date relationships
-
-------------------------------------------------------------------------
-
-## Quality Registry
-
-Maintain a registry of quality codes.
-
-Example:
-
-``` text
-quality_code | severity | description
-```
-
-``` text
-Q001 | ERROR   | Admission date after discharge
-Q002 | ERROR   | Negative length of stay
-Q010 | WARNING | Unit code not found in registry
-Q020 | INFO    | Missing discharge unit
-```
-
-Quality codes are the authoritative identifier.
-
-Messages exist primarily for user readability.
-
-------------------------------------------------------------------------
-
-## Design Principles
-
-- Quality findings do not replace validation.
-- Validation determines whether data can be processed.
-- Quality findings identify suspicious but processable records.
-- Multiple findings may exist for the same record.
-- Rules should be modular and independently maintainable.
-- New quality checks should be easy to add over time.
-- Findings should remain linked to the originating record and batch.
-
-------------------------------------------------------------------------
-
-## Possible Future xplorer Integration
-
-Potential filtering options:
-
-``` r
-quality = "all"
-quality = "clean"
-quality = "warning"
-quality = "error"
-quality = "issues"
-```
-
-Possible user warning on load:
-
-``` text
-3,000 records contain quality findings:
-
-150 ERROR
-2,400 WARNING
-450 INFO
-
-Use quality filters to inspect affected records.
-```
-
-Final behaviour and defaults to be decided later.
-
-------------------------------------------------------------------------
-
-## Initial Candidate Rules
-
-### ERROR
-
-- Admission date after discharge date
-- Negative length of stay
-- Impossible date sequences
-- no ricovero (or riabilitazione, this has to be done first) table for
-  anagrafica
+- Impossible date sequence
 
 ### WARNING
 
+Record is usable but suspicious.
+
+Examples:
+
 - Internal unit not matched
-- External unit not matched
 - Facility not matched
-- Extremely long length of stay
-- Age exceeds expected threshold
+- Extremely long stay
 
 ### INFO
 
-- Missing optional fields
+Record is valid but noteworthy.
+
+Examples:
+
+- Optional information missing
 - Rare but plausible values
 
-------------------------------------------------------------------------
+---
 
-## Guiding Principle
+# Stream Quality Assessment
 
-The framework should support data quality monitoring, auditing, and
-investigation without altering the original harmonized data or silently
-discarding records.
+Record findings evaluate individual records.
+
+Stream assessments evaluate the dataset as a whole.
+
+The assessment layer answers:
+
+> Does the harmonized stream look healthy?
+
+Examples:
+
+### Organizational Coverage
+
+```text
+Organization match rate = 99.3%
+```
+
+Expected.
+
+---
+
+```text
+Organization match rate = 72.5%
+```
+
+Suspicious.
+
+Possible registry, mapping, or extraction problem.
+
+### Internal Unit Code Presence
+
+Expected:
+
+```text
+Internal codes present
+```
+
+Observed:
+
+```text
+No internal codes detected
+```
+
+Possible extraction error.
+
+No individual record is necessarily wrong.
+
+The stream itself appears abnormal.
+
+### Facility Coverage
+
+```text
+Facility match rate = 98%
+```
+
+Good.
+
+---
+
+```text
+Facility match rate = 55%
+```
+
+Requires investigation.
+
+### Completeness Indicators
+
+Examples:
+
+```text
+Birth date completeness
+Resident ASL completeness
+Diagnosis completeness
+```
+
+---
+
+# Assessment Table
+
+One assessment table exists for the entire harmonized database.
+
+```text
+harmonized.assessment
+```
+
+### Suggested Structure
+
+```text
+scope
+indicator_code
+category
+display_label
+display_type
+value_num
+value_text
+severity
+message
+batch_id
+assessed_at
+```
+
+---
+
+## Scope
+
+Assessment target.
+
+Examples:
+
+```text
+stream
+ricovero
+anagrafica
+ps
+```
+
+This allows a single table to contain:
+
+- Stream-wide indicators
+- Table-specific indicators
+
+---
+
+## Indicator Code
+
+Stable identifier.
+
+Examples:
+
+```text
+ORG_MATCH_RATE
+FACILITY_MATCH_RATE
+INTERNAL_CODES_PRESENT
+MISSING_BIRTHDATE_RATE
+```
+
+---
+
+## Category
+
+Logical grouping.
+
+Examples:
+
+```text
+ORGANIZATION
+COMPLETENESS
+CONSISTENCY
+TIMELINESS
+DEMOGRAPHICS
+CLINICAL
+```
+
+---
+
+## Display Label
+
+Human-readable name.
+
+Examples:
+
+```text
+Organization Match Rate
+Internal Unit Codes Present
+Missing Birth Date Rate
+```
+
+---
+
+## Display Type
+
+Defines the semantic type of the indicator.
+
+Examples:
+
+```text
+percentage
+count
+boolean
+rate
+text
+```
+
+This allows xplorer to render indicators generically without stream-specific code.
+
+---
+
+## Value Fields
+
+### value_num
+
+Numeric value.
+
+Examples:
+
+```text
+98.4
+1250
+0
+1
+```
+
+### value_text
+
+Optional textual representation.
+
+Examples:
+
+```text
+YES
+NO
+LOW
+HIGH
+```
+
+---
+
+## Severity
+
+Assessment outcome.
+
+```text
+ERROR
+WARNING
+INFO
+```
+
+Examples:
+
+```text
+INFO
+Organization match rate = 98.4%
+```
+
+```text
+WARNING
+No internal unit codes detected
+```
+
+---
+
+## Message
+
+Human-readable explanation.
+
+Examples:
+
+```text
+98.4% of records matched an organization
+```
+
+```text
+No internal unit codes detected in stream
+```
+
+---
+
+# Why a Single Quality Table?
+
+Instead of creating:
+
+```text
+ricovero_quality
+anagrafica_quality
+ps_quality
+...
+```
+
+all findings are consolidated into:
+
+```text
+harmonized.quality
+```
+
+Advantages:
+
+- Simpler architecture
+- Easier querying
+- Easier aggregation
+- Easier xplorer integration
+- Consistent reporting across all streams
+
+Example:
+
+```sql
+SELECT
+  severity,
+  COUNT(*)
+FROM harmonized.quality
+GROUP BY severity;
+```
+
+---
+
+# Why a Single Assessment Table?
+
+Instead of creating:
+
+```text
+ricovero_assessment
+anagrafica_assessment
+ps_assessment
+...
+```
+
+all indicators are consolidated into:
+
+```text
+harmonized.assessment
+```
+
+Advantages:
+
+- Stream-wide and table-specific indicators can coexist.
+- No proliferation of assessment tables.
+- Generic rendering becomes possible.
+- Simpler maintenance.
+
+---
+
+# Relationship with Silver Identity
+
+Quality findings are linked to records through the Silver identity model.
+
+Every stream already defines authoritative identity keys in its contract.
+
+Examples:
+
+### SDO
+
+```json
+"identity_keys": [
+  "codiceIstitutoDiCura",
+  "progressivoSDO"
+]
+```
+
+### EMUR
+
+```json
+"identity_keys": [
+  "Struttura_CodStrutturaErog",
+  "Struttura_Progressivo"
+]
+```
+
+Quality findings reference the resulting Silver record identifier generated by the harmonization method.
+
+The quality subsystem does not need to know the underlying source identity keys.
+
+---
+
+# Relationship with Batch IDs
+
+Batch identifiers are provenance metadata.
+
+They indicate:
+
+- Which import produced the finding
+- When the finding was generated
+- Which batch was assessed
+
+Batch identifiers are useful for audit and traceability.
+
+They are **not** the primary identifier of a record.
+
+Record identity remains governed by the Silver identity model.
+
+---
+
+# xplorer Integration
+
+xplorer should consume quality information, not compute it.
+
+Example summary:
+
+```text
+Quality Findings
+
+ERROR   : 150
+WARNING : 2,400
+INFO    : 450
+```
+
+Example assessment output:
+
+```text
+Organization
+
+✓ Organization Match Rate ...... 98.4%
+✓ Facility Match Rate .......... 99.1%
+⚠ Internal Codes Present ....... NO
+
+Completeness
+
+✓ Birth Date Completeness ...... 99.8%
+✓ Resident ASL Completeness .... 100.0%
+```
+
+Because assessments include semantic display metadata (`display_label` and `display_type`), xplorer can render indicators generically without stream-specific presentation code.
+
+---
+
+# Design Principles
+
+- Quality assessment does not replace validation.
+- Harmonized data is never modified by quality checks.
+- Records are never discarded because of quality findings.
+- Findings operate at the record level.
+- Assessments operate at the stream level.
+- Quality artifacts belong to the harmonized schema.
+- The framework must be extensible.
+- xpipe generates quality information.
+- xplorer consumes and displays quality information.
+- The Silver identity model remains the authoritative record reference mechanism.
+
+---
+
+# Target Schema Layout
+
+```text
+current
+├─ ricovero
+├─ anagrafica
+├─ ...
+│
+harmonized
+├─ ricovero
+├─ anagrafica
+├─ ...
+├─ quality
+└─ assessment
+```
+
+The Silver Data Quality Framework consists of:
+
+- One harmonized quality findings table (`harmonized.quality`)
+- One harmonized assessment table (`harmonized.assessment`)
+
+This provides a consistent, stream-oriented quality subsystem while allowing stream-specific quality rules and indicators to evolve independently over time.
