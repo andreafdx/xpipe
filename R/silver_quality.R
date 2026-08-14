@@ -300,6 +300,38 @@
   )
 }
 
+.silver_quality_emur_v1 <- function(
+  con,
+  stream_id,
+  config
+) {
+  list(
+    findings = data.frame(
+      table_name = character(),
+      record_id = character(),
+      batch_id = character(),
+      severity = character(),
+      quality_code = character(),
+      message = character(),
+      stringsAsFactors = FALSE
+    ),
+    assessment = data.frame(
+      scope = character(),
+      period_type = character(),
+      period_value = character(),
+      indicator_code = character(),
+      indicator_label = character(),
+      indicator_type = character(),
+      category = character(),
+      value_num = numeric(),
+      value_text = character(),
+      severity = character(),
+      message = character(),
+      stringsAsFactors = FALSE
+    )
+  )
+}
+
 ## Quality profile registry -----------------------------------------------
 
 #' Silver quality profile registry
@@ -310,7 +342,8 @@
 #' @keywords internal
 #' @noRd
 .silver_quality_profile_registry <- list(
-  sdo_quality_v1 = .silver_quality_sdo_v1
+  sdo_quality_v1 = .silver_quality_sdo_v1,
+  emur_quality_v1 = .silver_quality_emur_v1
 )
 
 # SDO --------------------------------------------------------------------
