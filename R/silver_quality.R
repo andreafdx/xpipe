@@ -277,19 +277,6 @@
   invisible(TRUE)
 }
 
-# Quality profile registry ------------------------------------------------------
-
-#' Silver quality profile registry
-#'
-#' Internal registry mapping quality profile identifiers
-#' (as declared in silver.json) to code-driven quality functions.
-#'
-#' @keywords internal
-#' @noRd
-.silver_quality_profile_registry <- list(
-  sdo_quality_v1 = .silver_quality_sdo_v1
-)
-
 # Quality Profiles ------------------------------------------------------
 
 .silver_quality_sdo_v1 <- function(
@@ -324,3 +311,16 @@
     )
   )
 }
+
+# Quality profile registry ------------------------------------------------------
+
+#' Silver quality profile registry
+#'
+#' Internal registry mapping quality profile identifiers
+#' (as declared in silver.json) to code-driven quality functions.
+#'
+#' @keywords internal
+#' @noRd
+.silver_quality_profile_registry <- list(
+  sdo_quality_v1 = .silver_quality_sdo_v1
+)

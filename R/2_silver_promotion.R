@@ -1667,6 +1667,12 @@ promote_to_silver <- function(
         config
       )
 
+      .run_silver_quality_profile(
+        con = con,
+        stream_id = stream_id,
+        config = config
+      )
+
       .write_silver_log(
         con = con,
         phase = "harmonized",

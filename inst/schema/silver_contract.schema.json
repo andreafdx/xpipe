@@ -92,6 +92,32 @@
                 }
               }
             ]
+          },
+          "quality": {
+            "type": "object",
+            "required": ["enabled"],
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "profile": {
+                "type": "string",
+                "description": "Code-driven quality profile identifier"
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "enabled": { "const": true }
+                  }
+                },
+                "then": {
+                  "required": ["profile"]
+                }
+              }
+            ]
           }
         }
       }
